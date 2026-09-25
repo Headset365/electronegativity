@@ -7,7 +7,7 @@ import { sourceExtensions } from '../parser/types.js';
 import { renderHtmlReport } from './report_html.js';
 
 const VER = pkg.version;
-const MANIFEST_FILES = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'electron-builder.json'];
+const MANIFEST_FILES = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'electron-builder.json', 'electron-builder.yml', 'electron-builder.yaml'];
 
 export function is_directory(input){
   return fs.statSync(input).isDirectory();

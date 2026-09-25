@@ -22,7 +22,7 @@ export default class AffinityHTMLCheck {
       if (wp) {
         let features = parseWebPreferencesFeaturesString(wp);
         if (features['affinity'] !== undefined)
-          loc.push({ line: content.substr(0, elem.startIndex).split('\n').length, column: 0, id: self.id, description: self.description, shortenedURL: self.shortenedURL, severity: severity.MEDIUM, confidence: confidence.TENTATIVE, properties: { "AffinityString": features['affinity']}, manualReview: true });
+          loc.push({ line: content.substr(0, elem.startIndex).split('\n').length, column: 0, id: self.id, description: self.description, shortenedURL: self.shortenedURL, severity: severity.MEDIUM, confidence: confidence.FIRM, properties: { "AffinityString": features['affinity']}, manualReview: true });
       }
 
     });

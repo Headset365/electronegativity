@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { major, valid, compare } from 'semver';
+import { isOffline, OfflineError } from './network.js';
 
 const RELEASES_URL = 'https://releases.electronjs.org/releases.json';
 const CACHE_FILE = path.join(os.tmpdir(), 'electronegativity-electron-releases.json');
@@ -31,6 +32,7 @@ export function getStableReleases() {
       if (Date.now() - stat.mtimeMs < CACHE_TTL) return sortDesc(cached);
     } catch { /* no cache yet */ }
     try {
+      if (isOffline()) throw new OfflineError();
       return sortDesc(await download());
     } catch (e) {
       if (cached) return sortDesc(cached);

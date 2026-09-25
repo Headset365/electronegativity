@@ -92,11 +92,16 @@ export class Finder {
 
     switch (type) {
       case sourceTypes.JAVASCRIPT:
+      {
+        // nodes enclosing the current one, outermost first, so checks can reason about the surrounding code
+        const ancestors = [];
+        const context = { ancestors, file };
         data.astParser.traverseTree(data, {
           enter: (node) => {
-            rootData.Scope.updateFunctionScope(rootData.astParser.getNode(node), "enter");
+            const astNode = rootData.astParser.getNode(node);
+            rootData.Scope.updateFunctionScope(astNode, "enter");
             for (const check of checks) {
-              const matches = check.match(rootData.astParser.getNode(node), rootData.astParser, rootData.Scope, defaults, electronVersion);
+              const matches = check.match(astNode, rootData.astParser, rootData.Scope, defaults, electronVersion, context);
               if (matches) {
                 for(const m of matches) {
                   const firstLineSample = getSample(fileLines, 0);
@@ -107,13 +112,16 @@ export class Finder {
                 }
               }
             }
+            ancestors.push(astNode);
           },
           leave: (node) => {
+            ancestors.pop();
             rootData.Scope.updateFunctionScope(rootData.astParser.getNode(node), "leave");
           }
         });
 
         break;
+      }
       case sourceTypes.HTML:
         for (const check of checks) {
           const matches = check.match(data, content, defaults, electronVersion);

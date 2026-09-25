@@ -1,0 +1,19 @@
+{
+  "name": "hardened-app",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/main/index.mjs",
+  "devDependencies": { "electron": "^38.2.0", "electron-builder": "^26.0.0" },
+  "build": {
+    "appId": "com.example.hardened",
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false
+    }
+  }
+}

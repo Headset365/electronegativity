@@ -14,7 +14,9 @@ export default class PermissionRequestHandlerGlobalCheck {
     if (issues.length === 0) {
       return [{ file: "N/A", location: {line: 0, column: 0}, id: this.id, description: this.description.NONE_FOUND, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false }];
     } else {
-      issues.forEach(e => e.visibility.globalCheckDisabled = true);
+      // a handler exists: only keep what the handler analysis found worth reporting
+      issues.filter(e => !(e.properties && e.properties.assessed) || e.severity.value === severity.INFORMATIONAL.value)
+        .forEach(e => e.visibility.globalCheckDisabled = true);
       return issues;
     }
   }

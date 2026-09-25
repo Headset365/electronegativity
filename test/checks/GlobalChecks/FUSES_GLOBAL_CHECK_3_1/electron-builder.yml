@@ -1,0 +1,4 @@
+appId: com.example.app
+productName: Example
+directories:
+  output: dist

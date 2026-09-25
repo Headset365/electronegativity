@@ -14,7 +14,8 @@ export default class DangerousFunctionsJSCheck {
     let shouldReport = false;
 
     const electronMethods = [
-      'executeJavascript',
+      'executeJavaScript',
+      'executeJavaScriptInIsolatedWorld',
       'insertCSS'];
 
     const evalLikemethods = [

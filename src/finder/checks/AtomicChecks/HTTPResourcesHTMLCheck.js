@@ -11,15 +11,18 @@ export default class HTTPResourcesHTMLCheck {
 
   match(cheerioObj, content) {
     const loc = [];
-    const webviews = cheerioObj('webview');
     const self = this;
-    webviews.each(function (i, elem) {
-      let src = cheerioObj(this).attr('src');
-      if(src && (src.trim().toUpperCase().startsWith("HTTP://"))){
-        loc.push({ line: content.substr(0, elem.startIndex).split('\n').length, column: 0, id: self.id, description: self.description, shortenedURL: self.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false });
-      }
-
-    });
+    // elements loading active content (scripts, styles, frames, plugins) and where they take the URL from
+    const sources = [['webview', 'src'], ['script', 'src'], ['iframe', 'src'], ['frame', 'src'], ['embed', 'src'], ['object', 'data'], ['link', 'href']];
+    for (const [tag, attribute] of sources) {
+      cheerioObj(tag).each(function (i, elem) {
+        const url = cheerioObj(this).attr(attribute);
+        if (tag === 'link' && !/(^|\s)(stylesheet|preload|modulepreload|import|prefetch)(\s|$)/i.test(cheerioObj(this).attr('rel') || '')) return;
+        if (url && url.trim().toUpperCase().startsWith("HTTP://")) {
+          loc.push({ line: content.substr(0, elem.startIndex).split('\n').length, column: 0, id: self.id, description: `${self.description} (<${tag}> ${url.trim()})`, shortenedURL: self.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false });
+        }
+      });
+    }
     return loc;
   }
 }

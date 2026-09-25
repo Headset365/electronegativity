@@ -1,6 +1,6 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { fuseName } from '../fuses.js';
-import { fusesFindings } from './FusesJSCheck.js';
+import { fusesFindings, packagerMarker } from './FusesJSCheck.js';
 
 // electron-builder `electronFuses`, in package.json ("build" key) or electron-builder.json
 export default class FusesJSONCheck {
@@ -15,7 +15,11 @@ export default class FusesJSONCheck {
     const json = content.json;
     if (!json || typeof json !== 'object') return null;
     const fuses = (json.build && json.build.electronFuses) || json.electronFuses;
-    if (!fuses || typeof fuses !== 'object') return null;
+    if (!fuses || typeof fuses !== 'object') {
+      // electron-builder ("build" or a standalone config with appId) or Electron Forge ("config.forge") without fuses
+      const packager = json.build ? 'electron-builder' : (json.config && json.config.forge ? 'Electron Forge' : (json.appId ? 'electron-builder' : undefined));
+      return packager ? [packagerMarker(this, packager)] : null;
+    }
 
     const lines = content.text.split('\n');
     const lineOf = (needle) => {

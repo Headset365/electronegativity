@@ -10,6 +10,9 @@ export default class SandboxJSCheck {
   }
 
   match(astNode, astHelper, scope, defaults){
+    // app.enableSandbox() sandboxes every renderer; SandboxGlobalCheck then drops the per-window findings
+    if (astNode.type === 'CallExpression' && astNode.callee.property && astNode.callee.property.name === 'enableSandbox')
+      return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: __("SANDBOX_JS_CHECK_ENABLED_GLOBALLY"), shortenedURL: this.shortenedURL, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, manualReview: false, properties: { sandboxedGlobally: true } }];
     if (astNode.type !== 'NewExpression') return null;
     if (astNode.callee.name !== 'BrowserWindow' && astNode.callee.name !== 'BrowserView') return null;
 

@@ -4,9 +4,9 @@ import { memberName, resolveIdentifier, findProperty, literalValue, finding } fr
 
 // Privileges granted to custom schemes with protocol.registerSchemesAsPrivileged()
 const RISKY_PRIVILEGES = {
-  bypassCSP: { severity: severity.HIGH, confidence: confidence.FIRM, reason: 'content served over this scheme ignores the Content Security Policy' },
-  corsEnabled: { severity: severity.LOW, confidence: confidence.TENTATIVE, reason: 'the scheme can be used for cross-origin requests' },
-  allowServiceWorkers: { severity: severity.LOW, confidence: confidence.TENTATIVE, reason: 'pages on this scheme can register service workers' },
+  bypassCSP: { severity: severity.HIGH, confidence: confidence.CERTAIN, reason: 'content served over this scheme ignores the Content Security Policy' },
+  corsEnabled: { severity: severity.LOW, confidence: confidence.CERTAIN, reason: 'the scheme can be used for cross-origin requests' },
+  allowServiceWorkers: { severity: severity.LOW, confidence: confidence.CERTAIN, reason: 'pages on this scheme can register service workers' },
 };
 
 export default class ProtocolPrivilegesJSCheck {

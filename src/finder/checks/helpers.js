@@ -66,6 +66,8 @@ export function literalValue(node) {
   if (node.type === 'TemplateLiteral' && node.expressions.length === 0) return node.quasis[0].value.cooked;
   if (node.type === 'UnaryExpression' && node.operator === '!' && typeof literalValue(node.argument) === 'number')
     return !literalValue(node.argument);
+  if (node.type === 'UnaryExpression' && (node.operator === '-' || node.operator === '+') && typeof literalValue(node.argument) === 'number')
+    return node.operator === '-' ? -literalValue(node.argument) : literalValue(node.argument);
   if (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'TSNonNullExpression')
     return literalValue(node.expression);
   return undefined;

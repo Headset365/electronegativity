@@ -18,8 +18,10 @@ export default class LimitNavigationGlobalCheck {
     const willNavigateNavigations = issues.filter(e => e.properties.event === 'will-navigate' || e.properties.event === 'will-frame-navigate');
     // setWindowOpenHandler replaced the new-window event, removed in Electron 22
     const newWindowLimits = issues.filter(e => e.properties.event === 'new-window' || e.properties.event === 'setWindowOpenHandler');
-    const removedEvents = issues.filter(e => e.properties.event === 'new-window-removed');
-    const reviewable = issues.filter(issue => Array.isArray(issue.visibility.excludesGlobal) && !issue.visibility.excludesGlobal.includes(this.id));
+    // handlers that are there but block nothing (or events that no longer fire) are reported as they are
+    const removedEvents = issues.filter(e => e.properties.event === 'new-window-removed' || /-noop$/.test(e.properties.event));
+    // handlers that block everything are fine and not worth listing
+    const reviewable = issues.filter(issue => Array.isArray(issue.visibility.excludesGlobal) && !issue.visibility.excludesGlobal.includes(this.id) && issue.severity.value > severity.INFORMATIONAL.value);
     const missing = (description) => ({ file: "N/A", location: {line: 0, column: 0}, title: this.title, id: this.id, description, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false });
 
     if (willNavigateNavigations.length === 0 && newWindowLimits.length === 0) { // no navigation limits, yikes!
@@ -32,7 +34,7 @@ export default class LimitNavigationGlobalCheck {
     if (newWindowLimits.length === 0) result.push(missing(this.description.NEW_WINDOW_MISSING));
 
     // when both are there, the handlers are still worth a manual review unless the global check is explicitly disabled
-    if (result.length === removedEvents.length) return [...result, ...reviewable.filter(i => i.properties.event !== 'new-window-removed')];
+    if (result.length === removedEvents.length) return [...result, ...reviewable.filter(i => !removedEvents.includes(i))];
     return result;
   }
 }

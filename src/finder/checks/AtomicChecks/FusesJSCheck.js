@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { objectProperties, literalValue, finding } from '../helpers.js';
@@ -20,7 +21,9 @@ export default class FusesJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/fuses";
   }
 
-  match(astNode) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = {}) {
+    if (astNode.type === 'Program' && /^(forge\.config|electron-builder\.config)\.[cm]?[jt]s$/.test(path.basename(context.file || '')))
+      return [packagerMarker(this, path.basename(context.file))];
     if (astNode.type !== 'ObjectExpression') return null;
 
     const props = objectProperties(astNode);
@@ -44,6 +47,12 @@ export default class FusesJSCheck {
 
     return fusesFindings(this, config, nodes, astNode, dynamic);
   }
+}
+
+// Tells FusesGlobalCheck that the packaging configuration was analyzed (so missing fuses are a firm finding)
+export function packagerMarker(check, packager) {
+  return { line: 1, column: 0, id: check.id, description: `${__("FUSES_PACKAGER_CONFIG")}: ${packager}`, shortenedURL: check.shortenedURL,
+    severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, manualReview: false, properties: { packagerConfig: packager } };
 }
 
 export function fusesFindings(check, config, nodes, objectNode, dynamic = false) {

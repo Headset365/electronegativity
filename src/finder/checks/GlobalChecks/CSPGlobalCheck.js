@@ -36,6 +36,9 @@ export default class CSPGlobalCheck {
             continue;
           }
 
+          // 'self' is only risky on websites hosting JSONP or user uploads, in an app it's the packaged code
+          findings = findings.filter(f => !(f.value === "'self'" && f.severity === csp.severities.MEDIUM_MAYBE));
+          const details = findings.filter(f => f.severity <= csp.severities.MEDIUM_MAYBE).map(f => `${f.directive}: ${f.description}`).slice(0, 3).join(' | ');
           for (var finding of findings)
             if (finding.severity === csp.severities.HIGH || finding.severity === csp.severities.MEDIUM)
               confidence = 2;
@@ -43,9 +46,9 @@ export default class CSPGlobalCheck {
               if (confidence < 2) confidence = 1;
 
           if (confidence === 2) 
-            returnableIssues.push({ file: cspIssue.file, location: cspIssue.location, id: this.id, description: this.description.WEAK_CSP, shortenedURL: this.shortenedURL, severity: attributes.severity.LOW, confidence: attributes.confidence.CERTAIN, sample: cspIssue.properties.CSPstring, manualReview: false });
+            returnableIssues.push({ file: cspIssue.file, location: cspIssue.location, id: this.id, description: details ? `${this.description.WEAK_CSP} (${details})` : this.description.WEAK_CSP, shortenedURL: this.shortenedURL, severity: attributes.severity.LOW, confidence: attributes.confidence.CERTAIN, sample: cspIssue.properties.CSPstring, manualReview: false });
           if (confidence === 1)
-            returnableIssues.push({ file: cspIssue.file, location: cspIssue.location, id: this.id, description: this.description.MAYBE_WEAK_CSP, shortenedURL: this.shortenedURL, severity: attributes.severity.LOW, confidence: attributes.confidence.FIRM, sample: cspIssue.properties.CSPstring, manualReview: true });
+            returnableIssues.push({ file: cspIssue.file, location: cspIssue.location, id: this.id, description: details ? `${this.description.MAYBE_WEAK_CSP} (${details})` : this.description.MAYBE_WEAK_CSP, shortenedURL: this.shortenedURL, severity: attributes.severity.LOW, confidence: attributes.confidence.FIRM, sample: cspIssue.properties.CSPstring, manualReview: true });
 
         }
       }

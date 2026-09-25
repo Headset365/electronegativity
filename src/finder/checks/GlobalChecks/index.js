@@ -10,6 +10,8 @@ import CertificatePinningGlobalCheck from './CertificatePinningGlobalCheck.js';
 import SecureKeyboardEntryGlobalCheck from './SecureKeyboardEntryGlobalCheck.js';
 import DependencyVulnerabilitiesGlobalCheck from './DependencyVulnerabilitiesGlobalCheck.js';
 import UnsupportedVersionGlobalCheck from './UnsupportedVersionGlobalCheck.js';
+import SandboxGlobalCheck from './SandboxGlobalCheck.js';
+import AuxclickGlobalCheck from './AuxclickGlobalCheck.js';
 
 const GLOBAL_CHECKS = [
   AffinityGlobalCheck,
@@ -23,7 +25,9 @@ const GLOBAL_CHECKS = [
   CertificatePinningGlobalCheck,
   SecureKeyboardEntryGlobalCheck,
   DependencyVulnerabilitiesGlobalCheck,
-  UnsupportedVersionGlobalCheck
+  UnsupportedVersionGlobalCheck,
+  SandboxGlobalCheck,
+  AuxclickGlobalCheck
 ];
 
 export { GLOBAL_CHECKS };

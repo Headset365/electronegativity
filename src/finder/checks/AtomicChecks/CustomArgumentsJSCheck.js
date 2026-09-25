@@ -6,7 +6,7 @@ export default class CustomArgumentsJSCheck {
     this.id = "CUSTOM_ARGUMENTS_JS_CHECK";
     this.description = __("CUSTOM_ARGUMENTS_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/Jeu1h";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/api/command-line-switches";
     this.dangerousArguments = [
       "ignore-certificate-errors",
       "ignore-certificate-errors-spki-list",
@@ -40,8 +40,13 @@ export default class CustomArgumentsJSCheck {
       "net-log-capture-mode",
       "no-sandbox",
       "reduce-security-for-testing",
-      "unsafely-treat-insecure-origin-as-secure"
+      "unsafely-treat-insecure-origin-as-secure",
+      "disable-site-isolation-trials",
+      "disable-renderer-backgrounding-for-testing"
     ];
+    // switches that directly disable a security boundary
+    this.highRisk = ["ignore-certificate-errors", "disable-web-security", "no-sandbox", "remote-debugging-port", "remote-debugging-address",
+      "inspect", "inspect-brk", "allow-running-insecure-content", "unsafely-treat-insecure-origin-as-secure", "disable-site-isolation-trials", "reduce-security-for-testing"];
   }
 
   match(astNode, astHelper) {
@@ -50,12 +55,16 @@ export default class CustomArgumentsJSCheck {
     if (astNode.type !== 'CallExpression') return null;
     if ((astNode.callee.name && methods.includes(astNode.callee.name)) || (astNode.callee.property && methods.includes(astNode.callee.property.name))) {
       if (astNode.arguments && astNode.arguments.length > 0 && astNode.arguments[0].type === astHelper.StringLiteral && astNode.arguments[0].value) {
-        var res = this.dangerousArguments.some(function(arg) {
-          return astNode.arguments[0].value.includes(arg);
-        });
+        const value = astNode.arguments[0].value.replace(/^-+/, '');
+        const switchName = value.split('=')[0];
+        const matched = this.dangerousArguments.find(arg => switchName === arg) || this.dangerousArguments.find(arg => value.includes(arg));
 
-        if (res)
-          return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: false }];
+        if (matched) {
+          // exact switch names are certain, substring matches (e.g. inside a larger argument) only firm
+          const exact = switchName === matched;
+          return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: `${this.description}: --${matched}`, shortenedURL: this.shortenedURL,
+            severity: this.highRisk.includes(matched) ? severity.HIGH : severity.MEDIUM, confidence: exact ? confidence.CERTAIN : confidence.FIRM, manualReview: false, properties: { switch: matched } }];
+        }
       }
     }
   }

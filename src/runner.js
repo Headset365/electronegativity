@@ -11,7 +11,18 @@ import { GlobalChecks, severity, confidence } from './finder/index.js';
 import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util/index.js';
 
 export default async function run(options, forCli = false) {
+  // --offline only applies to this scan
+  const previousOffline = process.env.ELECTRONEGATIVITY_OFFLINE;
+  if (options.offline) process.env.ELECTRONEGATIVITY_OFFLINE = '1';
+  try {
+    return await scan(options, forCli);
+  } finally {
+    if (previousOffline === undefined) delete process.env.ELECTRONEGATIVITY_OFFLINE;
+    else process.env.ELECTRONEGATIVITY_OFFLINE = previousOffline;
+  }
+}
 
+async function scan(options, forCli) {
   await _i18n(); // wait for the _i18n function to complete
 
   if (!input_exists(options.input)) {

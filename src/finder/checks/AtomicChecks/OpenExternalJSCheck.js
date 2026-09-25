@@ -1,19 +1,57 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
+import { memberName, finding } from '../helpers.js';
+import { constantValue, constantPrefix, enclosingFunction, untrustedSource, dependsOnParams, hasUrlValidation, isConditional } from '../analysis.js';
 
+// Schemes that are fine to hand to the OS: web pages and mail
+const SAFE_URL = /^(https:\/\/[^/?#]+[/?#]|https:\/\/[^/?#]+$|mailto:)/i;
+
+// Electron security checklist #15: do not use shell.openExternal with untrusted content
 export default class OpenExternalJSCheck {
   constructor() {
     this.id = "OPEN_EXTERNAL_JS_CHECK";
     this.description = __("OPEN_EXTERNAL_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/JeuMC";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#15-do-not-use-shellopenexternal-with-untrusted-content";
   }
 
-  match(astNode, astHelper){
-    if (astNode.type !== 'CallExpression') return null;
-    if (!(astNode.callee.property && astNode.callee.property.name === "openExternal")) return null;
-    if (astNode.arguments[0].type === astHelper.StringLiteral) return null; // constant, not user supplied
-
-    return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true }];
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
+    if (astNode.type !== 'CallExpression' && astNode.type !== 'OptionalCallExpression') return null;
+    if (memberName(astNode.callee) !== 'openExternal' || astNode.arguments.length === 0) return null;
+    const result = assessUrlSink(this, astNode, astNode.arguments[0], scope, context.ancestors, SAFE_URL);
+    return result ? [result] : null;
   }
+}
+
+/**
+ * Rates a call that hands a URL/path to the operating system, based on where the value comes from.
+ */
+export function assessUrlSink(check, call, arg, scope, ancestors, safePattern, { trustPrefix = true } = {}) {
+  const value = constantValue(arg, scope);
+  const describe = (reason) => `${check.description} (${reason})`;
+
+  if (typeof value === 'string') {
+    if (safePattern.test(value)) return null;
+    return finding(check, call, { severity: /^http:/i.test(value) ? severity.LOW : severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: true,
+      description: describe(`opens the constant "${value}"`), properties: { value } });
+  }
+
+  // a fixed https://host/ prefix can't be turned into another scheme or host
+  const prefix = constantPrefix(arg, scope);
+  if (trustPrefix && prefix && safePattern.test(prefix)) return null;
+
+  const fn = enclosingFunction(ancestors);
+  const source = fn && untrustedSource(ancestors, fn);
+  const validated = fn && hasUrlValidation(fn) && isConditional(call, ancestors, fn);
+
+  if (source && dependsOnParams(arg, fn) && !validated) {
+    return finding(check, call, { severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false,
+      description: describe(`the value comes from ${source} and is not validated`), properties: { source } });
+  }
+  if (validated) {
+    return finding(check, call, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true,
+      description: describe('the value is validated first; review the allowlist') });
+  }
+  return finding(check, call, { severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true,
+    description: describe('the origin of the value could not be determined') });
 }

@@ -30,7 +30,7 @@ export default class AffinityJSCheck {
 
       for (const node of found_nodes) {
         if (node.value.value) {
-          location.push({ line: node.value.loc.start.line, column: node.value.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.TENTATIVE, properties: { "AffinityString": node.value.value }, manualReview: true });
+          location.push({ line: node.value.loc.start.line, column: node.value.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.FIRM, properties: { "AffinityString": node.value.value }, manualReview: true });
         }
       }
     }

@@ -22,7 +22,7 @@ export default class FileHandlerJSCheck {
     if (!['on', 'once', 'addListener'].includes(memberName(astNode.callee)) || calleeObjectName(astNode.callee) !== 'app') return null;
     const event = literalValue(astNode.arguments[0]);
     if (!EVENTS[event]) return null;
-    return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true,
+    return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
       description: `${this.description}: ${EVENTS[event]}`, properties: { event } })];
   }
 }

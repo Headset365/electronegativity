@@ -1,6 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, isFunction, resolveIdentifier, findProperty, literalValue, visit, finding } from '../helpers.js';
+import { isConditional, hasUrlValidation } from '../analysis.js';
 
 // webPreferences that must not be relaxed for windows opened by web content
 const INSECURE_OVERRIDES = { nodeIntegration: true, nodeIntegrationInSubFrames: true, sandbox: false, contextIsolation: false, webSecurity: false, allowRunningInsecureContent: true, webviewTag: true };
@@ -22,8 +23,10 @@ export default class WindowOpenHandlerJSCheck {
     if (!isFunction(handler)) return null;
 
     const issues = [];
-    visit(handler.body || handler, (node) => {
+    // arrow functions returning the object directly: () => ({ action: 'allow' })
+    visit(handler.body || handler, (node, parents) => {
       if (node.type !== 'ObjectExpression') return true;
+      const ancestors = [handler, ...parents];
       const action = findProperty(node, 'action');
       if (!action || literalValue(action[1]) !== 'allow') return true;
 
@@ -34,10 +37,17 @@ export default class WindowOpenHandlerJSCheck {
         .map(([key, bad]) => `${key}: ${bad}`) : [];
 
       if (relaxed.length > 0) {
-        issues.push(finding(this, node, { severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false,
+        issues.push(finding(this, node, { severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false,
           description: `${this.description} (new windows are created with ${relaxed.join(', ')})`, properties: { relaxed } }));
+      } else if (!isConditional(node, ancestors, handler)) {
+        issues.push(finding(this, node, { severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false,
+          description: `${this.description} (every URL is allowed to open a new window)` }));
+      } else if (hasUrlValidation(handler)) {
+        issues.push(finding(this, node, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true,
+          description: `${this.description} (allowed after checking the URL; review the allowlist)` }));
       } else {
-        issues.push(finding(this, node, { severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true }));
+        issues.push(finding(this, node, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
+          description: `${this.description} (allowed under a condition that doesn't inspect the URL)` }));
       }
       return false;
     });

@@ -1,6 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
-import { severity, confidence } from '../../attributes.js';
-import { memberName, calleeObjectName, literalValue, finding } from '../helpers.js';
+import { severity } from '../../attributes.js';
+import { memberName, calleeObjectName } from '../helpers.js';
+import { assessUrlSink } from './OpenExternalJSCheck.js';
 
 // shell APIs that act on paths: passing attacker-influenced values can execute files or plant shortcuts
 function shellCallCheck({ className, id, methods, sev, reference }) {
@@ -12,12 +13,14 @@ function shellCallCheck({ className, id, methods, sev, reference }) {
       this.shortenedURL = reference;
     }
 
-    match(astNode) {
+    match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
       if (astNode.type !== 'CallExpression' && astNode.type !== 'OptionalCallExpression') return null;
       if (!methods.includes(memberName(astNode.callee)) || calleeObjectName(astNode.callee) !== 'shell') return null;
-      // hardcoded paths are fine
-      if (astNode.arguments.length > 0 && typeof literalValue(astNode.arguments[0]) === 'string') return null;
-      return [finding(this, astNode, { severity: sev, confidence: confidence.TENTATIVE, manualReview: true })];
+      if (astNode.arguments.length === 0) return null;
+      // any constant path is the developer's choice, so only non-constant ones are rated
+      const result = assessUrlSink(this, astNode, astNode.arguments[0], scope, context.ancestors, /^/, { trustPrefix: false });
+      if (result && result.severity === severity.MEDIUM) result.severity = sev;
+      return result ? [result] : null;
     }
   };
   Object.defineProperty(cls, 'name', { value: className });

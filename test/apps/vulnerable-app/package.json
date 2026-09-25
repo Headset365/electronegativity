@@ -1,0 +1,7 @@
+{
+  "name": "vulnerable-app",
+  "main": "src/main.js",
+  "scripts": { "start": "NODE_TLS_REJECT_UNAUTHORIZED=0 electron ." },
+  "devDependencies": { "electron": "11.5.0" },
+  "build": { "appId": "com.example.vulnerable" }
+}

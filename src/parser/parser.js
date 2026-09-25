@@ -5,6 +5,8 @@ import { load as cheerio_load } from 'cheerio';
 
 import { extension } from '../util/index.js';
 import { isLockfile, listLockfilePackages } from '../util/lockfiles.js';
+import { parse as parseYaml } from 'yaml';
+import path from 'node:path';
 import { sourceTypes, sourceExtensions } from './types.js';
 
 import { EsprimaAst, BabelAst, ESLintAst, TreeSettings, Scope } from '../finder/ast.js';
@@ -98,7 +100,8 @@ export class Parser {
   parse(filename, content) {
     const ext = extension(filename);
 
-    const sourceType = isLockfile(filename) ? sourceTypes.LOCKFILE : sourceExtensions[ext];
+    const isBuilderYaml = /^electron-builder\.ya?ml$/i.test(path.basename(filename));
+    const sourceType = isLockfile(filename) ? sourceTypes.LOCKFILE : (isBuilderYaml ? sourceTypes.JSON : sourceExtensions[ext]);
     content = content.toString();
     let data = null;
 
@@ -130,7 +133,7 @@ export class Parser {
         data = cheerio_load(content, { xmlMode: true, withStartIndices: true, lowerCaseTags: true, lowerCaseAttributeNames: true });
         break;
       case sourceTypes.JSON:
-        data = {json: JSON.parse(content), text: content};
+        data = {json: isBuilderYaml ? parseYaml(content) : JSON.parse(content), text: content};
         break;
       case sourceTypes.LOCKFILE:
         data = {filename, packages: listLockfilePackages(filename, content)};

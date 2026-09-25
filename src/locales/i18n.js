@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import i18n from 'i18n';
 import pkg from '../../package.json' with { type: 'json' };
+import { isOffline } from '../util/network.js';
 
 const DEFAULT_LOCALE = 'en-US';
 const LOCAL_LOCALES = ['en-US', 'es-ES', 'fr-FR']; // some widespread locales available locally
@@ -15,6 +16,7 @@ function normalizeLocale(locale) {
 }
 
 async function fetchRemoteCatalog(locale) {
+  if (isOffline()) return undefined;
   try {
     const response = await fetch(`${pkg.i18nSource}/${locale}.json`, { signal: AbortSignal.timeout(1000) });
     if (response.ok) return await response.json();

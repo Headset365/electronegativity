@@ -13,7 +13,7 @@ export default class RemoteModuleJSCheck {
   match(astNode, astHelper, scope, defaults){
     if (astNode.type === 'CallExpression') return this.matchElectronRemote(astNode);
     if (astNode.type === 'ImportDeclaration' && /^@electron\/remote(\/(main|renderer))?$/.test(literalValue(astNode.source) || ''))
-      return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true }];
+      return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true }];
     if (astNode.type !== 'NewExpression') return null;
     if (astNode.callee.name !== 'BrowserWindow' && astNode.callee.name !== 'BrowserView') return null;
     // the built-in 'remote' module was removed in Electron 14, where enableRemoteModule has no effect
@@ -57,6 +57,6 @@ export default class RemoteModuleJSCheck {
       (object.type === 'CallExpression' && object.callee.name === 'require' ? literalValue(object.arguments[0]) : undefined));
     const isEnable = ['enable', 'initialize'].includes(method) && /remote/i.test(objectName || '');
     if (!isRequire && !isEnable) return null;
-    return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: isEnable ? confidence.FIRM : confidence.TENTATIVE, manualReview: true }];
+    return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: isEnable ? confidence.CERTAIN : confidence.FIRM, manualReview: true }];
   }
 }

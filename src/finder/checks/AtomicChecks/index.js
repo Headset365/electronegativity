@@ -50,7 +50,10 @@ import FileHandlerJSCheck from './FileHandlerJSCheck.js';
 import DependencyInventoryLockCheck from './DependencyInventoryLockCheck.js';
 import FileHandlerJSONCheck from './FileHandlerJSONCheck.js';
 import { SecureKeyboardEntryJSCheck, SecureKeyboardEntryHTMLCheck } from './SecureKeyboardEntryChecks.js';
-import { WebGLJSCheck, WebGLHTMLCheck, WebSQLJSCheck, WebSQLHTMLCheck } from './WebPreferenceFeatureChecks.js';
+import { WebGLJSCheck, WebGLHTMLCheck, WebSQLJSCheck, WebSQLHTMLCheck, PluginsJSCheck, PluginsHTMLCheck, NavigateOnDragDropJSCheck, NavigateOnDragDropHTMLCheck } from './WebPreferenceFeatureChecks.js';
+import { FileProtocolJSCheck, UntrustedLoadUrlJSCheck } from './LoadContentJSChecks.js';
+import XssSinkJSCheck from './XssSinkJSCheck.js';
+import CommandInjectionJSCheck from './CommandInjectionJSCheck.js';
 
 const CHECKS = [
   AffinityHTMLCheck,
@@ -111,6 +114,14 @@ const CHECKS = [
   WebGLHTMLCheck,
   WebSQLJSCheck,
   WebSQLHTMLCheck,
+  PluginsJSCheck,
+  PluginsHTMLCheck,
+  NavigateOnDragDropJSCheck,
+  NavigateOnDragDropHTMLCheck,
+  FileProtocolJSCheck,
+  UntrustedLoadUrlJSCheck,
+  XssSinkJSCheck,
+  CommandInjectionJSCheck,
 ];
 
 export { CHECKS };

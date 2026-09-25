@@ -25,7 +25,7 @@ export default class UnsupportedVersionGlobalCheck {
     try {
       releases = await this.getReleases();
     } catch (e) {
-      if (!output) console.log(chalk.yellow(`Something went wrong while fetching Electron's releases (${e.message}). No connectivity?`));
+      if (!output && !e.offline) console.log(chalk.yellow(`Something went wrong while fetching Electron's releases (${e.message}). No connectivity?`));
       return [];
     }
     const supported = supportedMajors(releases);

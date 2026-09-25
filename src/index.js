@@ -10,6 +10,7 @@ import { OUTPUT_FORMATS } from './util/index.js';
 
 async function main() {
 
+  if (process.argv.includes('--offline')) process.env.ELECTRONEGATIVITY_OFFLINE = '1';
   await _i18n(); // wait for the _i18n function to complete
 
   const VER = pkg.version;
@@ -30,6 +31,7 @@ async function main() {
     .option(__('upgradeOption'), __('upgradeOptionDescription'))
     .option(__('electronVersionOption'), __('electronVersionOptionDescription'))
     .option(__('parserPluginsOption'), __('parserPluginsOptionDescription'))
+    .option('--offline', __('offlineOptionDescription'))
     .parse(process.argv);
 
   const options = program.opts();
@@ -103,7 +105,8 @@ async function main() {
       isVerbose: options.verbose,
       electronUpgrade: options.upgrade,
       electronVersionOverride: options.electronVersion,
-      parserPlugins: options.parserPlugins
+      parserPlugins: options.parserPlugins,
+      offline: options.offline
     }, forCli);
   } catch (error) {
     console.error(chalk.red(error.stack));

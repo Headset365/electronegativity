@@ -1,10 +1,10 @@
 import { valid, coerce } from 'semver';
 import chalk from 'chalk';
 import { severity, confidence } from '../../attributes.js';
+import { queryNpmAdvisories } from '../../../util/osv.js';
 
 // Electron's own release feed (github.com/electron/releases) stopped being updated in 2022, so known vulnerabilities are
 // looked up in the OSV database (https://osv.dev), which mirrors the GitHub Security Advisories published for the `electron` npm package.
-const OSV_QUERY_BATCH_URL = 'https://api.osv.dev/v1/querybatch';
 const MAX_LISTED_ADVISORIES = 5;
 
 export default class AvailableSecurityFixesGlobalCheck {
@@ -59,17 +59,10 @@ export default class AvailableSecurityFixesGlobalCheck {
   async fetchAdvisories(versions, output) {
     if (versions.length === 0) return new Map();
     try {
-      const response = await fetch(OSV_QUERY_BATCH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ queries: versions.map(version => ({ package: { name: 'electron', ecosystem: 'npm' }, version })) }),
-        signal: AbortSignal.timeout(15000)
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const { results } = await response.json();
-      return new Map(versions.map((version, i) => [version, (results[i].vulns || []).map(v => v.id)]));
+      const results = await queryNpmAdvisories(versions.map(version => ({ name: 'electron', version })), { timeout: 15000 });
+      return new Map(versions.map((version, i) => [version, results[i]]));
     } catch (e) {
-      if (!output)
+      if (!output && !e.offline)
         console.log(chalk.yellow(`Something went wrong while fetching Electron's security advisories (${e.message}). No connectivity?`));
       return undefined;
     }

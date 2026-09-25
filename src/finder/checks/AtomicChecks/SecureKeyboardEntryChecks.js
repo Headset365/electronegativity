@@ -15,7 +15,7 @@ export class SecureKeyboardEntryJSCheck {
     if (astNode.type !== 'CallExpression' && astNode.type !== 'OptionalCallExpression') return null;
     if (memberName(astNode.callee) !== 'setSecureKeyboardEntryEnabled') return null;
     const enabled = literalValue(astNode.arguments[0]);
-    return [finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.TENTATIVE, manualReview: enabled !== true,
+    return [finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, manualReview: enabled !== true,
       properties: { secureKeyboardEntry: enabled } })];
   }
 }

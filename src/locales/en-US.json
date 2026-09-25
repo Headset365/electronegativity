@@ -101,7 +101,7 @@
 	"NODE_INTEGRATION_HTML_CHECK": "Disable nodeIntegration for untrusted origins",
 	"NODE_INTEGRATION_JS_CHECK": "Disable nodeIntegration for untrusted origins",
 	"OPEN_EXTERNAL_JS_CHECK": "Review the use of openExternal",
-	"PERMISSION_REQUEST_HANDLER_JS_CHECK": "Evaluate the implementation of the custom callback in setPermissionRequestHandler",
+	"PERMISSION_REQUEST_HANDLER_JS_CHECK": "Permission handler",
 	"PRELOAD_JS_CHECK": "Review the use of preload scripts",
 	"PROTOCOL_HANDLER_JS_CHECK": "Review the use of custom protocol handlers",
 	"REMOTE_MODULE_JS_CHECK": "Disable the remote module",
@@ -149,5 +149,15 @@
 	"LIMIT_NAVIGATION_JS_CHECK_NEW_WINDOW_REMOVED":"The 'new-window' event was removed in Electron 22 and no longer limits the creation of new windows; use setWindowOpenHandler",
 	"DEPENDENCY_INVENTORY_LOCK_CHECK":"Dependencies listed in lockfile",
 	"DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK":"Dependency with published security advisories",
-	"UNSUPPORTED_VERSION_GLOBAL_CHECK_END_OF_LIFE":"The Electron version in use is no longer supported and does not receive security fixes"
+	"UNSUPPORTED_VERSION_GLOBAL_CHECK_END_OF_LIFE":"The Electron version in use is no longer supported and does not receive security fixes",
+	"offlineOptionDescription":"skip the checks that need network access (Electron releases and security advisories)",
+	"FUSES_PACKAGER_CONFIG":"Packaging configuration found",
+	"FILE_PROTOCOL_JS_CHECK":"Local content is loaded over file://, which has extra privileges in Electron; prefer a custom protocol (protocol.handle)",
+	"UNTRUSTED_LOAD_URL_JS_CHECK":"An app window loads a URL provided by untrusted input",
+	"XSS_SINK_JS_CHECK":"HTML is built from dynamic data; unsanitized input leads to XSS in the renderer",
+	"COMMAND_INJECTION_JS_CHECK":"A child process is started with a dynamic command",
+	"PLUGINS_JS_CHECK":"Browser plugins are enabled",
+	"NAVIGATE_ON_DRAG_DROP_JS_CHECK":"Dropping a file or link onto the window navigates to it",
+	"SANDBOX_JS_CHECK_ENABLED_GLOBALLY":"app.enableSandbox() sandboxes every renderer, regardless of webPreferences.sandbox",
+	"PRELOAD_JS_CHECK_ISOLATED":"Preload script with context isolation; what it exposes through contextBridge is analyzed by CONTEXT_BRIDGE_EXPOSURE_JS_CHECK"
 }

@@ -22,6 +22,6 @@ let variable = "aa";
 mainWindow = new BrowserWindow({
   "webPreferences": {
     "nodeIntegration": "foobar", //"foobar" isn't false for webPreferences => nodeIntegration is on
-    "nodeIntegrationInWorker": variable //"foobar" may be true for webPreferences => nodeIntegrationInWorker is on (manual check required)
+    "nodeIntegrationInWorker": variable //resolves to "aa", which isn't true => nodeIntegrationInWorker is off
   }
 });

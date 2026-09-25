@@ -29,7 +29,7 @@ export default class DependencyVulnerabilitiesGlobalCheck {
     try {
       advisories = await queryNpmAdvisories(packages);
     } catch (e) {
-      if (!output) console.log(chalk.yellow(`Something went wrong while fetching dependency advisories (${e.message}). No connectivity?`));
+      if (!output && !e.offline) console.log(chalk.yellow(`Something went wrong while fetching dependency advisories (${e.message}). No connectivity?`));
       return [];
     }
 
