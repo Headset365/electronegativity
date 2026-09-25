@@ -25,6 +25,7 @@ import GetWebContents from './8/GetWebContents.js';
 import IPCSend from './8/IPCSend.js';
 import SetLayoutZoomLevelLimits from './8/SetLayoutZoomLevelLimits.js';
 import VisibleOnFullScreen from './8/VisibleOnFullScreen.js';
+import { MODERN_UPGRADE_CHECKS } from './ModernUpgradeChecks.js';
 
 const ELECTRON_ATOMIC_UPGRADE_CHECKS = {
   5: [
@@ -61,7 +62,8 @@ const ELECTRON_ATOMIC_UPGRADE_CHECKS = {
     IPCSend,
     SetLayoutZoomLevelLimits,
     VisibleOnFullScreen
-  ]
+  ],
+  ...MODERN_UPGRADE_CHECKS
 };
 
 export { ELECTRON_ATOMIC_UPGRADE_CHECKS };

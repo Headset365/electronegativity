@@ -4,6 +4,12 @@ import CSPGlobalCheck from './CSPGlobalCheck.js';
 import LimitNavigationGlobalCheck from './LimitNavigationGlobalCheck.js';
 import PermissionRequestHandlerGlobalCheck from './PermissionRequestHandlerGlobalCheck.js';
 import HTTPResourcesAndNodeIntegrationGlobalCheck from './HTTPResourcesAndNodeIntegrationGlobalCheck.js';
+import FusesGlobalCheck from './FusesGlobalCheck.js';
+import WebviewGlobalCheck from './WebviewGlobalCheck.js';
+import CertificatePinningGlobalCheck from './CertificatePinningGlobalCheck.js';
+import SecureKeyboardEntryGlobalCheck from './SecureKeyboardEntryGlobalCheck.js';
+import DependencyVulnerabilitiesGlobalCheck from './DependencyVulnerabilitiesGlobalCheck.js';
+import UnsupportedVersionGlobalCheck from './UnsupportedVersionGlobalCheck.js';
 
 const GLOBAL_CHECKS = [
   AffinityGlobalCheck,
@@ -11,7 +17,13 @@ const GLOBAL_CHECKS = [
   CSPGlobalCheck,
   LimitNavigationGlobalCheck,
   PermissionRequestHandlerGlobalCheck,
-  HTTPResourcesAndNodeIntegrationGlobalCheck
+  HTTPResourcesAndNodeIntegrationGlobalCheck,
+  FusesGlobalCheck,
+  WebviewGlobalCheck,
+  CertificatePinningGlobalCheck,
+  SecureKeyboardEntryGlobalCheck,
+  DependencyVulnerabilitiesGlobalCheck,
+  UnsupportedVersionGlobalCheck
 ];
 
 export { GLOBAL_CHECKS };

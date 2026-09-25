@@ -175,8 +175,17 @@ export default async function run(options, forCli = false) {
     }
   }
 
-  if (options.output)
-    writeIssues(options.input, options.isRelative, options.output, issues, options.isSarif);
+  if (options.output) {
+    // file outputs honor the same severity/confidence thresholds as the CLI table
+    const reported = issues.filter(issue => issue.severity.value >= options.severitySet.value && issue.confidence.value >= options.confidenceSet.value);
+    writeIssues(options.input, options.isRelative, options.output, reported, options.isSarif, {
+      electronVersion: electronVersion || null,
+      filesScanned: filenames.length,
+      globalChecks: globalChecker._enabled_checks.length,
+      atomicChecks: finder._enabled_checks.length,
+      errors
+    });
+  }
 
   if (forCli) {
     if (rows.length > 0) {

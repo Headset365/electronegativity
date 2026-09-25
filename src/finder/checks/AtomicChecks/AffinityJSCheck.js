@@ -1,5 +1,6 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
+import { electronAtLeast, ELECTRON_CHANGES } from '../versions.js';
 
 export default class AffinityJSCheck {
   constructor() {
@@ -9,7 +10,9 @@ export default class AffinityJSCheck {
     this.shortenedURL = "https://git.io/Jeu1z";
   }
 
-  match(astNode, astHelper, scope) {
+  match(astNode, astHelper, scope, defaults, electronVersion) {
+    // the affinity option was removed in Electron 14
+    if (electronAtLeast(electronVersion, ELECTRON_CHANGES.AFFINITY_REMOVED)) return null;
     if (astNode.type !== 'NewExpression') return null;
     if (astNode.callee.name !== 'BrowserWindow' && astNode.callee.name !== 'BrowserView') return null;
 

@@ -1,7 +1,8 @@
 export const sourceTypes = {
   JAVASCRIPT: 0,
   HTML: 1,
-  JSON: 3
+  JSON: 3,
+  LOCKFILE: 4, // package-lock.json, npm-shrinkwrap.json, yarn.lock, pnpm-lock.yaml
 };
 
 export const sourceExtensions = {

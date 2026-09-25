@@ -1,0 +1,8 @@
+{
+  "name": "associations-app",
+  "build": {
+    "appId": "com.example.app",
+    "fileAssociations": [{ "ext": "mydoc", "name": "My Document" }],
+    "protocols": [{ "name": "My App", "schemes": ["myapp"] }]
+  }
+}

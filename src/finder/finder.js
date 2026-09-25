@@ -129,6 +129,7 @@ export class Finder {
         }
         break;
       case sourceTypes.JSON:
+      case sourceTypes.LOCKFILE:
         for (const check of checks) {
           const matches = await check.match(data, defaults, electronVersion);
           if (matches) {

@@ -6,6 +6,7 @@ import chalk from 'chalk';
 import pkg from '../package.json' with { type: 'json' };
 import _i18n from './locales/i18n.js';
 import run from './runner.js';
+import { OUTPUT_FORMATS } from './util/index.js';
 
 async function main() {
 
@@ -60,8 +61,8 @@ async function main() {
   }
 
   if(options.output){
-    options.fileFormat = options.output.split('.').pop();
-    if(options.fileFormat !== 'csv' && options.fileFormat !== 'sarif'){
+    options.fileFormat = options.output.split('.').pop().toLowerCase();
+    if(!OUTPUT_FORMATS.includes(options.fileFormat)){
       console.error(chalk.red(__('fileFormatError')));
       program.outputHelp();
       process.exit(1);

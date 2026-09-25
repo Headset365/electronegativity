@@ -14,25 +14,25 @@ export default class LimitNavigationGlobalCheck {
   }
 
   async perform(issues) {
+    // will-frame-navigate (Electron 25+) also covers navigations of sub frames
+    const willNavigateNavigations = issues.filter(e => e.properties.event === 'will-navigate' || e.properties.event === 'will-frame-navigate');
+    // setWindowOpenHandler replaced the new-window event, removed in Electron 22
+    const newWindowLimits = issues.filter(e => e.properties.event === 'new-window' || e.properties.event === 'setWindowOpenHandler');
+    const removedEvents = issues.filter(e => e.properties.event === 'new-window-removed');
+    const reviewable = issues.filter(issue => Array.isArray(issue.visibility.excludesGlobal) && !issue.visibility.excludesGlobal.includes(this.id));
+    const missing = (description) => ({ file: "N/A", location: {line: 0, column: 0}, title: this.title, id: this.id, description, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false });
 
-    var willNavigateNavigations = issues.filter(e => e.properties.event === 'will-navigate');
-    var newWindowNavigations = issues.filter(e => e.properties.event === 'new-window');
-    var setWindowOpenHandlerCalls = issues.filter(e => e.properties.event === 'setWindowOpenHandler');
+    if (willNavigateNavigations.length === 0 && newWindowLimits.length === 0) { // no navigation limits, yikes!
+      return [missing(this.description.NONE_FOUND), ...removedEvents];
+    }
 
-    if (issues.length == 0) { // no navigation events, yikes!
-      return [{ file: "N/A", location: {line: 0, column: 0}, title: this.title, id: this.id, description: this.description.NONE_FOUND, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false }];
-    } else if (willNavigateNavigations.length > 0 && newWindowNavigations.length > 0) {
-      // all good, but mark for review unless the global check is explicitly disabled
-      return issues.filter(issue => Array.isArray(issue.visibility.excludesGlobal) && !issue.visibility.excludesGlobal.includes(this.id));
-    } else if (setWindowOpenHandlerCalls.length != 0 && willNavigateNavigations.length == 0 && newWindowNavigations.length == 0) {
-      // no willnavigate, newwindow, but it has setWindowOpenHandler!
-      return [];
-    } else if (willNavigateNavigations.length == 0) {
-      // no willnavigate, issue a finding
-      return [{ file: "N/A", location: {line: 0, column: 0}, title: this.title, id: this.id, description: this.description.WILL_NAVIGATE_MISSING, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false }];
-    } else if (newWindowNavigations.length == 0 && setWindowOpenHandlerCalls.length == 0) {
-      // no newwindow, issue a finding
-      return [{ file: "N/A", location: {line: 0, column: 0}, title: this.title, id: this.id, description: this.description.NEW_WINDOW_MISSING, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false }];
-    } else return [];
+    const result = [...removedEvents];
+    // both limits are needed: will-navigate covers in-place navigations, new-window/setWindowOpenHandler new windows
+    if (willNavigateNavigations.length === 0) result.push(missing(this.description.WILL_NAVIGATE_MISSING));
+    if (newWindowLimits.length === 0) result.push(missing(this.description.NEW_WINDOW_MISSING));
+
+    // when both are there, the handlers are still worth a manual review unless the global check is explicitly disabled
+    if (result.length === removedEvents.length) return [...result, ...reviewable.filter(i => i.properties.event !== 'new-window-removed')];
+    return result;
   }
 }

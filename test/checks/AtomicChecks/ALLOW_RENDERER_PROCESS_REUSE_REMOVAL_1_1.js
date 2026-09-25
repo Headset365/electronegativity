@@ -1,0 +1,1 @@
+app.allowRendererProcessReuse = false;

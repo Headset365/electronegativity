@@ -39,8 +39,8 @@ export default class AvailableSecurityFixesGlobalCheck {
         description: `${this.description.SECURITY_ISSUES} (${ids.length}: ${listed})`,
         properties: { versionNumber: issue.properties.versionNumber, advisories: ids },
         shortenedURL: this.shortenedURL,
-        // found in devDependencies (manualReview) vs dependencies
-        severity: issue.manualReview ? severity.INFORMATIONAL : severity.HIGH,
+        // Electron is usually a devDependency, as packagers bundle it into the app, so both are equally relevant
+        severity: severity.HIGH,
         confidence: confidence.CERTAIN,
         manualReview: issue.manualReview
       });

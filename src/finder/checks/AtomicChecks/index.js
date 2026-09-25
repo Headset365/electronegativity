@@ -34,7 +34,23 @@ import PreloadJSCheck from './PreloadJSCheck.js';
 import ProtocolHandlersJSCheck from './ProtocolHandlersJSCheck.js';
 import WebSecurityHTMLCheck from './WebSecurityHTMLCheck.js';
 import WebSecurityJSCheck from './WebSecurityJSCheck.js';
+import ContextBridgeExposureJSCheck from './ContextBridgeExposureJSCheck.js';
+import DevToolsJSCheck from './DevToolsJSCheck.js';
+import FusesJSCheck from './FusesJSCheck.js';
+import FusesJSONCheck from './FusesJSONCheck.js';
+import IpcSenderValidationJSCheck from './IpcSenderValidationJSCheck.js';
+import ProtocolPrivilegesJSCheck from './ProtocolPrivilegesJSCheck.js';
+import WebviewTagJSCheck from './WebviewTagJSCheck.js';
+import WindowOpenHandlerJSCheck from './WindowOpenHandlerJSCheck.js';
 
+import NodeTlsRejectUnauthorizedJSCheck from './NodeTlsRejectUnauthorizedJSCheck.js';
+import NodeTlsRejectUnauthorizedJSONCheck from './NodeTlsRejectUnauthorizedJSONCheck.js';
+import { OpenPathJSCheck, ShowItemInFolderJSCheck, WriteShortcutJSCheck } from './ShellApiJSChecks.js';
+import FileHandlerJSCheck from './FileHandlerJSCheck.js';
+import DependencyInventoryLockCheck from './DependencyInventoryLockCheck.js';
+import FileHandlerJSONCheck from './FileHandlerJSONCheck.js';
+import { SecureKeyboardEntryJSCheck, SecureKeyboardEntryHTMLCheck } from './SecureKeyboardEntryChecks.js';
+import { WebGLJSCheck, WebGLHTMLCheck, WebSQLJSCheck, WebSQLHTMLCheck } from './WebPreferenceFeatureChecks.js';
 
 const CHECKS = [
   AffinityHTMLCheck,
@@ -73,6 +89,28 @@ const CHECKS = [
   ProtocolHandlersJSCheck,
   WebSecurityHTMLCheck,
   WebSecurityJSCheck,
+  ContextBridgeExposureJSCheck,
+  DevToolsJSCheck,
+  FusesJSCheck,
+  FusesJSONCheck,
+  IpcSenderValidationJSCheck,
+  ProtocolPrivilegesJSCheck,
+  WebviewTagJSCheck,
+  WindowOpenHandlerJSCheck,
+  NodeTlsRejectUnauthorizedJSCheck,
+  NodeTlsRejectUnauthorizedJSONCheck,
+  OpenPathJSCheck,
+  ShowItemInFolderJSCheck,
+  WriteShortcutJSCheck,
+  FileHandlerJSCheck,
+  DependencyInventoryLockCheck,
+  FileHandlerJSONCheck,
+  SecureKeyboardEntryJSCheck,
+  SecureKeyboardEntryHTMLCheck,
+  WebGLJSCheck,
+  WebGLHTMLCheck,
+  WebSQLJSCheck,
+  WebSQLHTMLCheck,
 ];
 
 export { CHECKS };

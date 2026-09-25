@@ -1,0 +1,16 @@
+{
+  "name": "fuses-app",
+  "devDependencies": { "electron": "^38.0.0" },
+  "build": {
+    "appId": "com.example.app",
+    "electronFuses": {
+      "runAsNode": true,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false
+    }
+  }
+}

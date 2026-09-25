@@ -1,5 +1,6 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
+import { electronAtLeast, ELECTRON_CHANGES } from '../versions.js';
 import { parseWebPreferencesFeaturesString } from '../../../util/index.js';
 
 export default class AffinityHTMLCheck {
@@ -10,7 +11,9 @@ export default class AffinityHTMLCheck {
     this.shortenedURL = "https://git.io/Jeu1z";
   }
 
-  match(cheerioObj, content) {
+  match(cheerioObj, content, defaults, electronVersion) {
+    // the affinity option was removed in Electron 14
+    if (electronAtLeast(electronVersion, ELECTRON_CHANGES.AFFINITY_REMOVED)) return null;
     const loc = [];
     const webviews = cheerioObj('webview');
     const self = this;

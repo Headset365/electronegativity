@@ -1,0 +1,4 @@
+{
+  "name": "no-fuses-app",
+  "build": { "appId": "com.example.app" }
+}

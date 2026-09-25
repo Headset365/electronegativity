@@ -4,6 +4,7 @@ import * as typescriptEstreeParser from '@typescript-eslint/typescript-estree';
 import { load as cheerio_load } from 'cheerio';
 
 import { extension } from '../util/index.js';
+import { isLockfile, listLockfilePackages } from '../util/lockfiles.js';
 import { sourceTypes, sourceExtensions } from './types.js';
 
 import { EsprimaAst, BabelAst, ESLintAst, TreeSettings, Scope } from '../finder/ast.js';
@@ -97,7 +98,7 @@ export class Parser {
   parse(filename, content) {
     const ext = extension(filename);
 
-    const sourceType = sourceExtensions[ext];
+    const sourceType = isLockfile(filename) ? sourceTypes.LOCKFILE : sourceExtensions[ext];
     content = content.toString();
     let data = null;
 
@@ -130,6 +131,9 @@ export class Parser {
         break;
       case sourceTypes.JSON:
         data = {json: JSON.parse(content), text: content};
+        break;
+      case sourceTypes.LOCKFILE:
+        data = {filename, packages: listLockfilePackages(filename, content)};
         break;
       default:
         break;

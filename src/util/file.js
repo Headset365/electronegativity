@@ -4,9 +4,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import pkg from '../../package.json' with { type: 'json' };
 import { sourceExtensions } from '../parser/types.js';
+import { renderHtmlReport } from './report_html.js';
 
 const VER = pkg.version;
-const MANIFEST_FILES = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml'];
+const MANIFEST_FILES = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'electron-builder.json'];
 
 export function is_directory(input){
   return fs.statSync(input).isDirectory();
@@ -63,8 +64,59 @@ export async function list_files(input) {
     .filter(file => !file.split(path.sep).includes('node_modules') && isScannableFile(file));
 }
 
-export function writeIssues(root, isRelative, filename, result, isSarif){
+export const OUTPUT_FORMATS = ['csv', 'sarif', 'html', 'htm', 'json'];
+
+export function outputFormat(filename, isSarif) {
+  if (isSarif) return 'sarif';
+  const ext = extension(filename);
+  if (ext === 'htm') return 'html';
+  return OUTPUT_FORMATS.includes(ext) ? ext : 'csv';
+}
+
+// Large internal data (e.g. the lockfile inventory) isn't useful in reports
+function reportProperties(properties) {
+  if (!properties) return undefined;
+  const rest = Object.fromEntries(Object.entries(properties).filter(([key]) => key !== 'packages'));
+  return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
+function jsonReport(result, meta) {
+  const summary = {};
+  for (const issue of result) summary[issue.severity.name] = (summary[issue.severity.name] || 0) + 1;
+  return JSON.stringify({
+    tool: 'Electronegativity',
+    ...meta,
+    summary,
+    issues: result.map(issue => ({
+      id: issue.id,
+      severity: issue.severity.name,
+      confidence: issue.confidence.name,
+      manualReview: !!issue.manualReview,
+      file: issue.file,
+      line: issue.location ? issue.location.line : undefined,
+      column: issue.location ? issue.location.column : undefined,
+      sample: issue.sample,
+      description: issue.description,
+      reference: issue.shortenedURL,
+      properties: reportProperties(issue.properties)
+    }))
+  }, null, 2);
+}
+
+export function writeIssues(root, isRelative, filename, result, isSarif, meta = {}){
   let output = '';
+  const format = outputFormat(filename, isSarif);
+  meta = { version: VER, generatedAt: new Date().toISOString(), input: root, ...meta };
+
+  if (format === 'html') {
+    fs.writeFileSync(filename, renderHtmlReport(result, meta));
+    return;
+  }
+  if (format === 'json') {
+    fs.writeFileSync(filename, jsonReport(result, { ...meta, errors: (meta.errors || []).map(({ file, message, tolerable }) => ({ file, message, tolerable })) }));
+    return;
+  }
+  isSarif = format === 'sarif';
 
   if (isSarif) {
     let issues =

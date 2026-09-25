@@ -16,11 +16,11 @@ export default class ElectronVersionJSONCheck {
 
     let location = [];
     if (electron) {
-      location.push({ line: 1, column: 0, id: this.id, description: this.description, shortenedURL: this.shortenedURL, properties: { "versionNumber": electron.raw }, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, manualReview: false });
+      location.push({ line: 1, column: 0, id: this.id, description: this.description, shortenedURL: this.shortenedURL, properties: { "versionNumber": electron.raw, "versionSpec": content.json.dependencies.electron }, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, manualReview: false });
     }
 
     if (electronDev) {
-      location.push({ line: 1, column: 0, id: this.id, description: this.description, shortenedURL: this.shortenedURL, properties: { "versionNumber": electronDev.raw }, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, manualReview: true });
+      location.push({ line: 1, column: 0, id: this.id, description: this.description, shortenedURL: this.shortenedURL, properties: { "versionNumber": electronDev.raw, "versionSpec": content.json.devDependencies.electron }, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, manualReview: true });
     }
 
     return location;

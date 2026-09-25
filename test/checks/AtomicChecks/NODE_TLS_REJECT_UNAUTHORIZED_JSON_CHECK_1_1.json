@@ -1,0 +1,7 @@
+{
+  "name": "tls-app",
+  "scripts": {
+    "start": "NODE_TLS_REJECT_UNAUTHORIZED=0 electron .",
+    "build": "electron-builder"
+  }
+}

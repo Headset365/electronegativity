@@ -12,7 +12,7 @@ await _i18n();
 let check_tests = "test/checks/AtomicChecks";
 
 describe('Finder', () => {
-  let finder = new Finder(null, null, '4..8');
+  let finder = new Finder(null, null, '4..99');
 
   // Load all test files
   let loader = new LoaderFile();
