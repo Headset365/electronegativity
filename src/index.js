@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import program from 'commander';
-import path from 'path';
+import path from 'node:path';
+import { Command } from 'commander';
 import chalk from 'chalk';
+import pkg from '../package.json' with { type: 'json' };
 import _i18n from './locales/i18n.js';
 import run from './runner.js';
 
@@ -10,26 +11,28 @@ async function main() {
 
   await _i18n(); // wait for the _i18n function to complete
 
-  const VER = require('../package.json').version;
+  const VER = pkg.version;
   const falsyStrings = ["false", "FALSE", "off", "0", "no", "disable", "disabled"];
 
+  const program = new Command();
   program
     .version(VER)
-      .description(__('electronegativityDescription'))
-      .option(__('inputOption'), __('inputOptionDescription'))
-      .option(__('checksOption'), __('checksOptionDescription'))
-      .option(__('excludeChecksOption'), __('excludeChecksOptionDescription'))
-      .option(__('severityOption'), __('severityOptionDescription'))
-      .option(__('confidenceOption'), __('confidenceOptionDescription'))
-      .option(__('outputOption'), __('outputOptionDescription'))
-      .option(__('relativeOption'), __('relativeOptionDescription'))
-      .option(__('verboseOption'), __('verboseOptionDescription'))
-      .option(__('upgradeOption'), __('upgradeOptionDescription'))
-      .option(__('electronVersionOption'), __('electronVersionOptionDescription'))
-      .option(__('parserPluginsOption'), __('parserPluginsOptionDescription'))
-      .parse(process.argv);
+    .description(__('electronegativityDescription'))
+    .option(__('inputOption'), __('inputOptionDescription'))
+    .option(__('checksOption'), __('checksOptionDescription'))
+    .option(__('excludeChecksOption'), __('excludeChecksOptionDescription'))
+    .option(__('severityOption'), __('severityOptionDescription'))
+    .option(__('confidenceOption'), __('confidenceOptionDescription'))
+    .option(__('outputOption'), __('outputOptionDescription'))
+    .option(__('relativeOption'), __('relativeOptionDescription'))
+    .option(__('verboseOption'), __('verboseOptionDescription'))
+    .option(__('upgradeOption'), __('upgradeOptionDescription'))
+    .option(__('electronVersionOption'), __('electronVersionOptionDescription'))
+    .option(__('parserPluginsOption'), __('parserPluginsOptionDescription'))
+    .parse(process.argv);
 
-  const forCli = !program.output;
+  const options = program.opts();
+  const forCli = !options.output;
 
   if (forCli) {
     console.log(`
@@ -51,58 +54,60 @@ async function main() {
     console.log(__('startScan'));
   }
 
-  if(!program.input){
+  if(!options.input){
     program.outputHelp();
     process.exit(1);
   }
 
-  if(program.output){
-    program.fileFormat = program.output.split('.').pop();
-    if(program.fileFormat !== 'csv' && program.fileFormat !== 'sarif'){
+  if(options.output){
+    options.fileFormat = options.output.split('.').pop();
+    if(options.fileFormat !== 'csv' && options.fileFormat !== 'sarif'){
       console.error(chalk.red(__('fileFormatError')));
       program.outputHelp();
       process.exit(1);
     }
   }
 
-  if (typeof program.checks !== 'undefined' && program.checks){
-    program.checks = program.checks.split(",").map(check => check.trim().toLowerCase());
-  } else program.checks = [];
+  if (typeof options.checks !== 'undefined' && options.checks){
+    options.checks = options.checks.split(",").map(check => check.trim().toLowerCase());
+  } else options.checks = [];
 
-  if (typeof program.excludeChecks !== 'undefined' && program.excludeChecks){
-    program.excludeChecks = program.excludeChecks.split(",").map(check => check.trim().toLowerCase());
-  } else program.excludeChecks = [];
+  if (typeof options.excludeChecks !== 'undefined' && options.excludeChecks){
+    options.excludeChecks = options.excludeChecks.split(",").map(check => check.trim().toLowerCase());
+  } else options.excludeChecks = [];
 
-  if (typeof program.verbose !== 'undefined' && (falsyStrings.includes(program.verbose)))
-    program.verbose = false;
+  if (typeof options.verbose !== 'undefined' && (falsyStrings.includes(options.verbose)))
+    options.verbose = false;
   else
-    program.verbose = true;
+    options.verbose = true;
 
-  if (typeof program.parserPlugins !== 'undefined' && program.parserPlugins)
-    program.parserPlugins = program.parserPlugins.split(",").map(p => p.trim());
+  if (typeof options.parserPlugins !== 'undefined' && options.parserPlugins)
+    options.parserPlugins = options.parserPlugins.split(",").map(p => p.trim());
   else
-    program.parserPlugins = [];
+    options.parserPlugins = [];
 
 
-  const input = path.resolve(program.input);
+  const input = path.resolve(options.input);
 
-  run({
-    input,
-    output: program.output,
-    isSarif: program.fileFormat === 'sarif',
-    customScan: program.checks,
-    excludeFromScan: program.excludeChecks,
-    severitySet: program.severity,
-    confidenceSet: program.confidence,
-    isRelative: program.relative,
-    isVerbose: program.verbose,
-    electronUpgrade: program.upgrade,
-    electronVersionOverride: program.electronVersion,
-    parserPlugins: program.parserPlugins
-  }, forCli).catch(error => {
+  try {
+    await run({
+      input,
+      output: options.output,
+      isSarif: options.fileFormat === 'sarif',
+      customScan: options.checks,
+      excludeFromScan: options.excludeChecks,
+      severitySet: options.severity,
+      confidenceSet: options.confidence,
+      isRelative: options.relative,
+      isVerbose: options.verbose,
+      electronUpgrade: options.upgrade,
+      electronVersionOverride: options.electronVersion,
+      parserPlugins: options.parserPlugins
+    }, forCli);
+  } catch (error) {
     console.error(chalk.red(error.stack));
     process.exit(1);
-  });
+  }
 }
 
 main();

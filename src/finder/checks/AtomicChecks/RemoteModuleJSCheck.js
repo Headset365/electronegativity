@@ -1,5 +1,5 @@
-import { sourceTypes } from '../../../parser/types';
-import { severity, confidence } from '../../attributes';
+import { sourceTypes } from '../../../parser/types.js';
+import { severity, confidence } from '../../attributes.js';
 
 export default class RemoteModuleJSCheck {
   constructor() {
@@ -12,6 +12,8 @@ export default class RemoteModuleJSCheck {
   match(astNode, astHelper, scope, defaults){
     if (astNode.type !== 'NewExpression') return null;
     if (astNode.callee.name !== 'BrowserWindow' && astNode.callee.name !== 'BrowserView') return null;
+    // the built-in 'remote' module was removed in Electron 14, where enableRemoteModule has no effect
+    if (!('enableRemoteModule' in defaults)) return null;
 
     let wasFound = false;
     let loc = [];

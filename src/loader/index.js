@@ -1,7 +1,5 @@
-import { LoaderDirectory } from './loader_directory';
-import { LoaderAsar } from './loader_asar';
-import { LoaderFile } from './loader_file';
+import { LoaderDirectory } from './loader_directory.js';
+import { LoaderAsar } from './loader_asar.js';
+import { LoaderFile } from './loader_file.js';
 
-module.exports.LoaderDirectory = LoaderDirectory;
-module.exports.LoaderAsar = LoaderAsar;
-module.exports.LoaderFile = LoaderFile;
+export { LoaderDirectory, LoaderAsar, LoaderFile };

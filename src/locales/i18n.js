@@ -1,34 +1,51 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import i18n from 'i18n';
-import got from 'got';
+import pkg from '../../package.json' with { type: 'json' };
 
-export default function _i18n () {
-  return new Promise((resolve, reject) => {
-  
-    var defaultLocale = "en-US";
+const DEFAULT_LOCALE = 'en-US';
+const LOCAL_LOCALES = ['en-US', 'es-ES', 'fr-FR']; // some widespread locales available locally
+
+let initialized;
+
+// Converts POSIX-style locales (e.g. "en_US.UTF-8") to the BCP 47 form used by the locale files (e.g. "en-US")
+function normalizeLocale(locale) {
+  if (!locale || locale === 'C' || locale === 'POSIX') return DEFAULT_LOCALE;
+  return locale.split('.')[0].split('@')[0].replace('_', '-');
+}
+
+async function fetchRemoteCatalog(locale) {
+  try {
+    const response = await fetch(`${pkg.i18nSource}/${locale}.json`, { signal: AbortSignal.timeout(1000) });
+    if (response.ok) return await response.json();
+  } catch {
+    console.log("Could not retrieve updated translations for the current locale");
+  }
+  return undefined;
+}
+
+export default function _i18n() {
+  initialized ??= (async () => {
+    const locale = normalizeLocale(process.env.LANG);
+
+    const staticCatalog = {};
+    for (const l of LOCAL_LOCALES)
+      staticCatalog[l] = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, `${l}.json`), 'utf8'));
+
+    const remoteCatalog = await fetchRemoteCatalog(locale);
+    if (remoteCatalog)
+      staticCatalog[locale] = { ...remoteCatalog, ...staticCatalog[locale] }; // bundled strings take precedence
+
     i18n.configure({
-      locales: ['en-US', 'es-ES', 'fr-FR'], // some widespread locales available locally
-      defaultLocale: defaultLocale,
-      directory: __dirname,
+      staticCatalog,
+      defaultLocale: DEFAULT_LOCALE,
       updateFiles: false,
       objectNotation: true,
       retryInDefaultLocale: true,
-      register: global
+      register: globalThis
     });
 
-    defaultLocale = process.env.LANG ? process.env.LANG : defaultLocale;
-    const i18nSource = require('../../package.json').i18nSource;
-    got(`${i18nSource}/${defaultLocale}.json`, {timeout: {request: 1000}})
-    .then(r => {
-      if (r.statusCode === 200) {// Add JSON translations to i18n
-        i18n.addLocale(defaultLocale, JSON.parse(r.body));
-        i18n.setLocale(defaultLocale);
-      }
-      resolve();  // resolve the promise
-    })
-    .catch(e => {
-      console.log("Could not retrieve updated translations for the current locale");
-      i18n.setLocale(defaultLocale);
-      resolve();
-    });
-  });
-};
+    i18n.setLocale(staticCatalog[locale] ? locale : DEFAULT_LOCALE);
+  })();
+  return initialized;
+}

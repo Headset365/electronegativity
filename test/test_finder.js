@@ -1,27 +1,13 @@
+import { should as chaiShould } from 'chai';
+import _i18n from '../src/locales/i18n.js';
 import fs from 'fs';
 import path from 'path';
-import logger from 'winston';
-import { LoaderFile } from '../src/loader';
-import { Parser } from '../src/parser';
-import { Finder } from '../src/finder';
-import { GlobalChecks } from '../src/finder';
-import _i18n from '../src/locales/i18n.js';
+import { LoaderFile } from '../src/loader/index.js';
+import { Parser } from '../src/parser/index.js';
+import { Finder } from '../src/finder/index.js';
 
-_i18n();
-
-let chai = require('chai');
-let should = chai.should();
-
-logger.addColors({
-  debug : 'green',
-  info : 'cyan',
-  silly : 'magenta',
-  warn : 'yellow',
-  error : 'red'
-});
-
-logger.remove(logger.transports.Console);
-logger.add(logger.transports.Console, {colorize : true, level : 'silly'});
+chaiShould();
+await _i18n();
 
 let check_tests = "test/checks/AtomicChecks";
 
@@ -61,7 +47,7 @@ describe('Finder', () => {
           let result = await finder.find(file, data, type, content);
           
           // Adjust visibility
-          result = result.filter(i => !i.hasOwnProperty('visibility') || (!i.visibility.inlineDisabled && !i.visibility.globalCheckDisabled));
+          result = result.filter(i => !Object.hasOwn(i, 'visibility') || (!i.visibility.inlineDisabled && !i.visibility.globalCheckDisabled));
           
           result.filter(r => {return r.id === check;}).length.should.equal(num_issues);
         }).timeout(8000);

@@ -1,4 +1,4 @@
-import { severity, confidence } from '../../attributes';
+import { severity, confidence } from '../../attributes.js';
 
 export default class PermissionRequestHandlerGlobalCheck {
 
@@ -14,7 +14,7 @@ export default class PermissionRequestHandlerGlobalCheck {
     if (issues.length === 0) {
       return [{ file: "N/A", location: {line: 0, column: 0}, id: this.id, description: this.description.NONE_FOUND, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false }];
     } else {
-      issues.forEach(e => e.visibility.globalCheckDisabled = true)
+      issues.forEach(e => e.visibility.globalCheckDisabled = true);
       return issues;
     }
   }

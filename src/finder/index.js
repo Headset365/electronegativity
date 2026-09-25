@@ -1,8 +1,5 @@
-import { Finder } from './finder';
-import { GlobalChecks } from './globalchecks';
-import { severity, confidence } from './attributes';
+import { Finder } from './finder.js';
+import { GlobalChecks } from './globalchecks.js';
+import { severity, confidence } from './attributes.js';
 
-module.exports.Finder = Finder;
-module.exports.GlobalChecks = GlobalChecks;
-module.exports.severity = severity;
-module.exports.confidence = confidence;
+export { Finder, GlobalChecks, severity, confidence };

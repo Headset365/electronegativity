@@ -1,4 +1,4 @@
-import { severity, confidence } from '../../attributes';
+import { severity, confidence } from '../../attributes.js';
 
 export default class LimitNavigationGlobalCheck {
 
@@ -8,7 +8,7 @@ export default class LimitNavigationGlobalCheck {
       NONE_FOUND: __('LIMIT_NAVIGATION_GLOBAL_CHECK_NONE_FOUND'),
       NEW_WINDOW_MISSING: __('LIMIT_NAVIGATION_GLOBAL_CHECK_NEW_WINDOW_MISSING'),
       WILL_NAVIGATE_MISSING: __('LIMIT_NAVIGATION_GLOBAL_CHECK_WILL_NAVIGATE_MISSING')
-     };
+    };
     this.depends = ["LimitNavigationJSCheck"];
     this.shortenedURL = "https://git.io/JeuMs";
   }
@@ -18,7 +18,6 @@ export default class LimitNavigationGlobalCheck {
     var willNavigateNavigations = issues.filter(e => e.properties.event === 'will-navigate');
     var newWindowNavigations = issues.filter(e => e.properties.event === 'new-window');
     var setWindowOpenHandlerCalls = issues.filter(e => e.properties.event === 'setWindowOpenHandler');
-    var findings = [];
 
     if (issues.length == 0) { // no navigation events, yikes!
       return [{ file: "N/A", location: {line: 0, column: 0}, title: this.title, id: this.id, description: this.description.NONE_FOUND, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false }];

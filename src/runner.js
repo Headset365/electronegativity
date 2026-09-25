@@ -1,14 +1,14 @@
 import cliProgress from 'cli-progress';
 import Table from 'cli-table3';
 import chalk from 'chalk';
-import logger from 'winston';
+import logger from './util/logger.js';
 
-import _i18n from './locales/i18n';
-import { LoaderFile, LoaderAsar, LoaderDirectory } from './loader';
-import { Parser } from './parser';
-import { Finder } from './finder';
-import { GlobalChecks, severity, confidence } from './finder';
-import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util';
+import _i18n from './locales/i18n.js';
+import { LoaderFile, LoaderAsar, LoaderDirectory } from './loader/index.js';
+import { Parser } from './parser/index.js';
+import { Finder } from './finder/index.js';
+import { GlobalChecks, severity, confidence } from './finder/index.js';
+import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util/index.js';
 
 export default async function run(options, forCli = false) {
 
@@ -38,7 +38,7 @@ export default async function run(options, forCli = false) {
     logger.warn(__('electronVersionError'));
 
   if (options.severitySet) {
-    if (!severity.hasOwnProperty(options.severitySet.toUpperCase())) {
+    if (!Object.hasOwn(severity, options.severitySet.toUpperCase())) {
       const err = __('severityLevelError');
       if (forCli) {
         console.error(chalk.red(err));
@@ -48,7 +48,7 @@ export default async function run(options, forCli = false) {
   } else options.severitySet = severity["INFORMATIONAL"]; // default to lowest
 
   if (options.confidenceSet) {
-    if (!confidence.hasOwnProperty(options.confidenceSet.toUpperCase())) {
+    if (!Object.hasOwn(confidence, options.confidenceSet.toUpperCase())) {
       const err = __('confidenceLevelError');
       if (forCli) {
         console.error(chalk.red(err));
@@ -95,7 +95,7 @@ export default async function run(options, forCli = false) {
   let oldLog;
   let consoleArguments = [];
   if (forCli) {
-    progress = new cliProgress.Bar({format: '{bar} {percentage}% | {value}/{total}'}, cliProgress.Presets.shades_grey);
+    progress = new cliProgress.SingleBar({format: '{bar} {percentage}% | {value}/{total}'}, cliProgress.Presets.shades_grey);
     oldLog = console.log;
     console.log = function () {
       consoleArguments.push(arguments);
@@ -149,7 +149,7 @@ export default async function run(options, forCli = false) {
   issues = await globalChecker.getResults(issues, options.output);
 
   // Adjust visibility
-  issues = issues.filter(i => !i.hasOwnProperty('visibility') || (!i.visibility.inlineDisabled && !i.visibility.globalCheckDisabled));
+  issues = issues.filter(i => !Object.hasOwn(i, 'visibility') || (!i.visibility.inlineDisabled && !i.visibility.globalCheckDisabled));
 
   // adjust to Relative or Absolute path
   if (options.isRelative)
@@ -192,3 +192,6 @@ export default async function run(options, forCli = false) {
     issues
   };
 }
+
+// Lets CommonJS consumers keep using `const run = require('@doyensec/electronegativity')` (Node's require(esm))
+export { run as 'module.exports' };

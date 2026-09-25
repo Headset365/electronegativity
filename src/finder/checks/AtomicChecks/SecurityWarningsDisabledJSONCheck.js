@@ -1,6 +1,6 @@
 import linenumber from 'linenumber';
-import { severity, confidence } from '../../attributes';
-import { sourceTypes } from '../../../parser/types';
+import { severity, confidence } from '../../attributes.js';
+import { sourceTypes } from '../../../parser/types.js';
 
 export default class SecurityWarningsDisabledJSONCheck {
   constructor() {
@@ -21,7 +21,7 @@ export default class SecurityWarningsDisabledJSONCheck {
     if (npmScripts && Object.keys(npmScripts).length > 0) {
 
       for (var script in npmScripts) {
-        if (npmScripts.hasOwnProperty(script)) {
+        if (Object.hasOwn(npmScripts, script)) {
 
           var res = JSON.stringify(npmScripts[script]).includes(this.dangerousFlag);
 
@@ -37,9 +37,9 @@ export default class SecurityWarningsDisabledJSONCheck {
     // We look for "config" key-values
     if (npmConfig && Object.keys(npmConfig).length > 0) {
       for (var config in npmConfig) {
-        if (npmConfig.hasOwnProperty(config)) {
+        if (Object.hasOwn(npmConfig, config)) {
 
-          var res = JSON.stringify(npmConfig[config]).includes(this.dangerousFlag);
+          res = JSON.stringify(npmConfig[config]).includes(this.dangerousFlag);
 
           if (res) {
             let ln = linenumber(content.text, npmConfig[config]);

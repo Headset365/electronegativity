@@ -1,23 +1,12 @@
-import logger from 'winston';
+import { should as chaiShould } from 'chai';
+import _i18n from '../src/locales/i18n.js';
+import { Finder } from '../src/finder/index.js';
 
-import { Finder } from '../src/finder';
+import { LoaderFile } from '../src/loader/index.js';
+import { Parser } from '../src/parser/index.js';
 
-logger.addColors({
-  debug : 'green',
-  info : 'cyan',
-  silly : 'magenta',
-  warn : 'yellow',
-  error : 'red'
-});
-
-logger.remove(logger.transports.Console);
-logger.add(logger.transports.Console, {colorize : true, level : 'silly'});
-
-let chai = require('chai');
-let should = chai.should();
-
-import { LoaderFile } from '../src/loader';
-import { Parser } from '../src/parser';
+const should = chaiShould();
+await _i18n();
 
 let test_files = new Map()
   .set('html', 'test/file_formats/test.html')

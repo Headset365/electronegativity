@@ -27,11 +27,24 @@ If you need something more powerful or updated, an improved SAST tool based on E
 
 ## Installation
 
-Major releases are pushed to NPM and can be simply installed using:
+Electronegativity requires Node.js `^22.18.0` or `>=24.11.0`. Major releases are pushed to NPM and can be simply installed using:
 
 ```
 $ npm install @doyensec/electronegativity -g
 ```
+
+or run without installing:
+
+```
+$ npx @doyensec/electronegativity -i /path/to/electron/app
+```
+
+### What's new in 2.0
+
+* Supports modern Electron projects: `.mjs`/`.cjs`/`.mts`/`.cts` sources, current ECMAScript and TypeScript syntax, and Electron versions detected from `package-lock.json` (v1-v3), `npm-shrinkwrap.json`, `yarn.lock` (classic and Berry), `pnpm-lock.yaml` and `node_modules/electron`.
+* Checks account for the secure defaults of newer Electron releases: `contextIsolation` (Electron 12+), `sandbox` (Electron 20+, unless `nodeIntegration` is enabled) and the removal of the `remote` module (Electron 14+). When the Electron version can't be detected, the oldest (least secure) defaults are still assumed.
+* `AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK` now queries the [OSV](https://osv.dev) database of published Electron security advisories (GitHub Security Advisories), as Electron's former release feed stopped being updated in 2022. Findings list the matching advisory IDs.
+* Native ES modules with no build step, running on current versions of all dependencies (Babel 8, TypeScript ESTree 8, espree, eslint-scope, cheerio 1.x, commander, chalk).
 
 ## Usage
 
@@ -130,9 +143,9 @@ run({
   // run Electron upgrade checks, eg -u 7..8 to check upgrade from Electron 7 to 8 (optional)
   electronUpgrade: '7..8',
   // assume the set Electron version, overriding the detected one
-  electronVersion: '5.0.0',
-  // use additional parser plugins
-  parserPlugins: ['optionalChaining']
+  electronVersionOverride: '5.0.0',
+  // use additional Babel parser plugins
+  parserPlugins: ['doExpressions']
 })
     .then(result => console.log(result))
     .catch(err => console.error(err));

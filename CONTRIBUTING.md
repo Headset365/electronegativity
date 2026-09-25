@@ -6,10 +6,13 @@ Feel free to participate to this project, as much as you can. Even supporting ot
 
 Clone [electronegativity](git@github.com:doyensec/electronegativity.git) and proceed with the following:
 
+Electronegativity is written as native ES modules and runs directly from `src/` with no build step. It requires Node.js `^22.18.0` or `>=24.11.0`.
+
 ```
 $ npm ci # So we have a deterministic, repeatable build
-$ npm run build
-$ node dist/index.js -h
+$ node src/index.js -h
+$ npm run lint
+$ npm test
 ```
 
 To debug using Visual Studio Code, you can also setup the following ```.vscode/launch.json``` with a specific test case as argument:
@@ -23,7 +26,7 @@ To debug using Visual Studio Code, you can also setup the following ```.vscode/l
             "type": "node",
             "request": "launch",
             "name": "Launch Program",
-            "program": "${workspaceFolder}/dist/index.js",
+            "program": "${workspaceFolder}/src/index.js",
             "args": ["-i","${workspaceFolder}/test/checks/"]
         }
     ]
@@ -36,7 +39,7 @@ Electronegativity is build in such a way to easily allow the development of new 
 
 There are three different check types:
 
-* JS (using a combination of [Esprima](http://esprima.org/), [Babel](https://github.com/babel/babel), [TypeScript ESTree](https://github.com/JamesHenry/typescript-estree))
+* JS (using a combination of [espree](https://github.com/eslint/js/tree/main/packages/espree), [Babel](https://github.com/babel/babel), [TypeScript ESTree](https://typescript-eslint.io/packages/typescript-estree))
 * HTML (using [Cheerio](https://github.com/cheeriojs/cheerio))
 * JSON (using the native `JSON.parse()`)
 
@@ -44,16 +47,18 @@ Depending on the target file (e.g. evaluating a property in a JavaScript file ->
 
 1. Create a new file in `/src/finder/checks/AtomicChecks`
 2. Create a new class with a `match()` function, which should contain the logic of your custom check
-   * JS -> `match(astNode, astHelper)`
-   * HTML -> `match(cheerioObj, content)`
-   * JSON -> `match(content)`
+   * JS -> `match(astNode, astHelper, scope, defaults, electronVersion)`
+   * HTML -> `match(cheerioObj, content, defaults, electronVersion)`
+   * JSON -> `match(content, defaults, electronVersion)`
+
+   `defaults` holds the `webPreferences` defaults (from `defaults.json`) of the Electron version in use, so checks can skip options that are already secure by default.
 3. Add a constructor that specifies the check details such as name, description, etc. 
 
 For example:
 
 ```js
-import { sourceTypes } from '../../parser/types';
-import { severity, confidence } from '../../attributes';
+import { sourceTypes } from '../../../parser/types.js';
+import { severity, confidence } from '../../attributes.js';
 
 export default class MyCustomHTMLCheck {
     constructor() {

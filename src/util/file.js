@@ -1,21 +1,25 @@
-import fs from 'fs';
-import dir from 'node-dir';
-import os from 'os';
-import path from 'path';
-const VER = require('../../package.json').version;
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import pkg from '../../package.json' with { type: 'json' };
+import { sourceExtensions } from '../parser/types.js';
+
+const VER = pkg.version;
+const MANIFEST_FILES = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml'];
 
 export function is_directory(input){
   return fs.statSync(input).isDirectory();
 }
 
 export function getSample(fileLines, index) {
-    let sample = fileLines[index];
-    // Also removes the \r leftover from split('\n') on Windows
-    // Using split('\n') in checkers however is OK, because file ending depends on Git settings and *may* be just '\n' even on Windows
-    sample = sample.trim();
+  let sample = fileLines[index] ?? "";
+  // Also removes the \r leftover from split('\n') on Windows
+  // Using split('\n') in checkers however is OK, because file ending depends on Git settings and *may* be just '\n' even on Windows
+  sample = sample.trim();
 
-    return sample;
-  }
+  return sample;
+}
 
 export function getRelativePath(targetFolder, filePath) {
   if (filePath === "N/A")
@@ -42,20 +46,25 @@ export function extension(file) {
   return file.slice((file.lastIndexOf('.') - 1 >>> 0) + 2).toLowerCase();
 }
 
-export function list_files(input){
-  return dir.promiseFiles(input)
-    .then(files => {
-      files = files.filter(file => {
-        return file.indexOf('node_modules') === -1 && (['js', 'jsx', 'ts', 'tsx', 'html', 'htm'].includes(extension(file)) || file.toLowerCase().indexOf('package.json') > -1 || file.toLowerCase().indexOf('package-lock.json') > -1 || file.toLowerCase().indexOf('yarn.lock') > -1);
-      });
-      return files;
-    })
-    .catch(console.error);
+export function isManifestFile(file) {
+  return MANIFEST_FILES.includes(path.basename(file).toLowerCase());
+}
+
+export function isScannableFile(file) {
+  const ext = extension(file);
+  return (ext !== 'json' && ext in sourceExtensions) || isManifestFile(file);
+}
+
+export async function list_files(input) {
+  const entries = await fs.promises.readdir(input, { recursive: true, withFileTypes: true });
+  return entries
+    .filter(entry => entry.isFile())
+    .map(entry => path.join(entry.parentPath, entry.name))
+    .filter(file => !file.split(path.sep).includes('node_modules') && isScannableFile(file));
 }
 
 export function writeIssues(root, isRelative, filename, result, isSarif){
   let output = '';
-  let fileFlag = 'w';
 
   if (isSarif) {
     let issues =
@@ -82,15 +91,16 @@ export function writeIssues(root, isRelative, filename, result, isSarif){
       issues.runs[0].invocations = [
         {
           workingDirectory: {
-            uri: `file:///${root}`
+            uri: pathToFileURL(root).href
           },
           executionSuccessful: true
         },
       ];
     }
 
+    const seenRules = new Set();
     result.forEach(issue => {
-      if (issues.runs[0].tool.driver.rules[issue.id] === undefined) {
+      if (!seenRules.has(issue.id)) {
         issues.runs[0].tool.driver.rules.push({
           id: issue.id,
           fullDescription: {
@@ -104,7 +114,7 @@ export function writeIssues(root, isRelative, filename, result, isSarif){
             text: `https://github.com/doyensec/electronegativity/wiki/${issue.id}`
           }
         });
-        issues.runs[0].tool.driver.rules[issue.id] = true;
+        seenRules.add(issue.id);
       }
 
       let result = {
@@ -136,8 +146,7 @@ export function writeIssues(root, isRelative, filename, result, isSarif){
     output = JSON.stringify(issues, null, 2);
   }
   else{
-    writeCsvHeader(filename);
-    fileFlag = 'a';
+    output = csvHeader();
     result.forEach(issue => {
       output += [
         issue.id,
@@ -153,19 +162,17 @@ export function writeIssues(root, isRelative, filename, result, isSarif){
     });
   }
 
-  fs.writeFile(filename, output, { flag: fileFlag }, (err) => {
-    if(err) throw err;
-  });
+  fs.writeFileSync(filename, output);
 }
 
 function escapeCsv(val) {
   return val != null ? '"' + val.replace(/"/g, '""') + '"' : "N/A";
 }
 
-export function writeCsvHeader(filename){
-  let header = `issue, severity, confidence, filename, location, sample, description, url${os.EOL}`;
+function csvHeader() {
+  return `issue, severity, confidence, filename, location, sample, description, url${os.EOL}`;
+}
 
-  fs.writeFile(filename, header, (err) => {
-    if(err) throw err;
-  });
+export function writeCsvHeader(filename){
+  fs.writeFileSync(filename, csvHeader());
 }

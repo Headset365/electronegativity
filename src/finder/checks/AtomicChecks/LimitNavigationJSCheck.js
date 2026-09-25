@@ -1,5 +1,5 @@
-import { sourceTypes } from '../../../parser/types';
-import { severity, confidence } from '../../attributes';
+import { sourceTypes } from '../../../parser/types.js';
+import { severity, confidence } from '../../attributes.js';
 
 export default class LimitNavigationJSCheck {
   constructor() {
@@ -20,7 +20,7 @@ export default class LimitNavigationJSCheck {
         }
       }
     } else if (astNode.callee.property && astNode.callee.property.name === "setWindowOpenHandler") {
-          return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, title: this.title, description: this.description, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.TENTATIVE, properties: { "event" : "setWindowOpenHandler" }, manualReview: true }];
+      return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, title: this.title, description: this.description, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.TENTATIVE, properties: { "event" : "setWindowOpenHandler" }, manualReview: true }];
     }
   }
 

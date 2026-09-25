@@ -112,7 +112,7 @@
 	"WEB_SECURITY_JS_CHECK": "No utilice disablewebsecurity",
 	"AFFINITY_GLOBAL_CHECK_AFFINITY_FOUND": "Dos o más rendereres se están ejecutando con la misma propiedad de afinidad. Se requiere una revisión manual ya que no se verifica las webPreferences.",
 	"ALLOW_RENDERER_PROCESS_REUSE_GLOBAL_DEPRECATION": "(ELECTRON 8) El valor predeterminado de app.allowRendererProcessReuse está obsoleto, actualmente es false. Cambiará a true en Electron 9.",
-	"AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK_SECURITY_ISSUES": "Verifique si hay parches de seguridad aplicados entre la versión de Electron utilizada y la más reciente",
+	"AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK_SECURITY_ISSUES": "La versión de Electron utilizada está afectada por avisos de seguridad publicados que se corrigen en versiones más recientes",
 	"AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK_OUTDATED_VERSION": "Hay una nueva versión de Electron disponible",
 	"CSP_GLOBAL_CHECK_NO_CSP": "No se ha detectado CSP en la aplicación objetivo",
 	"CSP_GLOBAL_CHECK_MAYBE_WEAK_CSP": "Una o más directivas CSP detectadas parecen ser vulnerables",

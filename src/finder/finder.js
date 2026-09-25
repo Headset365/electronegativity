@@ -1,24 +1,25 @@
-import { CHECKS } from './checks/AtomicChecks';
-import { sourceTypes } from '../parser/types';
-import { ELECTRON_ATOMIC_UPGRADE_CHECKS } from './checks/AtomicChecks/ElectronAtomicUpgradeChecks';
-import { isDisabledByInlineComment } from "../util/exceptions";
-import { getSample } from "../util/file"
+import { CHECKS } from './checks/AtomicChecks/index.js';
+import { sourceTypes } from '../parser/types.js';
+import { ELECTRON_ATOMIC_UPGRADE_CHECKS } from './checks/AtomicChecks/ElectronAtomicUpgradeChecks.js';
+import { isDisabledByInlineComment } from "../util/exceptions.js";
+import { getSample } from "../util/file.js";
 import chalk from 'chalk';
-import { gte, compare } from 'semver';
+import { gte, compare, coerce } from 'semver';
+import all_defaults from '../../defaults.json' with { type: 'json' };
 
 export class Finder {
   constructor(customScan, excludeFromScan, electronUpgrade) {
-    let candidateChecks = Array.from(CHECKS)
+    let candidateChecks = Array.from(CHECKS);
 
     // init electron-upgrade specific checks given user-provided version numbers
     if (electronUpgrade) {
       const [currentVersion, targetVersion] = electronUpgrade.split('..');
       if (currentVersion && targetVersion) {
         Object.keys(ELECTRON_ATOMIC_UPGRADE_CHECKS).forEach(versionToCheck => {
-          if (versionToCheck > currentVersion && versionToCheck <= targetVersion) {
+          if (Number(versionToCheck) > Number(currentVersion) && Number(versionToCheck) <= Number(targetVersion)) {
             candidateChecks = candidateChecks.concat(ELECTRON_ATOMIC_UPGRADE_CHECKS[versionToCheck]);
           }
-        })
+        });
       } else {
         console.error(chalk.red(`When specifying the upgrade options please specify your current version and target version like this: x..y (eg 7..8)`));
         process.exit(1);
@@ -33,7 +34,7 @@ export class Finder {
         console.error(chalk.red(`You have an error in your custom checks list. Maybe you misspelt some check names?`));
         process.exit(1);
       } else {
-        for (var i = this._enabled_checks.length - 1; i >= 0; i--)
+        for (let i = this._enabled_checks.length - 1; i >= 0; i--)
           if (!customScan.includes(this._enabled_checks[i].name.toLowerCase()))
             this._enabled_checks.splice(i, 1);
       }
@@ -41,12 +42,12 @@ export class Finder {
 
     // the exclusion list has the last word over the list of loaded checks
     if (excludeFromScan && excludeFromScan.length > 0) {
-      var checksNames = this._enabled_checks.map(check => check.name.toLowerCase());
+      checksNames = this._enabled_checks.map(check => check.name.toLowerCase());
       if (!excludeFromScan.every(r => checksNames.includes(r))) {
         console.error(chalk.red(`You have an error in your custom checks list. Maybe you misspelt some check names?`));
         process.exit(1);
       } else {
-        for (var i = this._enabled_checks.length - 1; i >= 0; i--)
+        for (let i = this._enabled_checks.length - 1; i >= 0; i--)
           if (excludeFromScan.includes(this._enabled_checks[i].name.toLowerCase()))
             this._enabled_checks.splice(i, 1);
       }
@@ -74,9 +75,8 @@ export class Finder {
     // If the loader didn't detect the Electron version, assume the first one. Not knowing the version, we have to assume the worst (i.e.
     // all options defaulting to insecure values). By always setting the version here, the code in the checkers is simplified as they now
     // don't have to handle the case of unknown versions.
-    if (!electronVersion) electronVersion = '0.1.0';
+    electronVersion = (electronVersion && coerce(electronVersion)?.version) || '0.1.0';
 
-    const all_defaults = require('../../defaults.json');
     const version_of_last_default_change = Object.keys(all_defaults).sort((a, b) => compare(a, b)).reverse().find(current_version => gte(electronVersion, current_version));
     const defaults = all_defaults[version_of_last_default_change];
 

@@ -1,24 +1,14 @@
+import { should as chaiShould } from 'chai';
+import _i18n from '../src/locales/i18n.js';
 import fs from 'fs';
 import path from 'path';
-import logger from 'winston';
-import { LoaderDirectory } from '../src/loader';
-import { Parser } from '../src/parser';
-import { Finder } from '../src/finder';
-import { GlobalChecks } from '../src/finder';
+import { LoaderDirectory } from '../src/loader/index.js';
+import { Parser } from '../src/parser/index.js';
+import { Finder } from '../src/finder/index.js';
+import { GlobalChecks } from '../src/finder/index.js';
 
-let chai = require('chai');
-let should = chai.should();
-
-logger.addColors({
-  debug : 'green',
-  info : 'cyan',
-  silly : 'magenta',
-  warn : 'yellow',
-  error : 'red'
-});
-
-logger.remove(logger.transports.Console);
-logger.add(logger.transports.Console, {colorize : true, level : 'silly'});
+chaiShould();
+await _i18n();
 
 let globalcheck_tests = "test/checks/GlobalChecks";
 
@@ -53,9 +43,9 @@ describe('GlobalChecks', async () => {
       let finder = await new Finder(globalCheck.depends.map(check => check.toLowerCase()), null, electronVersions);
       // run the checks required by the globalCheck in order to work
       for (let file of filenames) {
-            const [type, data, content, warnings] = parser.parse(file, loader.load_buffer(file));
-            let findings = await finder.find(file, data, type, content);
-            if (findings.length > 0) issues = issues.concat(findings);
+        const [type, data, content] = parser.parse(file, loader.load_buffer(file));
+        let findings = await finder.find(file, data, type, content);
+        if (findings.length > 0) issues = issues.concat(findings);
       }
       // test the globalCheck
       let result = await globalCheck.perform(issues);

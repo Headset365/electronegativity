@@ -1,5 +1,5 @@
-import { sourceTypes } from '../../../parser/types';
-import { severity, confidence } from '../../attributes';
+import { sourceTypes } from '../../../parser/types.js';
+import { severity, confidence } from '../../attributes.js';
 
 export default class NodeIntegrationJSCheck {
   constructor() {

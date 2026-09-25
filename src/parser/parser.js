@@ -1,12 +1,12 @@
-import { parseModule as esprima_parse } from 'esprima';
+import * as espree from 'espree';
 import * as babelParser from "@babel/parser";
 import * as typescriptEstreeParser from '@typescript-eslint/typescript-estree';
 import { load as cheerio_load } from 'cheerio';
 
-import { extension } from '../util';
-import { sourceTypes, sourceExtensions } from './types';
+import { extension } from '../util/index.js';
+import { sourceTypes, sourceExtensions } from './types.js';
 
-import { EsprimaAst, BabelAst, ESLintAst, TreeSettings, Scope } from '../finder/ast';
+import { EsprimaAst, BabelAst, ESLintAst, TreeSettings, Scope } from '../finder/ast.js';
 
 export class Parser {
   constructor(babelFirst, typescriptBabelFirst) {
@@ -17,50 +17,48 @@ export class Parser {
 
     this.babelFirst = babelFirst;
     this.typescriptBabelFirst = typescriptBabelFirst;
+    // Syntax that reached Stage 4 is enabled by default in Babel 8, only non-standard syntax needs a plugin
     this.babelPlugins = [
       "jsx",
-      "objectRestSpread",
-      "classProperties",
-      "optionalCatchBinding",
-      "asyncGenerators",
       "decorators-legacy",
       "flow",
-      "dynamicImport",
       "estree",
-    ]
+    ];
 
     this.tsPlugins = [
       "jsx",
-      "objectRestSpread",
-      "classProperties",
-      "optionalCatchBinding",
-      "asyncGenerators",
       "decorators-legacy",
       "typescript",
-      "dynamicImport",
-    ]
+    ];
   }
 
   addPlugin(plugin) {
-    this.tsPlugins.push(plugin)
-    this.babelPlugins.push(plugin)
+    this.tsPlugins.push(plugin);
+    this.babelPlugins.push(plugin);
   }
 
+  // Kept under its historical name: espree replaced the unmaintained esprima parser, producing the same ESTree AST
   parseEsprima(content) {
-    let data = esprima_parse(content, { loc: true, tolerant: true, jsx: true });
+    let data;
+    try {
+      data = espree.parse(content, { ecmaVersion: 'latest', sourceType: 'module', loc: true, range: true, ecmaFeatures: { jsx: true } });
+    } catch {
+      data = espree.parse(content, { ecmaVersion: 'latest', sourceType: 'script', loc: true, range: true, ecmaFeatures: { jsx: true, globalReturn: true } });
+    }
     data.astParser = this.esprimaAst;
     data.Scope = new Scope(data);
     return data;
   }
 
   parseBabel(content) {
-    let data = babelParser.parse(content, {
-      sourceType: "module",
+    const file = babelParser.parse(content, {
+      sourceType: "unambiguous",
+      errorRecovery: true,
+      ranges: true,
       plugins: this.babelPlugins,
-      ecmaFeatures: {
-          modules: true
-      }
-    }).program;
+    });
+    let data = file.program;
+    if (file.errors && file.errors.length > 0) data.errors = file.errors;
 
     data.astParser = this.esprimaAst;
     data.Scope = new Scope(data);
@@ -69,7 +67,7 @@ export class Parser {
 
   parseTypeScript(content) {
     let data = babelParser.parse(content, {
-      sourceType: "module",
+      sourceType: "unambiguous",
       plugins: this.tsPlugins
     });
 
@@ -86,11 +84,7 @@ export class Parser {
       range: true,
       tokens: true,
       errorOnUnknownASTType: true,
-      useJSXTextNode: true,
-      ecmaFeatures: {
-        jsx: true,
-        modules: true
-      }
+      jsx: true,
     });
 
     data.astParser = this.esLintESTreeAst;
@@ -112,7 +106,7 @@ export class Parser {
         // replace shebang (https://en.wikipedia.org/wiki/Shebang_(Unix)) with spaces to keep offsets intact
         content = content.replace(/(^#!.*)/, function(m) { return Array(m.length + 1).join(' '); });
 
-        if(ext === 'ts' || ext === 'tsx') {
+        if (['ts', 'tsx', 'mts', 'cts'].includes(ext)) {
           try {
             data = this.typescriptBabelFirst ? this.parseTypeScript(content) : this.parseTypescriptEstree(content);
           } catch (error1) {

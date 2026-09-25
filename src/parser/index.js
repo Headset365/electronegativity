@@ -1,6 +1,4 @@
-import { sourceTypes, sourceExtensions } from './types';
-import { Parser } from './parser';
+import { sourceTypes, sourceExtensions } from './types.js';
+import { Parser } from './parser.js';
 
-module.exports.sourceTypes = sourceTypes;
-module.exports.sourceExtensions = sourceExtensions;
-module.exports.Parser = Parser;
+export { sourceTypes, sourceExtensions, Parser };

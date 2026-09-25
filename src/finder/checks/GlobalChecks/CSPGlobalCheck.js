@@ -1,6 +1,5 @@
-import * as attributes from '../../attributes';
-import * as csp from '@doyensec/csp-evaluator';
-import logger from 'winston';
+import * as attributes from '../../attributes.js';
+import csp from '@doyensec/csp-evaluator';
 
 export default class CSPGlobalCheck {
 
@@ -43,15 +42,15 @@ export default class CSPGlobalCheck {
             else if (finding.severity === csp.severities.HIGH_MAYBE || finding.severity === csp.severities.MEDIUM_MAYBE)
               if (confidence < 2) confidence = 1;
 
-      if (confidence === 2) 
-        returnableIssues.push({ file: cspIssue.file, location: cspIssue.location, id: this.id, description: this.description.WEAK_CSP, shortenedURL: this.shortenedURL, severity: attributes.severity.LOW, confidence: attributes.confidence.CERTAIN, sample: cspIssue.properties.CSPstring, manualReview: false });
-      if (confidence === 1)
-        returnableIssues.push({ file: cspIssue.file, location: cspIssue.location, id: this.id, description: this.description.MAYBE_WEAK_CSP, shortenedURL: this.shortenedURL, severity: attributes.severity.LOW, confidence: attributes.confidence.FIRM, sample: cspIssue.properties.CSPstring, manualReview: true });
+          if (confidence === 2) 
+            returnableIssues.push({ file: cspIssue.file, location: cspIssue.location, id: this.id, description: this.description.WEAK_CSP, shortenedURL: this.shortenedURL, severity: attributes.severity.LOW, confidence: attributes.confidence.CERTAIN, sample: cspIssue.properties.CSPstring, manualReview: false });
+          if (confidence === 1)
+            returnableIssues.push({ file: cspIssue.file, location: cspIssue.location, id: this.id, description: this.description.MAYBE_WEAK_CSP, shortenedURL: this.shortenedURL, severity: attributes.severity.LOW, confidence: attributes.confidence.FIRM, sample: cspIssue.properties.CSPstring, manualReview: true });
 
+        }
       }
-    }
 
-    return returnableIssues;
+      return returnableIssues;
 
     }
   }

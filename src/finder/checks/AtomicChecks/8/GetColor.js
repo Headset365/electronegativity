@@ -1,5 +1,5 @@
-import { sourceTypes } from '../../../../parser/types';
-import { severity, confidence } from '../../../attributes';
+import { sourceTypes } from '../../../../parser/types.js';
+import { severity, confidence } from '../../../attributes.js';
 
 export default class GetColor {
   constructor() {
@@ -22,10 +22,10 @@ export default class GetColor {
     let location = [];
 
     if (astNode.arguments.length > 0) {
-        if (astNode.arguments[0].type !== astHelper.StringLiteral) return null;
-        if (astNode.arguments[0].value === 'alternate-selected-control-text') {
-          return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false }];
-        }
+      if (astNode.arguments[0].type !== astHelper.StringLiteral) return null;
+      if (astNode.arguments[0].value === 'alternate-selected-control-text') {
+        return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false }];
+      }
     }
 
     return location;

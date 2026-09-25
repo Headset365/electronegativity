@@ -1,4 +1,4 @@
-import * as attributes from '../../../attributes';
+import * as attributes from '../../../attributes.js';
 
 export default class AllowRendererProcessReuseGlobal {
 

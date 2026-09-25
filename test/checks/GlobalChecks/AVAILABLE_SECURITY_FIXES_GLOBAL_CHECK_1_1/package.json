@@ -1,7 +1,7 @@
 
 {
     "name": "example_desktop_app",
-    "description": "The latest version available for electron",
+    "description": "An Electron release with known security advisories",
     "main": "app/index.js",
     "dependencies": {
       "electron":"4.1.4",

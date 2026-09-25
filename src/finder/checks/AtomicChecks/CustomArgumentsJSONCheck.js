@@ -1,7 +1,7 @@
 import linenumber from 'linenumber';
 
-import { sourceTypes } from '../../../parser/types';
-import { severity, confidence } from '../../attributes';
+import { sourceTypes } from '../../../parser/types.js';
+import { severity, confidence } from '../../attributes.js';
 
 export default class CustomArgumentsJSONCheck {
   constructor() {
@@ -55,7 +55,7 @@ export default class CustomArgumentsJSONCheck {
     if (npmScripts && Object.keys(npmScripts).length > 0) {
 
       for (var script in npmScripts) {
-        if (npmScripts.hasOwnProperty(script)) {
+        if (Object.hasOwn(npmScripts, script)) {
 
           var res = this.dangerousArguments.some(function(arg) {
             return JSON.stringify(npmScripts[script]).toLowerCase().includes(arg);
@@ -73,9 +73,9 @@ export default class CustomArgumentsJSONCheck {
     // We look for "config" key-values
     if (npmConfig && Object.keys(npmConfig).length > 0) {
       for (var config in npmConfig) {
-        if (npmConfig.hasOwnProperty(config)) {
+        if (Object.hasOwn(npmConfig, config)) {
 
-          var res = this.dangerousArguments.some(function(arg) {
+          res = this.dangerousArguments.some(function(arg) {
             return JSON.stringify(npmConfig[config]).toLowerCase().includes(arg);
           });
 

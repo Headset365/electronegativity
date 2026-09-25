@@ -1,10 +1,10 @@
-import logger from 'winston';
-import path from 'path';
-import asar from '@electron/asar';
+import path from 'node:path';
+import * as asar from '@electron/asar';
 
-import { extension } from '../util';
-import { Loader } from './loader_interface';
-import { findOldestElectronVersion } from "../util/electron_version";
+import logger from '../util/logger.js';
+import { isScannableFile } from '../util/index.js';
+import { Loader } from './loader_interface.js';
+import { findOldestElectronVersion } from "../util/electron_version.js";
 
 export class LoaderAsar extends Loader {
   constructor() {
@@ -15,48 +15,31 @@ export class LoaderAsar extends Loader {
   async load(archive) {
     this.archive = archive;
 
-    const archived_files = asar.listPackage(archive);
+    const archived_files = asar.listPackage(archive, { isPack: false })
+      .map(file => file.startsWith(path.sep) ? file.substring(1) : file);
     logger.debug(`Files in ASAR archive: ${archived_files}`);
 
-    for (const file of archived_files) {
-      if(file.startsWith(`${path.sep}node_modules`)) continue;
-
-      const f = file.startsWith(path.sep) ? file.substr(1) : file;
-      switch (extension(f)) {
-        case 'json':
-          if (f.toLowerCase().indexOf('package.json') < 0)
-            continue;
-        // eslint-disable-next-line no-fallthrough
-        case 'js':
-        case 'jsx':
-        case 'ts':
-        case 'tsx':
-        case 'htm':
-        case 'html': {
-          this._loaded.add(f);
-          break;
-        }
-        default:
-          break;
-      }
+    for (const f of archived_files) {
+      if (f.split(path.sep).includes('node_modules')) continue;
+      if (isScannableFile(f)) this._loaded.add(f);
     }
 
     const readAndOptionallyParse = (filename, shouldParse) => {
       try {
-        const file = archived_files.find((f) => f.endsWith(filename));
+        const file = archived_files.find(f => path.basename(f) === filename && !f.split(path.sep).includes('node_modules'));
         if (!file) return undefined;
-        const f = file.startsWith(path.sep) ? file.substr(1) : file;
-        if (!shouldParse) return this.load_buffer(f);
-        return JSON.parse(this.load_buffer(f));
-      } catch (e) {
+        const content = this.load_buffer(file).toString();
+        return shouldParse ? JSON.parse(content) : content;
+      } catch {
         return undefined;
       }
     };
 
     const electronVersion = await findOldestElectronVersion({
       pjsonData: readAndOptionallyParse('package.json', true),
-      plockData: readAndOptionallyParse('package-lock.json', true),
+      plockData: readAndOptionallyParse('package-lock.json', true) || readAndOptionallyParse('npm-shrinkwrap.json', true),
       yarnLockData: readAndOptionallyParse('yarn.lock', false),
+      pnpmLockData: readAndOptionallyParse('pnpm-lock.yaml', false),
     });
     if (electronVersion) this._electronVersion = electronVersion;
 
@@ -65,7 +48,6 @@ export class LoaderAsar extends Loader {
 
   load_buffer(filename) {
     logger.debug(`Extracting file: ${filename}`);
-    const buffer = asar.extractFile(this.archive, filename);
-    return buffer;
+    return asar.extractFile(this.archive, filename);
   }
 }

@@ -1,6 +1,8 @@
-import { read_file, list_files } from '../util';
-import { Loader } from './loader_interface';
-import { findOldestElectronVersion } from "../util/electron_version";
+import path from 'node:path';
+
+import { read_file, list_files } from '../util/index.js';
+import { Loader } from './loader_interface.js';
+import { findOldestElectronVersion } from "../util/electron_version.js";
 
 export class LoaderDirectory extends Loader {
   constructor() {
@@ -14,13 +16,15 @@ export class LoaderDirectory extends Loader {
       this._loaded.add(file);
     }
 
+    // Prefer the manifest closest to the root of the scanned directory
+    const byDepth = [...files].sort((a, b) => a.split(path.sep).length - b.split(path.sep).length);
     const readAndOptionallyParse = (filename, shouldParse) => {
       try {
-        const file = files.find(f => f.endsWith(filename));
+        const file = byDepth.find(f => path.basename(f) === filename);
         if (!file) return undefined;
-        if (!shouldParse) return this.load_buffer(file);
-        return JSON.parse(this.load_buffer(file));
-      } catch (e) {
+        const content = this.load_buffer(file);
+        return shouldParse ? JSON.parse(content) : content;
+      } catch {
         return undefined;
       }
     };
@@ -28,18 +32,19 @@ export class LoaderDirectory extends Loader {
     const electronVersion = await findOldestElectronVersion({
       pjsonData: readAndOptionallyParse('package.json', true),
       rootPath: dir,
-      plockData: readAndOptionallyParse('package-lock.json', true),
+      plockData: readAndOptionallyParse('package-lock.json', true) || readAndOptionallyParse('npm-shrinkwrap.json', true),
       yarnLockData: readAndOptionallyParse('yarn.lock', false),
+      pnpmLockData: readAndOptionallyParse('pnpm-lock.yaml', false),
     });
     if (electronVersion) this._electronVersion = electronVersion;
   }
 
   async stash() {
     this._loaded.clear();
+    this._electronVersion = undefined;
   }
 
   load_buffer(filename) {
-    const buffer = read_file(filename);
-    return buffer;
+    return read_file(filename);
   }
 }

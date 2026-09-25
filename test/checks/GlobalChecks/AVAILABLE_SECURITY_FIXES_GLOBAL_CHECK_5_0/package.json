@@ -1,0 +1,8 @@
+{
+  "name": "example_library",
+  "description": "A package that does not depend on Electron",
+  "main": "index.js",
+  "dependencies": {
+    "mkdirp": "^3.0.1"
+  }
+}

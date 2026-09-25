@@ -1,5 +1,5 @@
-import { sourceTypes } from '../../../../parser/types';
-import { severity, confidence } from '../../../attributes';
+import { sourceTypes } from '../../../../parser/types.js';
+import { severity, confidence } from '../../../attributes.js';
 
 export default class VisibleOnFullScreen {
   constructor() {
@@ -27,7 +27,7 @@ export default class VisibleOnFullScreen {
           node => (node.key.name === 'visibleOnFullScreen'));
 
         for (const node of found_nodes) {
-            location.push({ line: node.key.loc.start.line, column: node.key.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false });
+          location.push({ line: node.key.loc.start.line, column: node.key.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false });
         }
       }
     }

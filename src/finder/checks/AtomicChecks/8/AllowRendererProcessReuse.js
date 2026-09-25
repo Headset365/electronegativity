@@ -1,10 +1,10 @@
-import { sourceTypes } from '../../../../parser/types';
-import { severity, confidence } from '../../../attributes';
+import { sourceTypes } from '../../../../parser/types.js';
+import { severity, confidence } from '../../../attributes.js';
 
 export default class AllowRendererProcessReuse {
   constructor() {
     this.id = "ALLOW_RENDERER_PROCESS_REUSE_DEPRECATION";
-    this.description = __("ALLOW_RENDERER_PROCESS_REUSE_DEPRECATION")
+    this.description = __("ALLOW_RENDERER_PROCESS_REUSE_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
     this.shortenedURL = 'https://git.io/JvuxX';
   }

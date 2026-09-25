@@ -1,8 +1,8 @@
-import path from 'path';
-import fs from 'fs';
+import path from 'node:path';
+import fs from 'node:fs';
 
-import { read_file } from '../util';
-import { Loader } from './loader_interface';
+import { read_file } from '../util/index.js';
+import { Loader } from './loader_interface.js';
 
 export class LoaderFile extends Loader {
   constructor() {

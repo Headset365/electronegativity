@@ -1,5 +1,5 @@
-import { sourceTypes } from '../../../../parser/types';
-import { severity, confidence } from '../../../attributes';
+import { sourceTypes } from '../../../../parser/types.js';
+import { severity, confidence } from '../../../attributes.js';
 
 export default class SetNullMenuDeprecation {
   constructor() {
@@ -16,10 +16,10 @@ export default class SetNullMenuDeprecation {
       return null;
     }
 
-    let confidenceLevel = confidence.TENTATIVE
+    let confidenceLevel = confidence.TENTATIVE;
     if (astNode.arguments.length > 0) {
       if (astNode.arguments[0].value === null){
-        confidenceLevel = confidence.CERTAIN
+        confidenceLevel = confidence.CERTAIN;
       }      
     }
     return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidenceLevel, manualReview: true }];

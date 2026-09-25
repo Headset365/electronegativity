@@ -1,9 +1,9 @@
-import AffinityGlobalCheck from './AffinityGlobalCheck';
-import AvailableSecurityFixesGlobalCheck from './AvailableSecurityFixesGlobalCheck';
-import CSPGlobalCheck from './CSPGlobalCheck';
-import LimitNavigationGlobalCheck from './LimitNavigationGlobalCheck';
-import PermissionRequestHandlerGlobalCheck from './PermissionRequestHandlerGlobalCheck';
-import HTTPResourcesAndNodeIntegrationGlobalCheck from './HTTPResourcesAndNodeIntegrationGlobalCheck';
+import AffinityGlobalCheck from './AffinityGlobalCheck.js';
+import AvailableSecurityFixesGlobalCheck from './AvailableSecurityFixesGlobalCheck.js';
+import CSPGlobalCheck from './CSPGlobalCheck.js';
+import LimitNavigationGlobalCheck from './LimitNavigationGlobalCheck.js';
+import PermissionRequestHandlerGlobalCheck from './PermissionRequestHandlerGlobalCheck.js';
+import HTTPResourcesAndNodeIntegrationGlobalCheck from './HTTPResourcesAndNodeIntegrationGlobalCheck.js';
 
 const GLOBAL_CHECKS = [
   AffinityGlobalCheck,
@@ -14,4 +14,4 @@ const GLOBAL_CHECKS = [
   HTTPResourcesAndNodeIntegrationGlobalCheck
 ];
 
-module.exports.GLOBAL_CHECKS = GLOBAL_CHECKS;
+export { GLOBAL_CHECKS };

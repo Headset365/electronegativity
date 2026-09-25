@@ -1,7 +1,7 @@
-import { sourceTypes } from '../../../../parser/types';
-import { severity, confidence } from '../../../attributes';
+import { sourceTypes } from '../../../../parser/types.js';
+import { severity, confidence } from '../../../attributes.js';
 
-const DEPRECATED_REQUIRES = [ 'child_process', 'fs', 'os', 'path' ]
+const DEPRECATED_REQUIRES = [ 'child_process', 'fs', 'os', 'path' ];
 
 export default class RequireSandboxedRenderers {
   constructor() {

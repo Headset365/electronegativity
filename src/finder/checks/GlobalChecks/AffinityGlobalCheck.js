@@ -1,4 +1,4 @@
-import { severity, confidence } from '../../attributes';
+import { severity, confidence } from '../../attributes.js';
 
 export default class AffinityGlobalCheck {
 

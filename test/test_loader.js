@@ -1,25 +1,15 @@
-import logger from 'winston';
+import { should as chaiShould } from 'chai';
+import _i18n from '../src/locales/i18n.js';
 
-logger.addColors({
-  debug : 'green',
-  info : 'cyan',
-  silly : 'magenta',
-  warn : 'yellow',
-  error : 'red'
-});
+import { LoaderAsar, LoaderFile } from '../src/loader/index.js';
 
-logger.remove(logger.transports.Console);
-logger.add(logger.transports.Console, {colorize : true, level : 'silly'});
-
-let chai = require('chai');
-chai.should();
-
-import { LoaderAsar, LoaderFile } from '../src/loader';
+const should = chaiShould();
+await _i18n();
 
 let test_files = new Map()
-                      .set('asar', 'test/file_formats/electron.asar')
-                      .set('html', 'test/file_formats/test.html')
-                      .set('js', 'test/file_formats/test.js');
+  .set('asar', 'test/file_formats/electron.asar')
+  .set('html', 'test/file_formats/test.html')
+  .set('js', 'test/file_formats/test.js');
 
 describe('Loader classes', () => {
   describe('LoaderASAR', () => {
@@ -30,9 +20,13 @@ describe('Loader classes', () => {
     });
 
     it('fails if archive does not exist', async () => {
-      (async () => {
-        await loader.load('FOO').should.throw();
-      });
+      let error;
+      try {
+        await loader.load('FOO');
+      } catch (e) {
+        error = e;
+      }
+      should.exist(error);
     });
 
     it('extracts file from ASAR', async () => {

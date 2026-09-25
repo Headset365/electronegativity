@@ -1,5 +1,5 @@
-import { sourceTypes } from '../../../parser/types';
-import { severity, confidence } from '../../attributes';
+import { sourceTypes } from '../../../parser/types.js';
+import { severity, confidence } from '../../attributes.js';
 
 export default class DangerousFunctionsJSCheck {
   constructor() {
@@ -23,7 +23,7 @@ export default class DangerousFunctionsJSCheck {
       'setTimeout',
       'setInterval',
       'setImmediate',
-      ];
+    ];
 
     if (astNode.type !== 'CallExpression') return null;
 
@@ -40,15 +40,15 @@ export default class DangerousFunctionsJSCheck {
       if (astNode.arguments[0].type === "BinaryExpression") shouldReport = true; // if it's a string concatenation
 
       if (astNode.arguments[0].type === "Identifier") { // is it a variable?
-         // if it is a variable we check its type
-          var target = scope.resolveVarValue(astNode);
+        // if it is a variable we check its type
+        var target = scope.resolveVarValue(astNode);
 
-          if (target === null) // we could not resolve the variable, let the user check
-            shouldReport = true;
-          else if (target && (target.type === "BinaryExpression" || target.type.includes(astHelper.StringLiteral))) // check if we are facing a string concatenation, a plain string or template literal (e.g. ${var})
-            shouldReport = true;
-          else // it's probably of little interest
-            shouldReport = false;
+        if (target === null) // we could not resolve the variable, let the user check
+          shouldReport = true;
+        else if (target && (target.type === "BinaryExpression" || target.type.includes(astHelper.StringLiteral))) // check if we are facing a string concatenation, a plain string or template literal (e.g. ${var})
+          shouldReport = true;
+        else // it's probably of little interest
+          shouldReport = false;
       }
     }
 

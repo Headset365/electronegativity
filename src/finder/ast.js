@@ -1,8 +1,54 @@
 import traverse from "@babel/traverse";
-import estraverse from 'estraverse-fb';
-import ESLintTraverser from 'eslint/lib/shared/traverser';
-import * as escope from 'escope';
-//import * as eslintScope from 'eslint-scope'; // stub for https://eslint.org/docs/developer-guide/scope-manager-interface
+import estraverse from 'estraverse';
+import * as eslintScope from 'eslint-scope';
+import { getKeys } from 'eslint-visitor-keys';
+import { visitorKeys } from '@typescript-eslint/visitor-keys';
+
+// ESTree + JSX + TypeScript visitor keys, falling back to the node's own keys for anything unknown (e.g. Flow annotations)
+const keysOf = (node) => visitorKeys[node.type] || getKeys(node);
+const isNode = (x) => x !== null && typeof x === 'object' && typeof x.type === 'string';
+
+// Drop-in replacement for ESLint's former internal Traverser (lib/shared/traverser), which is no longer importable
+class Traverser {
+  constructor() {
+    this._skipped = false;
+    this._broken = false;
+  }
+
+  skip() { this._skipped = true; }
+
+  break() { this._broken = true; }
+
+  traverse(node, { enter = () => {}, leave = () => {} }) {
+    this._enter = enter;
+    this._leave = leave;
+    this._skipped = false;
+    this._broken = false;
+    this._traverse(node, null);
+  }
+
+  _traverse(node, parent) {
+    if (!isNode(node)) return;
+
+    this._skipped = false;
+    this._enter(node, parent);
+
+    if (!this._skipped && !this._broken) {
+      for (const key of keysOf(node)) {
+        if (this._broken) break;
+        const child = node[key];
+        if (Array.isArray(child)) {
+          for (let j = 0; j < child.length && !this._broken; ++j)
+            this._traverse(child[j], node);
+        } else {
+          this._traverse(child, node);
+        }
+      }
+    }
+
+    if (!this._broken) this._leave(node, parent);
+  }
+}
 
 class Ast {
   findNodeByType(ast, type, max_depth, stopAtFirst, found) {
@@ -44,45 +90,39 @@ export class Scope {
 
   constructor(ast) {
     if (/Program|File/.test(ast.type)) {
-      var _scopeManager = {};
-      var _globalScope = {};
-      var _functionScope = {};
-      // eslitScope has the same exact syntax as escope
+      const options = { ecmaVersion: 2022, childVisitorKeys: visitorKeys, fallback: getKeys };
+      let scopeManager;
       try {
-        _scopeManager = escope.analyze(ast);
+        scopeManager = eslintScope.analyze(ast, { ...options, sourceType: ast.sourceType === 'script' ? 'script' : 'module' });
       }
-      catch (error) {
-        _scopeManager = escope.analyze(ast, { ecmaVersion: 6, sourceType: "module", ecmaFeatures: { modules: true } });
+      catch {
+        scopeManager = eslintScope.analyze(ast, { ...options, sourceType: 'script' });
       }
 
-      _globalScope = _scopeManager.acquire(ast);
-      _functionScope = _globalScope;
-
-      this.scopeManager = _scopeManager;
-      this.globalScope = _globalScope;
-      this.functionScope = _functionScope;
+      this.scopeManager = scopeManager;
+      this.globalScope = scopeManager.globalScope;
+      this.functionScope = scopeManager.acquire(ast, true); // module scope for ES modules, global scope otherwise
     }
   }
 
   updateFunctionScope(ast, action) {
-    if (Object.keys(this.scopeManager).length > 0 && this.scopeManager.acquire(ast) != null) {
-      if (action === 'enter')
-        this.functionScope = this.scopeManager.acquire(ast);
-      else if (this.functionScope.upper != null) //check that functionScope is not globalScope (for code snippet with no func)
-        this.functionScope = this.functionScope.upper;
-    }
+    if (!this.scopeManager) return;
+    const outerScope = this.scopeManager.acquire(ast);
+    if (outerScope == null) return;
+
+    if (action === 'enter')
+      this.functionScope = this.scopeManager.acquire(ast, true);
+    else if (outerScope.upper != null) //check that functionScope is not globalScope (for code snippet with no func)
+      this.functionScope = outerScope.upper;
   }
 
   getVarInScope(varName) {
-    var res = this.functionScope.variables.find(variable => variable.name === varName);
-    if (res) return res;
-    else {
-      res = this.globalScope.variables.find(variable => variable.name === varName);
-      if (res)
-        return res;
-      else
-        return null;
+    // walk up from the innermost scope (block, function, module) to the global one
+    for (let scope = this.functionScope; scope; scope = scope.upper) {
+      const res = scope.set.get(varName);
+      if (res) return res;
     }
+    return (this.globalScope && this.globalScope.set.get(varName)) || null;
   }
 
   resolveVarValue(astNode) {
@@ -107,7 +147,7 @@ export class EsprimaAst extends Ast {
   }
 
   traverseTree(tree, options) {
-    estraverse.traverse(tree, options);
+    estraverse.traverse(tree, { keys: visitorKeys, fallback: keysOf, ...options });
   }
 
   getNode(node) {
@@ -118,6 +158,8 @@ export class EsprimaAst extends Ast {
     const nodes = [];
     let depth = 0;
     estraverse.traverse(ast, {
+      keys: visitorKeys,
+      fallback: keysOf,
       enter: (node) => {
         depth += 1;
         if (found(node)) {
@@ -193,7 +235,7 @@ export class BabelAst extends Ast {
 export class ESLintAst extends Ast {
   constructor(settings) {
     super(settings);
-    this.esLintTraverser = new ESLintTraverser();
+    this.esLintTraverser = new Traverser();
   }
 
   findNodeByTypeParent(ast, type, max_depth, stopAtFirst, found) {
