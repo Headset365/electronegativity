@@ -27,17 +27,25 @@ If you need something more powerful or updated, an improved SAST tool based on E
 
 ## Installation
 
-Electronegativity requires Node.js `^22.18.0` or `>=24.11.0`. Major releases are pushed to NPM and can be simply installed using:
+Electronegativity requires Node.js `^22.18.0` or `>=24.11.0`. It is not published to NPM; install it straight from GitHub instead.
+
+Install the `electronegativity` command globally:
 
 ```
-$ npm install @doyensec/electronegativity -g
+$ npm install -g github:Headset365/electronegativity
+$ electronegativity -h
 ```
 
-or run without installing:
+Or run it from a clone, with no build step:
 
 ```
-$ npx @doyensec/electronegativity -i /path/to/electron/app
+$ git clone https://github.com/Headset365/electronegativity.git
+$ cd electronegativity
+$ npm ci
+$ node src/index.js -i /path/to/electron/app
 ```
+
+To update a global install, run the `npm install -g` command again.
 
 ### What's new in 2.0
 
@@ -119,7 +127,11 @@ Note that using annotations may not be applicable for some higher-level checks s
 
 ### Programmatically
 
-You can also use electronegativity programmatically, using similar options as for the CLI:
+You can also use electronegativity programmatically, using similar options as for the CLI. Add it to your project from GitHub first (the package keeps the name `@doyensec/electronegativity`):
+
+```
+$ npm install github:Headset365/electronegativity
+```
 
 ```js
 const run = require('@doyensec/electronegativity')
