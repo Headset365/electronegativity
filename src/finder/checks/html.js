@@ -111,3 +111,102 @@ export function looksLikeHtml(node) {
   if (node.type === 'BinaryExpression' && node.operator === '+') return looksLikeHtml(node.left) || looksLikeHtml(node.right);
   return false;
 }
+
+// Where untrusted HTML can come from besides the server. Each raises a sink to HIGH, like server data: content pasted
+// or dropped from another document, the clipboard, and documents or files the user imports (a .docx converted to
+// HTML, a file read with FileReader), any of which another person may have written.
+export const ORIGINS = {
+  SERVER: 'server-controlled data',
+  PASTE: 'pasted or dropped content',
+  CLIPBOARD: 'clipboard content',
+  DOCUMENT: 'an imported document or file',
+};
+
+// converters that turn a document into HTML without sanitizing it: mammoth.convertToHtml(), XLSX.utils.sheet_to_html()
+const DOCUMENT_CONVERTERS = /^(convertToHtml|sheet_to_html)$/;
+const CLIPBOARD_READS = /^(readHTML|readText|readRTF|readBookmark|read)$/;
+
+/**
+ * Where a value handed to an HTML sink comes from, when that is somewhere untrusted: one of ORIGINS, or undefined for
+ * a value of unknown provenance.
+ */
+export function htmlOrigin(value, scope, ancestors = []) {
+  if (!value) return undefined;
+  if (isServerFed(value, scope) || inServerContext(ancestors, value)) return ORIGINS.SERVER;
+  return externalOrigin(value, scope) || callbackOrigin(ancestors, value, scope);
+}
+
+function externalOrigin(node, scope, depth = 0) {
+  if (!node || depth > 6) return undefined;
+  switch (node.type) {
+    case 'AwaitExpression':
+    case 'TSAsExpression':
+    case 'TSNonNullExpression':
+    case 'ParenthesizedExpression':
+      return externalOrigin(node.argument || node.expression, scope, depth + 1);
+    case 'CallExpression':
+    case 'OptionalCallExpression': {
+      const callee = node.callee;
+      const method = memberName(callee) || '';
+      if (!isMemberNode(callee)) return undefined;
+      const receiver = callee.object;
+      const receiverName = receiver.type === 'Identifier' ? receiver.name : memberName(receiver);
+      // event.clipboardData.getData('text/html'), (e.originalEvent || e).dataTransfer.getData('text')
+      if (method === 'getData' && /^(clipboardData|dataTransfer)$/.test(receiverName || '')) return ORIGINS.PASTE;
+      // Electron clipboard.readHTML(), navigator.clipboard.readText()
+      if (CLIPBOARD_READS.test(method) && receiverName === 'clipboard') return ORIGINS.CLIPBOARD;
+      if (DOCUMENT_CONVERTERS.test(method)) return ORIGINS.DOCUMENT;
+      // .then() of a converter is handled by callbackOrigin; other methods of an untrusted value keep its origin
+      if (/^(trim|replace|replaceAll|toString|concat|slice|substring|join)$/.test(method)) return externalOrigin(receiver, scope, depth + 1);
+      return undefined;
+    }
+    case 'MemberExpression':
+    case 'OptionalMemberExpression': {
+      // (await mammoth.convertToHtml(input)).value, reader.result of a FileReader
+      if (memberName(node) === 'result' && isFileReader(node.object, scope)) return ORIGINS.DOCUMENT;
+      return externalOrigin(node.object, scope, depth + 1);
+    }
+    case 'Identifier': {
+      const resolved = resolveLocal(node, scope);
+      return resolved !== node ? externalOrigin(resolved, scope, depth + 1) : undefined;
+    }
+    case 'TemplateLiteral':
+      return node.expressions.map(expression => externalOrigin(expression, scope, depth + 1)).find(Boolean);
+    case 'BinaryExpression':
+      return node.operator === '+' ? externalOrigin(node.left, scope, depth + 1) || externalOrigin(node.right, scope, depth + 1) : undefined;
+    case 'ConditionalExpression':
+      return externalOrigin(node.consequent, scope, depth + 1) || externalOrigin(node.alternate, scope, depth + 1);
+    case 'LogicalExpression':
+      return externalOrigin(node.left, scope, depth + 1) || externalOrigin(node.right, scope, depth + 1);
+    default:
+      return undefined;
+  }
+}
+
+function isFileReader(node, scope) {
+  if (!node) return false;
+  const resolved = node.type === 'Identifier' ? resolveLocal(node, scope) : node;
+  return !!resolved && resolved.type === 'NewExpression' && resolved.callee.type === 'Identifier' && resolved.callee.name === 'FileReader';
+}
+
+// The parameter of a callback that receives untrusted content: mammoth.convertToHtml(x).then(result => ...),
+// navigator.clipboard.readText().then(text => ...), reader.onload = (e) => ... of a FileReader
+function callbackOrigin(ancestors, value, scope) {
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const fn = ancestors[i];
+    if (!isFunction(fn)) continue;
+    const parent = ancestors[i - 1];
+    let origin;
+    if (isCallNode(parent) && PROMISE_CALLBACKS.test(memberName(parent.callee) || '') && isMemberNode(parent.callee)) {
+      origin = externalOrigin(parent.callee.object, scope);
+    } else if (parent && parent.type === 'AssignmentExpression' && isMemberNode(parent.left) && /^(onload|onloadend)$/.test(memberName(parent.left) || '') &&
+        isFileReader(parent.left.object, scope)) {
+      origin = ORIGINS.DOCUMENT;
+    } else if (isCallNode(parent) && memberName(parent.callee) === 'addEventListener' && isMemberNode(parent.callee) &&
+        ['load', 'loadend'].includes(String(parent.arguments[0] && parent.arguments[0].value)) && isFileReader(parent.callee.object, scope)) {
+      origin = ORIGINS.DOCUMENT;
+    }
+    if (origin && dependsOnParams(value, fn)) return origin;
+  }
+  return undefined;
+}

@@ -53,6 +53,7 @@ import { SecureKeyboardEntryJSCheck, SecureKeyboardEntryHTMLCheck } from './Secu
 import { WebGLJSCheck, WebGLHTMLCheck, WebSQLJSCheck, WebSQLHTMLCheck, PluginsJSCheck, PluginsHTMLCheck, NavigateOnDragDropJSCheck, NavigateOnDragDropHTMLCheck } from './WebPreferenceFeatureChecks.js';
 import { FileProtocolJSCheck, UntrustedLoadUrlJSCheck } from './LoadContentJSChecks.js';
 import XssSinkJSCheck from './XssSinkJSCheck.js';
+import SanitizerConfigJSCheck from './SanitizerConfigJSCheck.js';
 import { AngularSceDisabledJSCheck, AngularResourceUrlListJSCheck } from './AngularJSChecks.js';
 import { AngularTrustHtmlJSCheck, RichTextEditorHtmlJSCheck, AngularBindHtmlUnsafeHTMLCheck } from './HtmlInjectionChecks.js';
 import { WindowSummaryJSCheck, ExposedApiJSCheck } from './AttackSurfaceChecks.js';
@@ -132,6 +133,7 @@ const CHECKS = [
   AngularResourceUrlListJSCheck,
   AngularTrustHtmlJSCheck,
   RichTextEditorHtmlJSCheck,
+  SanitizerConfigJSCheck,
   AngularBindHtmlUnsafeHTMLCheck,
   WindowSummaryJSCheck,
   ExposedApiJSCheck,

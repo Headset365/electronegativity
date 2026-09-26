@@ -2,7 +2,7 @@ import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, keyName, calleeObjectName, finding } from '../helpers.js';
 import { constantValue, identifiersIn, isCall } from '../analysis.js';
-import { isServerFed, inServerContext, looksLikeHtml } from '../html.js';
+import { htmlOrigin, looksLikeHtml, ORIGINS } from '../html.js';
 
 const HTML_PROPERTIES = ['innerHTML', 'outerHTML'];
 const JQUERY_INSERTION = ['append', 'prepend', 'before', 'after', 'replaceWith'];
@@ -56,10 +56,11 @@ export default class XssSinkJSCheck {
     const constant = constantValue(value, scope);
     if (constant !== undefined) return null;
     if (isSanitized(value, scope)) return null;
-    // server-controlled HTML rendered by another user's client is the stored-content threat: raise it to HIGH
-    const serverFed = isServerFed(value, scope) || inServerContext(context && context.ancestors, value);
-    return [finding(this, astNode, { severity: serverFed ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
-      description: `${this.description} (${sink} with ${serverFed ? 'server-controlled data' : 'a dynamic value'})`, properties: { sink, serverFed } })];
+    // server-controlled HTML rendered by another user's client is the stored-content threat, and pasted, dropped or
+    // imported content can be written by someone else too: raise them to HIGH
+    const origin = htmlOrigin(value, scope, context && context.ancestors);
+    return [finding(this, astNode, { severity: origin ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
+      description: `${this.description} (${sink} with ${origin || 'a dynamic value'})`, properties: { sink, serverFed: origin === ORIGINS.SERVER, origin } })];
   }
 }
 
@@ -70,7 +71,7 @@ function isHtmlArgument(node, scope, context) {
   const constant = constantValue(node, scope);
   if (typeof constant === 'string') return /<[a-z!]/i.test(constant);
   if (constant !== undefined) return false;
-  return looksLikeHtml(node) || isServerFed(node, scope) || inServerContext(context && context.ancestors, node);
+  return looksLikeHtml(node) || !!htmlOrigin(node, scope, context && context.ancestors);
 }
 
 // Strings assembled from pieces: `<b>${x}</b>`, '<b>' + x

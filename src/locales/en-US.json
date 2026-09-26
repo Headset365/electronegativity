@@ -175,6 +175,7 @@
 	"ANGULAR_RESOURCE_URL_LIST_JS_CHECK": "The AngularJS resource URL allowlist lets templates load from untrusted locations",
 	"ANGULAR_TRUST_HTML_JS_CHECK": "AngularJS trusts or compiles dynamic markup ($sce.trustAsHtml, $compile), bypassing escaping",
 	"RICH_TEXT_EDITOR_JS_CHECK": "HTML is loaded into a rich-text editor; sanitize it on the server, not only in the editor",
+	"SANITIZER_CONFIG_JS_CHECK": "An HTML sanitizer or rich-text editor is configured to let script-bearing markup through",
 	"ANGULAR_BIND_HTML_UNSAFE_HTML_CHECK": "ng-bind-html-unsafe renders its expression as raw HTML with no escaping",
 	"END_OF_LIFE_LIBRARY_GLOBAL_CHECK": "Library version that no longer receives security fixes",
 	"WINDOW_SUMMARY_JS_CHECK": "Window security settings",

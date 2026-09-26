@@ -175,6 +175,7 @@
 	"ANGULAR_RESOURCE_URL_LIST_JS_CHECK": "La liste d'URL de ressources autorisées d'AngularJS permet de charger des modèles depuis des emplacements non fiables",
 	"ANGULAR_TRUST_HTML_JS_CHECK": "AngularJS fait confiance à du balisage dynamique ou le compile ($sce.trustAsHtml, $compile), contournant l'échappement",
 	"RICH_TEXT_EDITOR_JS_CHECK": "Du HTML est chargé dans un éditeur de texte enrichi ; assainissez-le côté serveur, pas seulement dans l'éditeur",
+	"SANITIZER_CONFIG_JS_CHECK": "Un assainisseur HTML ou un éditeur de texte enrichi est configuré pour laisser passer du balisage exécutant des scripts",
 	"ANGULAR_BIND_HTML_UNSAFE_HTML_CHECK": "ng-bind-html-unsafe affiche son expression en HTML brut sans aucun échappement",
 	"END_OF_LIFE_LIBRARY_GLOBAL_CHECK": "Version de bibliothèque qui ne reçoit plus de correctifs de sécurité",
 	"WINDOW_SUMMARY_JS_CHECK": "Paramètres de sécurité de la fenêtre",

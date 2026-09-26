@@ -2,15 +2,17 @@ import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, calleeObjectName, finding } from '../helpers.js';
 import { constantValue, isCall, resolveLocal } from '../analysis.js';
-import { isServerFed, inServerContext, looksLikeHtml } from '../html.js';
+import { htmlOrigin, looksLikeHtml, ORIGINS } from '../html.js';
 
 const ANGULAR_URL = "https://docs.angularjs.org/api/ng/service/$sce";
 
 // Whether the value handed to a sink is dynamic (not a static, developer-controlled constant) and, if so, whether it
-// comes from the server. Returns undefined for a constant (nothing to flag) or { serverFed } otherwise.
+// comes from somewhere untrusted (see ORIGINS). Returns undefined for a constant (nothing to flag) or
+// { origin, serverFed } otherwise.
 function assess(value, scope, context) {
   if (!value || constantValue(value, scope) !== undefined) return undefined;
-  return { serverFed: isServerFed(value, scope) || inServerContext(context && context.ancestors, value) };
+  const origin = htmlOrigin(value, scope, context && context.ancestors);
+  return { origin, serverFed: origin === ORIGINS.SERVER };
 }
 
 /**
@@ -51,8 +53,8 @@ export class AngularTrustHtmlJSCheck {
     if (api === '$compile' && !isMarkupString(value, scope, context)) return null;
     const verdict = assess(value, scope, context);
     if (!verdict) return null;
-    return [finding(this, astNode, { severity: verdict.serverFed ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
-      description: `${this.description} (${api} with ${verdict.serverFed ? 'server-controlled data' : 'a dynamic value'})`, properties: { api, serverFed: verdict.serverFed } })];
+    return [finding(this, astNode, { severity: verdict.origin ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
+      description: `${this.description} (${api} with ${verdict.origin || 'a dynamic value'})`, properties: { api, serverFed: verdict.serverFed, origin: verdict.origin } })];
   }
 }
 
@@ -67,7 +69,7 @@ function isMarkupString(value, scope, context) {
   // $scope.serverTemplate, noteHtml: named as markup, where element / element.contents() are DOM nodes
   const name = value.type === 'Identifier' ? value.name : (value.type === 'MemberExpression' || value.type === 'OptionalMemberExpression') ? memberName(value) : undefined;
   if (name && MARKUP_NAME.test(name)) return true;
-  return isServerFed(value, scope) || inServerContext(context && context.ancestors, value);
+  return !!htmlOrigin(value, scope, context && context.ancestors);
 }
 
 // Rich-text editor APIs that load an HTML string into the editor, by editor: any of these method names with a dynamic
@@ -130,8 +132,8 @@ export class RichTextEditorHtmlJSCheck {
     if (!editor) return null;
     const verdict = assess(value, scope, context);
     if (!verdict) return null;
-    return [finding(this, astNode, { severity: verdict.serverFed ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
-      description: `${this.description} (${editor}: ${method}() with ${verdict.serverFed ? 'server-controlled data' : 'a dynamic value'})`, properties: { editor, method, serverFed: verdict.serverFed } })];
+    return [finding(this, astNode, { severity: verdict.origin ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
+      description: `${this.description} (${editor}: ${method}() with ${verdict.origin || 'a dynamic value'})`, properties: { editor, method, serverFed: verdict.serverFed, origin: verdict.origin } })];
   }
 }
 
