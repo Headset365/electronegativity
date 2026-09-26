@@ -41,7 +41,51 @@ function findingRow(issue, index) {
  * @param {Array} issues findings, as returned by run()
  * @param {Object} meta { version, input, electronVersion, filesScanned, globalChecks, atomicChecks, errors, generatedAt }
  */
-export function renderHtmlReport(issues, meta) {
+const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK'];
+const place = (issue) => `${issue.file}${issue.location && issue.location.line ? ':' + issue.location.line : ''}`;
+
+// What page script could reach in each window, if content it renders were ever to run as code
+function reach(settings) {
+  if (!settings) return '';
+  const node = settings.nodeIntegration.value === true && settings.sandbox.value !== true;
+  if (node) return '<span class="risk">Node.js</span>';
+  if (settings.contextIsolation.value === false) return '<span class="risk">preload globals</span>';
+  if ([settings.nodeIntegration.value, settings.contextIsolation.value].some(v => typeof v === 'string')) return 'unknown';
+  return 'exposed APIs only';
+}
+
+function settingCell(settings, name, risky) {
+  const setting = settings && settings[name];
+  if (!setting) return '<td></td>';
+  const { value, source } = setting;
+  const text = value === true ? 'on' : value === false ? 'off' : value;
+  const cls = value === risky ? ' class="risk"' : typeof value === 'string' ? ' class="unknown"' : '';
+  return `<td${cls}>${escapeHtml(text)}${source === 'default' && typeof value === 'boolean' ? ' <small>default</small>' : ''}</td>`;
+}
+
+function attackSurface(windows, apis) {
+  if (windows.length === 0 && apis.length === 0) return '';
+  return `
+  <h2>Renderer attack surface</h2>
+  <p class="note">What script running in each window could reach if content the window renders were ever interpreted as code. Values come from the code, or from the defaults of the Electron version in use.</p>${windows.length > 0 ? `
+  <div class="table-wrap"><table class="surface">
+    <thead><tr><th>Window</th><th>Created at</th><th>nodeIntegration</th><th>contextIsolation</th><th>sandbox</th><th>webSecurity</th><th>Preload</th><th>Page script reaches</th></tr></thead>
+    <tbody>${windows.map(w => { const p = w.properties || {}; return `
+      <tr><td>${escapeHtml(p.window)}</td><td class="loc">${escapeHtml(place(w))}</td>${settingCell(p.settings, 'nodeIntegration', true)}${settingCell(p.settings, 'contextIsolation', false)}${settingCell(p.settings, 'sandbox', false)}${settingCell(p.settings, 'webSecurity', false)}<td>${escapeHtml(p.preload || '')}</td><td>${reach(p.settings)}</td></tr>`; }).join('')}
+    </tbody>
+  </table></div>` : ''}${apis.length > 0 ? `
+  <div class="table-wrap"><table class="surface">
+    <thead><tr><th>Exposed to pages as</th><th>Members</th><th>Defined at</th></tr></thead>
+    <tbody>${apis.map(a => { const p = a.properties || {}; return `
+      <tr><td>window.${escapeHtml(p.world)}</td><td>${p.members && p.members.length ? p.members.map(m => `<code>${escapeHtml(m)}</code>`).join(' ') : 'not listed statically'}</td><td class="loc">${escapeHtml(place(a))}</td></tr>`; }).join('')}
+    </tbody>
+  </table></div>` : ''}`;
+}
+
+export function renderHtmlReport(allIssues, meta) {
+  const windows = allIssues.filter(i => i.id === 'WINDOW_SUMMARY_JS_CHECK');
+  const apis = allIssues.filter(i => i.id === 'EXPOSED_API_JS_CHECK');
+  const issues = allIssues.filter(i => !INVENTORY.includes(i.id));
   const sorted = [...issues].sort((a, b) =>
     b.severity.value - a.severity.value || b.confidence.value - a.confidence.value ||
     String(a.id).localeCompare(String(b.id)) || String(a.file).localeCompare(String(b.file)) ||
@@ -124,6 +168,10 @@ export function renderHtmlReport(issues, meta) {
     td { border: 0; padding: 4px 12px; }
     .loc { min-width: 0; }
   }
+  .surface td.risk, .surface .risk { color: var(--high, #c62828); font-weight: 600; }
+  .surface td.unknown { color: var(--muted, #777); font-style: italic; }
+  .surface small { color: var(--muted, #777); }
+  .note { color: var(--muted, #777); font-size: 13px; margin: 0 0 8px; }
   @media print { .toolbar, .checks { display: none; } .card { cursor: default; } body { background: #fff; } }
 </style>
 </head>
@@ -144,6 +192,7 @@ ${SEVERITIES.map(s => `    <button type="button" class="card sev-${s.toLowerCase
     <div class="card"><div class="n">${manual}</div><div class="l">Need manual review</div></div>
   </div>
 
+${attackSurface(windows, apis)}
   <h2>Findings by check</h2>
   <div class="checks">
 ${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check="${escapeHtml(id)}"><span class="badge sev-${e.severity.name.toLowerCase()}" style="min-width:0">${e.count}</span> ${escapeHtml(id)}</button>`).join('\n')}

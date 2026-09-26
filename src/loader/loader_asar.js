@@ -2,7 +2,7 @@ import path from 'node:path';
 import * as asar from '@electron/asar';
 
 import logger from '../util/logger.js';
-import { isScannableFile, isNonAppFile, isVendoredLibrary } from '../util/index.js';
+import { isScannableFile, isNonAppFile, vendoredLibrary } from '../util/index.js';
 import { Loader } from './loader_interface.js';
 import { findOldestElectronVersion } from "../util/electron_version.js";
 
@@ -51,7 +51,9 @@ export class LoaderAsar extends Loader {
   isVendored(file) {
     if (!/\.[cm]?js$/i.test(file)) return false;
     try {
-      return isVendoredLibrary(file, this.load_buffer(file).subarray(0, 2048).toString());
+      const library = vendoredLibrary(file, this.load_buffer(file).subarray(0, 2048).toString());
+      if (library) this._vendoredLibraries.push({ ...library, file });
+      return !!library;
     } catch {
       return false;
     }

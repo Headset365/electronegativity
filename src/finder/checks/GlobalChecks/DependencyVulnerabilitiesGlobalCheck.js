@@ -42,7 +42,7 @@ export default class DependencyVulnerabilitiesGlobalCheck {
         file: pkg.file,
         location: { line: pkg.line || 1, column: 0 },
         id: this.id,
-        description: `${this.description}: ${pkg.name}@${pkg.version}${pkg.dev ? ' (dev)' : ''} (${ids.length}: ${listed})`,
+        description: `${this.description}: ${pkg.name}@${pkg.version}${pkg.vendored ? ' (copy bundled with the app)' : ''}${pkg.dev ? ' (dev)' : ''} (${ids.length}: ${listed})`,
         properties: { package: pkg.name, version: pkg.version, dev: !!pkg.dev, advisories: ids },
         shortenedURL: `https://osv.dev/list?ecosystem=npm&q=${encodeURIComponent(pkg.name)}`,
         severity: pkg.dev ? severity.LOW : severity.MEDIUM,

@@ -359,6 +359,39 @@ const CASES = [
     'gui/NoteTextViewer.jsx': `export default function Viewer() { return <iframe className="noteTextViewer" src="gui/note-viewer/index.html"></iframe>; }` },
   expect: [{ id: 'IFRAME_SANDBOX_JS_CHECK', severity: 'MEDIUM', confidence: 'CERTAIN', match: /parent\.require/ }] },
 
+  // AngularJS configuration
+  { practice: 'AngularJS $sce disabled', insecure: { 'app.js': `angular.module('app', []).config(function ($sceProvider) { $sceProvider.enabled(false); });` },
+    expect: [{ id: 'ANGULAR_SCE_DISABLED_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' }],
+    secure: { 'app.js': `angular.module('app', []).config(function ($sceProvider) { $sceProvider.enabled(true); });` }, absent: ['ANGULAR_SCE_DISABLED_JS_CHECK'] },
+  { practice: 'AngularJS resource URL allowlist with wildcards', insecure: { 'app.js': `app.config(function ($sceDelegateProvider) { $sceDelegateProvider.resourceUrlWhitelist(['self', '**']); });` },
+    expect: [{ id: 'ANGULAR_RESOURCE_URL_LIST_JS_CHECK', severity: 'MEDIUM', confidence: 'CERTAIN' }],
+    secure: { 'app.js': `app.config(function ($sceDelegateProvider) { $sceDelegateProvider.trustedResourceUrlList(['self', 'https://cdn.example.com/templates/**']); });` }, absent: ['ANGULAR_RESOURCE_URL_LIST_JS_CHECK'] },
+
+  // End-of-life frontend libraries
+  { practice: 'end-of-life libraries in the lockfile', insecure: {
+    'package.json': JSON.stringify({ name: 'app', dependencies: { angular: '1.8.3', jquery: '2.2.4' }, devDependencies: { electron: '38.2.0', bootstrap: '4.6.2' } }),
+    'package-lock.json': JSON.stringify({ lockfileVersion: 3, packages: { '': { name: 'app' }, 'node_modules/angular': { version: '1.8.3' }, 'node_modules/jquery': { version: '2.2.4' }, 'node_modules/bootstrap': { version: '4.6.2', dev: true } } }) },
+  expect: [{ id: 'END_OF_LIFE_LIBRARY_GLOBAL_CHECK', severity: 'MEDIUM', confidence: 'CERTAIN', match: /angular@1\.8\.3.*AngularJS/ }, { id: 'END_OF_LIFE_LIBRARY_GLOBAL_CHECK', severity: 'MEDIUM', match: /jquery@2\.2\.4/ },
+    { id: 'END_OF_LIFE_LIBRARY_GLOBAL_CHECK', severity: 'LOW', match: /bootstrap@4\.6\.2 \(dev\).*2023-01-01/ }],
+  secure: {
+    'package.json': JSON.stringify({ name: 'app', dependencies: { jquery: '3.7.1', bootstrap: '5.3.3' }, devDependencies: { electron: '38.2.0' } }),
+    'package-lock.json': JSON.stringify({ lockfileVersion: 3, packages: { '': { name: 'app' }, 'node_modules/jquery': { version: '3.7.1' }, 'node_modules/bootstrap': { version: '5.3.3' } } }) },
+  absent: ['END_OF_LIFE_LIBRARY_GLOBAL_CHECK'] },
+  { practice: 'copies of libraries bundled with the app are inventoried', insecure: {
+    'app/lib/angular.js': `/**\n * @license AngularJS v1.5.8\n * (c) 2010-2016 Google, Inc. http://angularjs.org\n * License: MIT\n */\nelement.innerHTML = value;` },
+  expect: [{ id: 'END_OF_LIFE_LIBRARY_GLOBAL_CHECK', severity: 'MEDIUM', match: /angular@1\.5\.8 \(copy bundled with the app\)/ }] },
+  { practice: 'bower packages are inventoried', insecure: { 'components/jquery/.bower.json': JSON.stringify({ name: 'jquery', version: '2.1.1' }), 'components/jquery/dist/jquery.js': `x.innerHTML = y;` },
+    expect: [{ id: 'END_OF_LIFE_LIBRARY_GLOBAL_CHECK', severity: 'MEDIUM', match: /jquery@2\.1\.1/ }] },
+
+  // Renderer attack surface inventory
+  { practice: 'window settings summary uses the version defaults', secure: { 'main.js': `const a = new BrowserWindow({ width: 800 });\nconst b = new BrowserWindow({ webPreferences: { nodeIntegration: true, contextIsolation: false, preload: 'preload.js' } });\nfunction make(options) { return new BrowserWindow(options); }` },
+    absent: [], expectSecure: [
+      { id: 'WINDOW_SUMMARY_JS_CHECK', severity: 'INFORMATIONAL', confidence: 'CERTAIN', match: /BrowserWindow \(nodeIntegration off \(default\), contextIsolation on \(default\), sandbox on \(default\), webSecurity on \(default\)\)/ },
+      { id: 'WINDOW_SUMMARY_JS_CHECK', match: /nodeIntegration on, contextIsolation off, sandbox off \(default\), webSecurity on \(default\), preload preload\.js/ },
+      { id: 'WINDOW_SUMMARY_JS_CHECK', match: /nodeIntegration unknown/ }] },
+  { practice: 'APIs exposed through contextBridge are listed', secure: { 'preload.js': `const api = { openFile: (id) => ipcRenderer.invoke('open-file', id), settings: { get: () => ipcRenderer.invoke('settings:get') } };\ncontextBridge.exposeInMainWorld('app', api);` },
+    absent: [], expectSecure: [{ id: 'EXPOSED_API_JS_CHECK', severity: 'INFORMATIONAL', confidence: 'CERTAIN', match: /window\.app \(openFile, settings\.get\)/ }] },
+
   // Cross-file analysis
   { practice: 'cross-file: imported IPC handler without sender validation', insecure: { 'src/main.ts': `import { getSecrets } from './handlers';\nipcMain.handle('get-secrets', getSecrets);`,
     'src/handlers.ts': `export function getSecrets(event: IpcMainInvokeEvent) { return store.secrets; }` },

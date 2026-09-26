@@ -170,5 +170,10 @@
 	"failOnTriggered": "{{count}} hallazgo(s) con gravedad {{severity}} o superior",
 	"DOWNLOAD_JS_CHECK": "Revise el manejo de las descargas",
 	"UPDATE_SECURITY_JS_CHECK": "Configuración de actualizaciones insegura",
-	"PLAINTEXT_SECRETS_JS_CHECK": "Se almacena un secreto sin cifrar"
+	"PLAINTEXT_SECRETS_JS_CHECK": "Se almacena un secreto sin cifrar",
+	"ANGULAR_SCE_DISABLED_JS_CHECK": "El escape contextual estricto de AngularJS ($sce) está deshabilitado para toda la aplicación",
+	"ANGULAR_RESOURCE_URL_LIST_JS_CHECK": "La lista de URL de recursos permitidas de AngularJS permite cargar plantillas desde ubicaciones no confiables",
+	"END_OF_LIFE_LIBRARY_GLOBAL_CHECK": "Versión de biblioteca que ya no recibe correcciones de seguridad",
+	"WINDOW_SUMMARY_JS_CHECK": "Configuración de seguridad de la ventana",
+	"EXPOSED_API_JS_CHECK": "API expuesta al contenido web"
 }

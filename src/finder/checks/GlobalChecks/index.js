@@ -13,6 +13,7 @@ import UnsupportedVersionGlobalCheck from './UnsupportedVersionGlobalCheck.js';
 import SandboxGlobalCheck from './SandboxGlobalCheck.js';
 import AuxclickGlobalCheck from './AuxclickGlobalCheck.js';
 import IframeSandboxGlobalCheck from './IframeSandboxGlobalCheck.js';
+import EndOfLifeLibrariesGlobalCheck from './EndOfLifeLibrariesGlobalCheck.js';
 
 const GLOBAL_CHECKS = [
   AffinityGlobalCheck,
@@ -29,7 +30,8 @@ const GLOBAL_CHECKS = [
   UnsupportedVersionGlobalCheck,
   SandboxGlobalCheck,
   AuxclickGlobalCheck,
-  IframeSandboxGlobalCheck
+  IframeSandboxGlobalCheck,
+  EndOfLifeLibrariesGlobalCheck
 ];
 
 export { GLOBAL_CHECKS };

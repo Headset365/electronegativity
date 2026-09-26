@@ -142,6 +142,17 @@ async function scan(options, forCli) {
     }
 
     if (forCli) progress.stop();
+
+    // copies of libraries skipped by the scan still count for the dependency advisory checks
+    if (finder._enabled_checks.some(check => check.name === 'DependencyInventoryLockCheck')) {
+      for (const { name, version, file } of loader.vendoredLibraries || []) {
+        if (!version) continue;
+        issues.push({ file, sample: '', location: { line: 1, column: 0 }, id: 'DEPENDENCY_INVENTORY_LOCK_CHECK', description: `${__('DEPENDENCY_INVENTORY_LOCK_CHECK')} (${name}@${version})`,
+          properties: { packages: [{ name, version, dev: false, line: 1, vendored: true }] }, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
+          manualReview: false, shortenedURL: 'https://osv.dev', visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false },
+          constructorName: 'DependencyInventoryLockCheck' });
+      }
+    }
   }
   finally {
     if (forCli) {

@@ -76,9 +76,28 @@ export async function list_files(input, { allFiles = false } = {}) {
     .map(entry => path.join(entry.parentPath, entry.name))
     .filter(file => !file.split(path.sep).includes('node_modules') && isScannableFile(file));
   if (allFiles) return files;
-  const vendored = vendoredDirectories(input, entries);
-  return files.filter(file => !isNonAppFile(path.relative(input, file)) &&
-    !vendored.some(dir => file.startsWith(dir + path.sep)) && !isVendoredLibrary(file));
+  const vendoredDirs = vendoredDirectories(input, entries);
+  // skipped copies of libraries are still listed, so their versions can be checked for advisories
+  const libraries = [];
+  const kept = files.filter(file => {
+    if (isNonAppFile(path.relative(input, file))) return false;
+    const inVendoredDir = vendoredDirs.some(dir => file.startsWith(dir + path.sep));
+    const library = vendoredLibrary(file);
+    if (library) libraries.push({ ...library, file });
+    return !library && !inVendoredDir;
+  });
+  // packages bower installed record their name and version in .bower.json
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name !== '.bower.json') continue;
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(entry.parentPath, entry.name), 'utf8'));
+      if (manifest.name && manifest.version) libraries.push({ name: manifest.name.toLowerCase(), version: manifest.version, file: path.join(entry.parentPath, entry.name) });
+    } catch {
+      // unreadable manifest
+    }
+  }
+  kept.vendoredLibraries = libraries;
+  return kept;
 }
 
 // Folders package managers other than npm install into: bower (.bowerrc "directory", bower_components, and any package
@@ -101,18 +120,26 @@ const normalize = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
  * A copy of a third-party library, e.g. js/jquery.js starting with "jQuery JavaScript Library v2.1.1 ... MIT license":
  * the header comment names the file itself and carries a version and a license or copyright. App bundles with their
  * own banner (main.js, "MyApp v1.0.0") don't match, as the banner doesn't name the file.
+ * Returns { name, version } (name as the npm package is usually called) or undefined.
  */
-export function isVendoredLibrary(file, head) {
-  if (!/\.[cm]?js$/i.test(file)) return false;
-  const name = normalize(path.basename(file).replace(/\.[cm]?js$/i, '').replace(/([.-](min|umd|bundle|dist|debug|prod|production|slim))+$/i, '').replace(/[.-]v?\d+(\.\d+)*$/, ''));
-  if (name.length < 3) return false;
+export function vendoredLibrary(file, head) {
+  if (!/\.[cm]?js$/i.test(file)) return undefined;
+  const stem = path.basename(file).replace(/\.[cm]?js$/i, '').replace(/([.-](min|umd|bundle|dist|debug|prod|production|slim))+$/i, '').replace(/[.-]v?\d+(\.\d+)*$/, '');
+  const name = normalize(stem);
+  if (name.length < 3) return undefined;
   try {
     head ??= readHead(file);
   } catch {
-    return false;
+    return undefined;
   }
   const header = (head.match(/^[\s;]*((?:\/\*[\s\S]*?\*\/|\/\/[^\n]*)\s*)+/) || [''])[0];
-  return /\bv?\d+\.\d+/.test(header) && /(copyright|\(c\)|©|licen[cs]e)/i.test(header) && normalize(header).includes(name);
+  if (!/\bv?\d+\.\d+/.test(header) || !/(copyright|\(c\)|©|licen[cs]e)/i.test(header) || !normalize(header).includes(name)) return undefined;
+  const version = (header.match(/\bv?(\d+\.\d+\.\d+(?:-[\w.]+)?)\b/) || header.match(/\bv?(\d+\.\d+)\b/) || [])[1];
+  return { name: stem.toLowerCase(), version };
+}
+
+export function isVendoredLibrary(file, head) {
+  return !!vendoredLibrary(file, head);
 }
 
 function readHead(file) {

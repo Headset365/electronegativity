@@ -170,5 +170,10 @@
 	"failOnTriggered": "{{count}} résultat(s) de gravité {{severity}} ou supérieure",
 	"DOWNLOAD_JS_CHECK": "Vérifiez la gestion des téléchargements",
 	"UPDATE_SECURITY_JS_CHECK": "Configuration des mises à jour non sécurisée",
-	"PLAINTEXT_SECRETS_JS_CHECK": "Un secret est stocké sans chiffrement"
+	"PLAINTEXT_SECRETS_JS_CHECK": "Un secret est stocké sans chiffrement",
+	"ANGULAR_SCE_DISABLED_JS_CHECK": "L'échappement contextuel strict d'AngularJS ($sce) est désactivé pour toute l'application",
+	"ANGULAR_RESOURCE_URL_LIST_JS_CHECK": "La liste d'URL de ressources autorisées d'AngularJS permet de charger des modèles depuis des emplacements non fiables",
+	"END_OF_LIFE_LIBRARY_GLOBAL_CHECK": "Version de bibliothèque qui ne reçoit plus de correctifs de sécurité",
+	"WINDOW_SUMMARY_JS_CHECK": "Paramètres de sécurité de la fenêtre",
+	"EXPOSED_API_JS_CHECK": "API exposée au contenu web"
 }

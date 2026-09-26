@@ -24,6 +24,7 @@ export class LoaderDirectory extends Loader {
     for (const file of files) {
       this._loaded.add(file);
     }
+    this._vendoredLibraries = files.vendoredLibraries || [];
 
     // Prefer the manifest closest to the root of the scanned directory
     const byDepth = [...files].sort((a, b) => a.split(path.sep).length - b.split(path.sep).length);
@@ -52,6 +53,7 @@ export class LoaderDirectory extends Loader {
   async stash() {
     this._loaded.clear();
     this._electronVersion = undefined;
+    this._vendoredLibraries = [];
   }
 
   load_buffer(filename) {
