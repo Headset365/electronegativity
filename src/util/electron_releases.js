@@ -36,11 +36,13 @@ export function getStableReleases() {
       return sortDesc(await download());
     } catch (e) {
       if (cached) return sortDesc(cached);
-      pending = undefined;
       throw e;
     }
   })();
-  return pending;
+  // forget a failed lookup so the next scan retries (e.g. an online scan after an offline one)
+  const current = pending;
+  current.catch(() => { if (pending === current) pending = undefined; });
+  return current;
 }
 
 function sortDesc(versions) {
