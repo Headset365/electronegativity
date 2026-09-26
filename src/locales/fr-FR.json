@@ -185,5 +185,6 @@
 	"watchMarkerOptionDescription": "un jeton marqueur unique pour détecter l'injection de contenu stocké : insérez du contenu le portant (p. ex. <span data-eng=\"TOKEN\">x</span>) et le mode observation signale s'il revient sous forme de HTML actif dans une autre vue",
 	"watchStarting": "Lancement de l'application en mode observation : connectez-vous et parcourez les fonctionnalités à couvrir, puis fermez l'application (ou appuyez sur Ctrl+C ici).",
 	"watchLogSaved": "Journal de la session enregistré dans {{{file}}} (réutilisable avec --watch-log)",
-	"watchNoHook": "L'application n'a pas chargé le module d'observation, rien n'a donc été observé. Les applications empaquetées dont le fuse EnableNodeOptionsEnvironmentVariable est désactivé (recommandé en production) l'ignorent : utilisez le mode observation avec une version de développement, par exemple le dossier de l'application avec Electron installé."
+	"watchNoHook": "L'application n'a pas chargé le module d'observation, rien n'a donc été observé. Les applications empaquetées dont le fuse EnableNodeOptionsEnvironmentVariable est désactivé (recommandé en production) l'ignorent : utilisez le mode observation avec une version de développement, par exemple le dossier de l'application avec Electron installé.",
+	"watchFusesUnreadable": "Aucune configuration de fuses Electron n'a été trouvée dans {{{file}}} : les fuses de l'application empaquetée n'ont pas pu être vérifiés"
 }

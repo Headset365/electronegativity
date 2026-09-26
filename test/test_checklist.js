@@ -401,6 +401,29 @@ const CASES = [
   { practice: 'APIs exposed through contextBridge are listed', secure: { 'preload.js': `const api = { openFile: (id) => ipcRenderer.invoke('open-file', id), settings: { get: () => ipcRenderer.invoke('settings:get') } };\ncontextBridge.exposeInMainWorld('app', api);` },
     absent: [], expectSecure: [{ id: 'EXPOSED_API_JS_CHECK', severity: 'INFORMATIONAL', confidence: 'CERTAIN', match: /window\.app \(openFile, settings\.get\)/ }] },
 
+  // HTML injection checks: patterns that must not be raised
+  { practice: 'regression: a sink inside a server callback is only server-fed when its value comes from the response', secure: {
+    'r.js': `function render(list, label) {\n  fetch('/api/ping').then(() => {\n    list.innerHTML = label;\n  });\n}` },
+  absent: [], expectSecure: [{ id: 'XSS_SINK_JS_CHECK', severity: 'MEDIUM', match: /a dynamic value/ }] },
+  { practice: 'regression: sinks fed by the server response are HIGH', insecure: {
+    'h.js': `fetch('/api/doc').then(r => r.text()).then(body => {\n  document.getElementById('doc').innerHTML = body;\n});` },
+  expect: [{ id: 'XSS_SINK_JS_CHECK', severity: 'HIGH', match: /server-controlled/ }] },
+  { practice: 'regression: jQuery selectors inside a server callback are not HTML', secure: {
+    'q.js': `function refresh(selector) {\n  $http.get('/api/items').then(function () {\n    $(selector).hide();\n  });\n}` },
+  absent: ['XSS_SINK_JS_CHECK'] },
+  { practice: 'regression: AngularJS directives compiling their own element', secure: {
+    'd.js': `app.directive('myWidget', function ($compile) {\n  return { link: function (scope, element) { $compile(element.contents())(scope); } };\n});` },
+  absent: ['ANGULAR_TRUST_HTML_JS_CHECK'] },
+  { practice: 'regression: setData/setContent on objects that are not editors', secure: {
+    'c.js': `chart.setData(points);\ngrid.setData(rows);\nstringPath.setData(VISITED, true);\nevent.clipboardData.setData('text/plain', text);` },
+  absent: ['RICH_TEXT_EDITOR_JS_CHECK'] },
+  { practice: 'rich-text editors loading dynamic HTML', insecure: {
+    'e.js': `tinymce.activeEditor.setContent(note.body);\neditor.selection.setContent(value);\nCKEDITOR.instances.doc.setData(html);` },
+  expect: [{ id: 'RICH_TEXT_EDITOR_JS_CHECK', match: /TinyMCE: setContent/ }, { id: 'RICH_TEXT_EDITOR_JS_CHECK', match: /CKEditor: setData/ }] },
+  { practice: 'preload file names are resolved from path.join', secure: {
+    'main.js': `const path = require('path');\nconst a = new BrowserWindow({ webPreferences: { preload: path.join(__dirname, 'preload.js') } });\nconst b = new BrowserWindow({ webPreferences: { preload: \`\${__dirname}/bridge.cjs\` } });` },
+  absent: [], expectSecure: [{ id: 'WINDOW_SUMMARY_JS_CHECK', match: /preload preload\.js/ }, { id: 'WINDOW_SUMMARY_JS_CHECK', match: /preload bridge\.cjs/ }] },
+
   // Cross-file analysis
   { practice: 'cross-file: imported IPC handler without sender validation', insecure: { 'src/main.ts': `import { getSecrets } from './handlers';\nipcMain.handle('get-secrets', getSecrets);`,
     'src/handlers.ts': `export function getSecrets(event: IpcMainInvokeEvent) { return store.secrets; }` },

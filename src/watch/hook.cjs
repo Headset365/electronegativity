@@ -295,8 +295,11 @@ function instrument(electron, late) {
             if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue; // their text is source, not rendered markup
             var attrs = el.attributes || [];
             for (var j = 0; j < attrs.length; j++) {
-              // the marker shaped the markup: it became an attribute name or value
-              if ((attrs[j].value && attrs[j].value.indexOf(MARKER) !== -1) || attrs[j].name.indexOf(MARKER) !== -1) { live = true; present = true; }
+              var name = attrs[j].name.toLowerCase(), value = attrs[j].value || '';
+              // the marker shaped the markup: it became an attribute name, or landed in an event handler. Text in an
+              // ordinary attribute value (an input's value, a title) is how safely displayed content looks.
+              if (name.indexOf(MARKER.toLowerCase()) !== -1) { live = true; present = true; }
+              else if (value.indexOf(MARKER) !== -1) { present = true; if (/^on/.test(name)) live = true; }
             }
             if (el.tagName && el.tagName.indexOf(MARKER.toUpperCase()) !== -1) { live = true; present = true; } // marker as a tag name
           }

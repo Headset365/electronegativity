@@ -2,7 +2,7 @@
 // A renderer that turns server-controlled data into live HTML is the stored-content threat model behind most
 // published Electron vulnerabilities, so these checks raise the severity of a sink when its value comes from the server.
 import { memberName, calleeObjectName, isFunction } from './helpers.js';
-import { resolveLocal } from './analysis.js';
+import { resolveLocal, dependsOnParams } from './analysis.js';
 
 // Objects whose methods reach the network, and the request/response members that carry the server's answer
 const SERVER_OBJECTS = /^(axios|ky|superagent|got|\$http|\$resource|\$q|http|https|socket|ws|websocket)$/i;
@@ -65,24 +65,25 @@ export function isServerFed(node, scope, depth = 0) {
 }
 
 /**
- * Whether the current node sits inside a callback that receives server data: the callback of a `.then()`/`.subscribe()`/
- * AngularJS `.success()` on a server call, or a `message`/WebSocket `onmessage` handler. Used to treat the callback's
- * parameter (the fetched body, the received message) as server-controlled.
+ * Whether `value` is derived from the data a server callback receives: the parameter of a `.then()`/`.subscribe()`/
+ * AngularJS `.success()` callback on a server call, or of a `message`/WebSocket `onmessage` handler. A sink that merely
+ * sits inside such a callback, with a value from elsewhere, doesn't count.
  */
-export function inServerContext(ancestors = []) {
+export function inServerContext(ancestors = [], value) {
+  if (!value) return false;
   for (let i = ancestors.length - 1; i >= 0; i--) {
     const node = ancestors[i];
     if (!isFunction(node)) continue;
     const parent = ancestors[i - 1];
-    // fetch(url).then(body => ...), $http.get(url).then(...), observable.subscribe(...)
-    if (isCallNode(parent) && PROMISE_CALLBACKS.test(memberName(parent.callee) || '') && chainReachesServer(parent.callee)) return true;
-    // socket.onmessage = (event) => ..., addEventListener('message', handler), ipcRenderer? (handled elsewhere)
     const grandparent = ancestors[i - 2];
-    if (parent && parent.type === 'AssignmentExpression' && isMemberNode(parent.left) && /^onmessage$/i.test(memberName(parent.left) || '')) return true;
-    if (isCallNode(grandparent) && memberName(grandparent.callee) === 'addEventListener' && grandparent.arguments[0] &&
-      MESSAGE_EVENTS.has(String(grandparent.arguments[0].value))) return true;
-    if (isCallNode(parent) && memberName(parent.callee) === 'addEventListener' && parent.arguments[0] &&
-      MESSAGE_EVENTS.has(String(parent.arguments[0].value))) return true;
+    const receivesServerData =
+      // fetch(url).then(body => ...), $http.get(url).then(...), observable.subscribe(...)
+      (isCallNode(parent) && PROMISE_CALLBACKS.test(memberName(parent.callee) || '') && chainReachesServer(parent.callee)) ||
+      // socket.onmessage = (event) => ..., addEventListener('message', handler)
+      (parent && parent.type === 'AssignmentExpression' && isMemberNode(parent.left) && /^onmessage$/i.test(memberName(parent.left) || '')) ||
+      (isCallNode(grandparent) && memberName(grandparent.callee) === 'addEventListener' && grandparent.arguments[0] && MESSAGE_EVENTS.has(String(grandparent.arguments[0].value))) ||
+      (isCallNode(parent) && memberName(parent.callee) === 'addEventListener' && parent.arguments[0] && MESSAGE_EVENTS.has(String(parent.arguments[0].value)));
+    if (receivesServerData && dependsOnParams(value, node)) return true;
   }
   return false;
 }

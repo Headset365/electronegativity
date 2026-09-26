@@ -185,5 +185,6 @@
 	"watchMarkerOptionDescription": "a unique marker token to detect stored-content injection: plant content carrying it (e.g. <span data-eng=\"TOKEN\">x</span>) and watch mode reports if it comes back as live HTML in another view",
 	"watchStarting": "Starting the app in watch mode: log in and go through the features you want covered, then close the app (or press Ctrl+C here).",
 	"watchLogSaved": "Session log saved to {{{file}}} (reuse it with --watch-log)",
-	"watchNoHook": "The app did not load the watch mode hook, so nothing was observed. Packaged apps with the EnableNodeOptionsEnvironmentVariable fuse off (recommended for production) ignore it: run watch mode on a development build, e.g. the app folder with Electron installed."
+	"watchNoHook": "The app did not load the watch mode hook, so nothing was observed. Packaged apps with the EnableNodeOptionsEnvironmentVariable fuse off (recommended for production) ignore it: run watch mode on a development build, e.g. the app folder with Electron installed.",
+	"watchFusesUnreadable": "No Electron fuse configuration was found in {{{file}}}, so the fuses of the packaged app could not be checked"
 }

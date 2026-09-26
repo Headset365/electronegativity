@@ -195,7 +195,7 @@ The app starts with a small observer loaded into its main process, and a read-on
 * for a packaged app, the Electron Fuses read from the shipped binary, not only from the build configuration;
 * coverage: the IPC channels and the windows the app has that the session never exercised, and findings confirmed both in the code and at runtime.
 
-To detect stored-content injection with `--watch-marker <token>`, plant content carrying the token (for example `<span data-eng="TOKEN">TOKEN</span>`) from one account and open it as another user; the observer reports whether it renders as live HTML or stays escaped text.
+To detect stored-content injection with `--watch-marker <token>`, put content carrying the token into the app from one account and open it as another user. The observer reports the token as live HTML when it became part of the page's markup (a tag or attribute name, or an event handler), and as shown safely when it only appears as text or in an ordinary attribute value such as a form field's value.
 
 The observer only records: it doesn't change what the app does. URLs are stored without their query strings, and IPC arguments only by type. It is loaded through `NODE_OPTIONS`, which packaged apps ignore when the `EnableNodeOptionsEnvironmentVariable` fuse is off (as recommended for production): run watch mode on a development or test build. With an app folder, the folder is also scanned statically; with a packaged executable, its `resources/app.asar`.
 

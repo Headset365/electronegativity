@@ -7,22 +7,26 @@ the limits that remain, so the boundaries of the analysis stay clear.
 
 ### 1. Planted test content in watch mode
 
-- **What it does:** `--watch-marker <token>` plants a marker into the session. Plant content that carries the token
-  (the recommended shape is `<span data-eng="TOKEN">TOKEN</span>`) into a shared part of the app from one account, then
-  open it as another user. The renderer-side observer reports `RUNTIME_MARKER` and says whether the token came back as
-  live HTML (HIGH: stored input reaches another view unneutralized) or only as escaped text (informational).
+- **What it does:** `--watch-marker <token>` tells the observer which token to look for. Put content carrying the token
+  into a shared part of the app from one account, then open it as another user. The renderer-side observer reports
+  `RUNTIME_MARKER` and says whether the token came back as live HTML (HIGH: stored input reaches another view
+  unneutralized) or was shown safely (informational).
 - **Why it matters:** this is the stored-content threat model (content from one user rendered by another user's client),
   the root cause of most published Electron vulnerabilities.
-- **Remaining limit:** detection is a heuristic — it distinguishes markup (the token in an element or attribute) from
-  escaped text (the token in visible text). Plant the token in the recommended shape so both cases are distinguishable.
+- **Remaining limit:** detection is a heuristic. The token counts as live HTML when it became part of the markup
+  structure (a tag or attribute name) or ended up in an event-handler attribute. The token in visible text or in an
+  ordinary attribute value (a form field's value, a title) is how safely displayed content looks, and is reported as
+  shown safely.
 
 ### 2. HTML injection analysis for AngularJS and rich-text editors
 
 - **What it does:**
   - treats data from the server (`fetch`, `$http`, axios and the bodies they resolve to, and `message`/WebSocket events)
-    as untrusted, and raises server-fed HTML sinks to HIGH (`XSS_SINK_JS_CHECK`);
+    as untrusted, and raises server-fed HTML sinks to HIGH (`XSS_SINK_JS_CHECK`). Inside a server callback, only values
+    derived from the response or message count as server-fed;
   - checks AngularJS HTML trust and template compilation — `$sce.trustAsHtml`, `$sce.trustAs(HTML, …)`, `$compile`,
-    `$interpolate`, `$parse` of dynamic data (`ANGULAR_TRUST_HTML_JS_CHECK`), and `ng-bind-html-unsafe` in templates
+    `$interpolate`, `$parse` of dynamic data (`ANGULAR_TRUST_HTML_JS_CHECK`; `$compile` only for markup strings, not the
+    `$compile(element.contents())` directive idiom), and `ng-bind-html-unsafe` in templates
     (`ANGULAR_BIND_HTML_UNSAFE_HTML_CHECK`);
   - recognizes rich-text editor HTML-loading APIs — TinyMCE, CKEditor, Quill, Froala, Summernote
     (`RICH_TEXT_EDITOR_JS_CHECK`) and `execCommand('insertHTML')`;
@@ -31,8 +35,9 @@ the limits that remain, so the boundaries of the analysis stay clear.
   `insertAdjacentHTML`, `document.write`, jQuery `.html()`/`.append()` and React `dangerouslySetInnerHTML`), and
   `ANGULAR_SCE_DISABLED_JS_CHECK` covers `$sce` being switched off globally.
 - **Remaining limit:** server-side sanitization still has to be verified independently; static analysis sees only the
-  client. Rich-text editor method names (`setData`, `setContent`) are generic, so those findings are TENTATIVE unless
-  the value is clearly server-fed.
+  client. Generic editor method names (`setData`, `setContent`, `insertContent`) are only matched on editor-like
+  receivers (`editor`, `tinymce`, `CKEDITOR`, `quill`, ...), so an editor held in a variable with an unrelated name is
+  missed.
 
 ### 3. Renderer-side observer in watch mode
 
@@ -50,8 +55,9 @@ the limits that remain, so the boundaries of the analysis stay clear.
 - **What it does:** in addition to the registered IPC channels that were never used (`RUNTIME_COVERAGE`), the report now
   lists windows the static scan found that were never opened during the session (`RUNTIME_WINDOW_COVERAGE`), by comparing
   the windows found statically with the pages observed at runtime.
-- **Remaining limit:** windows are matched by their preload script, so a window with no preload cannot be told apart
-  from another; in-page routes inside a single window are not enumerated.
+- **Remaining limit:** windows are matched by their preload file name (resolved statically from constants,
+  `path.join`/`path.resolve` and template strings), so a window with no preload cannot be told apart from another, and
+  windows sharing a preload count as observed together; in-page routes inside a single window are not enumerated.
 
 ### 5. Preload scripts in the runtime table
 
@@ -67,7 +73,8 @@ the limits that remain, so the boundaries of the analysis stay clear.
   packaged app additionally reads the fuse wire embedded in the shipped executable (`PACKAGED_FUSES`), so states set by
   the build pipeline — and not by code the scan can see — are caught.
 - **Remaining limit:** reads the V1 fuse wire format; the binary is scanned for the fuse sentinel, which is present in
-  standard Electron builds.
+  standard Electron builds. On macOS the wire is read from `Contents/Frameworks/Electron Framework.framework`, as
+  `@electron/fuses` does; when no wire is found, watch mode says so. Verified against `@electron/fuses` on Electron 38.
 
 ### 7. Static and runtime findings are reconciled
 
@@ -82,4 +89,4 @@ the limits that remain, so the boundaries of the analysis stay clear.
 
 - **What it does:** watch mode records synchronous permission checks (`setPermissionCheckHandler`) the same way as
   permission requests, reporting what the app's handler — or Electron's default, when the app sets none — allows
-  (`RUNTIME_PERMISSION_CHECK`).
+  (`RUNTIME_PERMISSION_CHECK`). Checks Chromium makes without a page origin (e.g. media device enumeration) are ignored.

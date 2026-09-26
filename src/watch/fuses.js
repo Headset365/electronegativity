@@ -4,6 +4,7 @@
 //   <sentinel><schema version byte><fuse count byte><one state byte per fuse>
 // each state byte is '0' (disabled), '1' (enabled), 'r' (removed) or 'i' (inherit / left at Electron's default).
 import fs from 'node:fs';
+import path from 'node:path';
 import { FUSES, evaluateFuses } from '../finder/checks/fuses.js';
 import { severity, confidence } from '../finder/attributes.js';
 
@@ -78,12 +79,24 @@ const runtimeIssue = (id, file, sev, conf, description, properties) => ({
 });
 
 /**
+ * The file that holds the fuse wire of a packaged app. On macOS it is the Electron Framework inside the bundle, not the
+ * app's executable in Contents/MacOS (the same file @electron/fuses reads).
+ */
+export function fuseBinaryFor(executable) {
+  const resolved = path.resolve(executable);
+  const macos = resolved.match(/^(.*\.app)[\\/]Contents[\\/]MacOS[\\/][^\\/]+$/);
+  if (macos) return path.join(macos[1], 'Contents', 'Frameworks', 'Electron Framework.framework', 'Electron Framework');
+  return resolved;
+}
+
+/**
  * Reads the fuses from a packaged binary and turns the insecure ones into findings, in the same shape as the other
  * runtime findings. @returns {{ read:boolean, issues:Array, states?:Object }}
  */
-export function analyzePackagedFuses(binaryPath) {
+export function analyzePackagedFuses(executable) {
+  const binaryPath = fuseBinaryFor(executable);
   const wire = readFuseWire(binaryPath);
-  if (!wire) return { read: false, issues: [] };
+  if (!wire) return { read: false, issues: [], binary: binaryPath };
   const { insecure, unset } = evaluateFuses(wire.config);
   const issues = [];
   for (const { fuse, value } of insecure) {

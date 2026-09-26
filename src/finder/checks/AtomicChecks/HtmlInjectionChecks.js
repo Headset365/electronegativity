@@ -1,8 +1,8 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, calleeObjectName, finding } from '../helpers.js';
-import { constantValue, isCall } from '../analysis.js';
-import { isServerFed, inServerContext } from '../html.js';
+import { constantValue, isCall, resolveLocal } from '../analysis.js';
+import { isServerFed, inServerContext, looksLikeHtml } from '../html.js';
 
 const ANGULAR_URL = "https://docs.angularjs.org/api/ng/service/$sce";
 
@@ -10,7 +10,7 @@ const ANGULAR_URL = "https://docs.angularjs.org/api/ng/service/$sce";
 // comes from the server. Returns undefined for a constant (nothing to flag) or { serverFed } otherwise.
 function assess(value, scope, context) {
   if (!value || constantValue(value, scope) !== undefined) return undefined;
-  return { serverFed: isServerFed(value, scope) || inServerContext(context && context.ancestors) };
+  return { serverFed: isServerFed(value, scope) || inServerContext(context && context.ancestors, value) };
 }
 
 /**
@@ -46,6 +46,9 @@ export class AngularTrustHtmlJSCheck {
       value = astNode.arguments[0]; api = astNode.callee.name;
     }
     if (!api) return null;
+    // $compile(element.contents())(scope) compiles DOM the app already has, the usual directive idiom: only markup
+    // strings are a concern
+    if (api === '$compile' && !isMarkupString(value, scope, context)) return null;
     const verdict = assess(value, scope, context);
     if (!verdict) return null;
     return [finding(this, astNode, { severity: verdict.serverFed ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
@@ -53,8 +56,22 @@ export class AngularTrustHtmlJSCheck {
   }
 }
 
+const MARKUP_NAME = /(html|template|markup|content|body|snippet|source)$/i;
+
+// A string of markup rather than a DOM node: a built HTML string, server data, or a local holding a string expression
+function isMarkupString(value, scope, context) {
+  if (!value) return false;
+  const resolved = value.type === 'Identifier' ? resolveLocal(value, scope) : value;
+  if (looksLikeHtml(resolved)) return true;
+  if (['TemplateLiteral', 'StringLiteral', 'Literal'].includes(resolved.type) || (resolved.type === 'BinaryExpression' && resolved.operator === '+')) return true;
+  // $scope.serverTemplate, noteHtml: named as markup, where element / element.contents() are DOM nodes
+  const name = value.type === 'Identifier' ? value.name : (value.type === 'MemberExpression' || value.type === 'OptionalMemberExpression') ? memberName(value) : undefined;
+  if (name && MARKUP_NAME.test(name)) return true;
+  return isServerFed(value, scope) || inServerContext(context && context.ancestors, value);
+}
+
 // Rich-text editor APIs that load an HTML string into the editor, by editor: any of these method names with a dynamic
-// argument means untrusted markup could be rendered. Method names are matched loosely, so confidence stays TENTATIVE.
+// argument means untrusted markup could be rendered. The receiver must look like an editor (see EDITOR_RECEIVER).
 const EDITOR_METHODS = {
   setData: 'CKEditor',                 // editor.setData(html)
   setContent: 'TinyMCE',               // editor.setContent(html) / tinymce.activeEditor.setContent(html)
@@ -62,6 +79,22 @@ const EDITOR_METHODS = {
   dangerouslyPasteHTML: 'Quill',       // quill.clipboard.dangerouslyPasteHTML(html)
   pasteHTML: 'Quill/CKEditor',         // range.pasteHTML(html)
 };
+
+const EDITOR_RECEIVER = /(editor|tinymce|mce|ckeditor|cke|quill|froala|summernote|wysiwyg|richtext|rte)/i;
+
+// The names along a call's receiver: tinymce.activeEditor.selection.setContent -> 'tinymce.activeEditor.selection'
+function receiverChain(callee) {
+  const names = [];
+  let node = callee && callee.object;
+  for (let depth = 0; node && depth < 6; depth++) {
+    if (node.type === 'Identifier') { names.unshift(node.name); break; }
+    if (node.type === 'ThisExpression') { names.unshift('this'); break; }
+    if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') { names.unshift(memberName(node) || ''); node = node.object; }
+    else if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression') node = node.callee;
+    else break;
+  }
+  return names.join('.');
+}
 
 /**
  * HTML loaded into a rich-text editor (TinyMCE, CKEditor, Quill, Froala, Summernote). Editors render the HTML they are
@@ -80,7 +113,10 @@ export class RichTextEditorHtmlJSCheck {
     const method = memberName(astNode.callee);
     let editor;
     let value;
-    if (method && Object.hasOwn(EDITOR_METHODS, method) && astNode.arguments.length >= 1) {
+    // generic names (setData, setContent) also exist on charts, grids and Babel paths: require an editor-like receiver,
+    // except for the distinctive dangerouslyPasteHTML
+    if (method && Object.hasOwn(EDITOR_METHODS, method) && astNode.arguments.length >= 1 &&
+        (method === 'dangerouslyPasteHTML' || EDITOR_RECEIVER.test(receiverChain(astNode.callee)))) {
       editor = EDITOR_METHODS[method]; value = astNode.arguments[0];
     }
     // Froala: editor.html.set(html) / .html.insert(html)
@@ -94,7 +130,7 @@ export class RichTextEditorHtmlJSCheck {
     if (!editor) return null;
     const verdict = assess(value, scope, context);
     if (!verdict) return null;
-    return [finding(this, astNode, { severity: verdict.serverFed ? severity.HIGH : severity.MEDIUM, confidence: verdict.serverFed ? confidence.FIRM : confidence.TENTATIVE, manualReview: true,
+    return [finding(this, astNode, { severity: verdict.serverFed ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
       description: `${this.description} (${editor}: ${method}() with ${verdict.serverFed ? 'server-controlled data' : 'a dynamic value'})`, properties: { editor, method, serverFed: verdict.serverFed } })];
   }
 }

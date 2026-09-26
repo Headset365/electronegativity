@@ -2,7 +2,7 @@ import { gte, coerce } from 'semver';
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, keyName, isProperty, isWindowConstructor, webPreferencesOf, findProperty, resolveIdentifier, finding } from '../helpers.js';
-import { constantValue, isCall } from '../analysis.js';
+import { constantValue, isCall, resolveLocal } from '../analysis.js';
 
 const SETTINGS = ['nodeIntegration', 'contextIsolation', 'sandbox', 'webSecurity', 'nodeIntegrationInSubFrames', 'webviewTag', 'allowRunningInsecureContent'];
 
@@ -41,7 +41,7 @@ export class WindowSummaryJSCheck {
     if (settings.sandbox.source === 'default' && settings.sandbox.value !== 'unknown')
       settings.sandbox.value = gte(coerce(electronVersion) || '0.1.0', '20.0.0') && settings.nodeIntegration.value !== true;
     const preloadProperty = findProperty(prefs, 'preload');
-    const preload = preloadProperty ? (constantValue(preloadProperty[1], scope) ?? 'dynamic path') : undefined;
+    const preload = preloadProperty ? (constantValue(preloadProperty[1], scope) ?? preloadFileName(preloadProperty[1], scope) ?? 'dynamic path') : undefined;
 
     const kind = astNode.callee.type === 'Identifier' ? astNode.callee.name : memberName(astNode.callee);
     const describe = (name) => {
@@ -53,6 +53,23 @@ export class WindowSummaryJSCheck {
     return [finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
       description: `${this.description}: ${kind} (${summary})`, properties: { window: kind, settings, preload } })];
   }
+}
+
+// The file name of a preload built at runtime: path.join(__dirname, 'preload.js'), path.resolve(dir, 'dist/preload.js'),
+// `${__dirname}/preload.js`, __dirname + '/preload.js'. The directory depends on where the app is installed, the file
+// name doesn't, and is what links a window in the code to the same window observed at runtime.
+function preloadFileName(node, scope, depth = 0) {
+  if (!node || depth > 3) return undefined;
+  const base = (value) => typeof value === 'string' && /\.[cm]?js$/i.test(value) ? value.split(/[\\/]/).pop() : undefined;
+  if (node.type === 'Identifier') {
+    const resolved = resolveLocal(node, scope);
+    return resolved !== node ? (base(constantValue(resolved, scope)) ?? preloadFileName(resolved, scope, depth + 1)) : undefined;
+  }
+  if (isCall(node) && ['join', 'resolve'].includes(memberName(node.callee)) && node.arguments.length > 0)
+    return base(constantValue(node.arguments[node.arguments.length - 1], scope));
+  if (node.type === 'TemplateLiteral') return base(node.quasis[node.quasis.length - 1].value.cooked);
+  if (node.type === 'BinaryExpression' && node.operator === '+') return base(constantValue(node.right, scope));
+  return undefined;
 }
 
 // Names of the members of an exposed object: { openFile: ..., settings: { get, set } } -> ['openFile', 'settings.get', 'settings.set']

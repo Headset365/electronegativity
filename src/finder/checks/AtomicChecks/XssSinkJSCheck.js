@@ -57,7 +57,7 @@ export default class XssSinkJSCheck {
     if (constant !== undefined) return null;
     if (isSanitized(value, scope)) return null;
     // server-controlled HTML rendered by another user's client is the stored-content threat: raise it to HIGH
-    const serverFed = isServerFed(value, scope) || inServerContext(context && context.ancestors);
+    const serverFed = isServerFed(value, scope) || inServerContext(context && context.ancestors, value);
     return [finding(this, astNode, { severity: serverFed ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
       description: `${this.description} (${sink} with ${serverFed ? 'server-controlled data' : 'a dynamic value'})`, properties: { sink, serverFed } })];
   }
@@ -70,7 +70,7 @@ function isHtmlArgument(node, scope, context) {
   const constant = constantValue(node, scope);
   if (typeof constant === 'string') return /<[a-z!]/i.test(constant);
   if (constant !== undefined) return false;
-  return looksLikeHtml(node) || isServerFed(node, scope) || inServerContext(context && context.ancestors);
+  return looksLikeHtml(node) || isServerFed(node, scope) || inServerContext(context && context.ancestors, node);
 }
 
 // Strings assembled from pieces: `<b>${x}</b>`, '<b>' + x

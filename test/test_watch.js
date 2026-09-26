@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { should as chaiShould } from 'chai';
 import { analyzeWatchLog } from '../src/watch/analyze.js';
 import { resolveApp } from '../src/watch/launch.js';
-import { readFuseWire, analyzePackagedFuses } from '../src/watch/fuses.js';
+import { readFuseWire, analyzePackagedFuses, fuseBinaryFor } from '../src/watch/fuses.js';
 import { reconcileRuntime } from '../src/watch/reconcile.js';
 
 chaiShould();
@@ -108,6 +108,15 @@ describe('Watch mode', () => {
 
     it('lists the IPC channels pages used', () => {
       find('RUNTIME_IPC').map(i => i.properties.channel).should.deep.equal(['documents:get', 'log']);
+    });
+
+    it('ignores permission checks Chromium makes without a page origin', () => {
+      const { issues } = analyzeWatchLog([{ kind: 'start' },
+        { kind: 'permission-check', permission: 'media', origin: '', granted: true, default: true },
+        { kind: 'permission-check', permission: 'geolocation', origin: 'https://app.example.com/', granted: true, default: true }]);
+      const checks = issues.filter(i => i.id === 'RUNTIME_PERMISSION_CHECK');
+      checks.should.have.length(1);
+      checks[0].description.should.match(/geolocation.*https:\/\/app\.example\.com/);
     });
 
     it('notices when the hook never ran', () => {
@@ -215,6 +224,20 @@ describe('Watch mode', () => {
       clean.issues.filter(i => i.severity.name !== 'INFORMATIONAL').should.have.length(0);
       analyzePackagedFuses(write(Buffer.from('no fuses here'))).read.should.equal(false);
     });
+
+    it('reads the Electron Framework of a macOS app bundle, where the fuses live', () => {
+      fuseBinaryFor('/Applications/My App.app/Contents/MacOS/My App')
+        .should.equal(path.join('/Applications/My App.app', 'Contents', 'Frameworks', 'Electron Framework.framework', 'Electron Framework'));
+      fuseBinaryFor('/opt/my-app/my-app').should.equal(path.resolve('/opt/my-app/my-app'));
+      // a bundle whose framework holds the wire
+      const bundle = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'eng-mac-')), 'My App.app');
+      const framework = path.join(bundle, 'Contents', 'Frameworks', 'Electron Framework.framework');
+      fs.mkdirSync(framework, { recursive: true });
+      fs.mkdirSync(path.join(bundle, 'Contents', 'MacOS'), { recursive: true });
+      fs.writeFileSync(path.join(bundle, 'Contents', 'MacOS', 'My App'), 'launcher without fuses');
+      fs.writeFileSync(path.join(framework, 'Electron Framework'), wire('11001100'));
+      analyzePackagedFuses(path.join(bundle, 'Contents', 'MacOS', 'My App')).read.should.equal(true);
+    });
   });
 
   // Runs the test app for real: needs Electron (npm install --no-save electron) and, on Linux, xvfb-run
@@ -248,7 +271,14 @@ describe('Watch mode', () => {
       report.issues.filter(i => /token=secret/.test(JSON.stringify(i))).should.have.length(0, 'query strings are not recorded');
       // the renderer-side observer saw the runtime DOM injection and that the planted marker rendered as live HTML
       ids.should.include('RUNTIME_DOM_INJECTION');
-      report.issues.filter(i => i.id === 'RUNTIME_MARKER' && i.properties.live).should.have.length.above(0, 'the planted marker came back as live HTML');
+      const live = report.issues.filter(i => i.id === 'RUNTIME_MARKER' && i.properties.live);
+      live.should.have.length.above(0, 'the planted marker came back as live HTML');
+      live.every(i => /editor\.html/.test(i.file)).should.equal(true, 'only the editor renders the marker as markup');
+      // windows in the code link to the windows observed at runtime through their preload (path.join(__dirname, 'preload.js'))
+      const staticWithPreload = report.issues.filter(i => i.id === 'WINDOW_SUMMARY_JS_CHECK' && i.properties.preload === 'preload.js');
+      staticWithPreload.should.have.length(2);
+      staticWithPreload.every(i => i.properties.observedAt).should.equal(true, 'both preload windows were opened and linked');
+      report.issues.filter(i => i.id === 'RUNTIME_MARKER' && /safe-view\.html/.test(i.file) && !i.properties.live).should.have.length(1, 'text in a form field value is shown safely');
       // the static scan of the same app ran too
       ids.should.include('NODE_INTEGRATION_JS_CHECK');
     });

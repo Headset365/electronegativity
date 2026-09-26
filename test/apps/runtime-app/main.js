@@ -27,6 +27,10 @@ app.whenReady().then(async () => {
   await viewer.webContents.executeJavaScript('window.app.getDocument(7).then(() => window.app.log("opened"))');
   await editor.webContents.executeJavaScript('Notification.requestPermission()').catch(() => {});
 
+  // a document view showing stored text safely (escaped), with the same preload as the viewer
+  const documentView = new BrowserWindow({ show: false, webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true } });
+  await documentView.loadFile(path.join(__dirname, 'safe-view.html'));
+
   shell.openExternal('mailto:support@example.com').catch(() => {});
   setTimeout(() => { server.close(); app.quit(); }, 1500);
 });

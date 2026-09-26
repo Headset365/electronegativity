@@ -138,7 +138,8 @@ export function analyzeWatchLog(records) {
     else add('RUNTIME_PERMISSION', r.origin, severity.INFORMATIONAL, confidence.CERTAIN, `The app's permission handler granted '${r.permission}' to ${r.origin}`);
   }
   // synchronous permission checks (setPermissionCheckHandler): without a handler of the app's own, Electron allows them
-  for (const r of records.filter(r => r.kind === 'permission-check' && r.granted)) {
+  // checks without an origin come from Chromium itself (media device enumeration and the like), not from a page
+  for (const r of records.filter(r => r.kind === 'permission-check' && r.granted && r.origin)) {
     if (!first(`permcheck:${r.permission}:${origin(r.origin)}`)) continue;
     if (r.default) add('RUNTIME_PERMISSION_CHECK', r.origin, severity.MEDIUM, confidence.CERTAIN, `The '${r.permission}' permission check was allowed for ${r.origin} automatically, as the app has no setPermissionCheckHandler`, undefined, `${DOCS}#5-handle-session-permission-requests-from-remote-content`);
     else add('RUNTIME_PERMISSION_CHECK', r.origin, severity.INFORMATIONAL, confidence.CERTAIN, `The app's permission check handler allowed '${r.permission}' for ${r.origin}`);

@@ -90,7 +90,7 @@ async function main() {
         if (fuses.read) {
           runtime.issues.push(...fuses.issues);
           runtime.summary.fuses = fuses.states;
-        }
+        } else console.error(chalk.yellow(__('watchFusesUnreadable', { file: fuses.binary })));
       }
     } catch (error) {
       console.error(chalk.red(error.message));
