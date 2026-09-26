@@ -227,7 +227,7 @@ describe('Watch mode', () => {
 
     it('reads the Electron Framework of a macOS app bundle, where the fuses live', () => {
       fuseBinaryFor('/Applications/My App.app/Contents/MacOS/My App')
-        .should.equal(path.join('/Applications/My App.app', 'Contents', 'Frameworks', 'Electron Framework.framework', 'Electron Framework'));
+        .should.equal(path.join(path.resolve('/Applications/My App.app'), 'Contents', 'Frameworks', 'Electron Framework.framework', 'Electron Framework'));
       fuseBinaryFor('/opt/my-app/my-app').should.equal(path.resolve('/opt/my-app/my-app'));
       // a bundle whose framework holds the wire
       const bundle = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'eng-mac-')), 'My App.app');
