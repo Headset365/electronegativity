@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { note } from '../../../util/diagnostics.js';
 import { severity, confidence } from '../../attributes.js';
 import { queryNpmAdvisories } from '../../../util/osv.js';
 
@@ -29,6 +30,7 @@ export default class DependencyVulnerabilitiesGlobalCheck {
     try {
       advisories = await queryNpmAdvisories(packages);
     } catch (e) {
+      note('network', { lookup: 'dependency advisories (OSV)', offline: !!e.offline, message: String(e.message) });
       if (!output && !e.offline) console.log(chalk.yellow(`Something went wrong while fetching dependency advisories (${e.message}). No connectivity?`));
       return [];
     }

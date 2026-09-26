@@ -186,5 +186,8 @@
 	"watchStarting": "Lancement de l'application en mode observation : connectez-vous et parcourez les fonctionnalités à couvrir, puis fermez l'application (ou appuyez sur Ctrl+C ici).",
 	"watchLogSaved": "Journal de la session enregistré dans {{{file}}} (réutilisable avec --watch-log)",
 	"watchNoHook": "L'application n'a pas chargé le module d'observation, rien n'a donc été observé. Les applications empaquetées dont le fuse EnableNodeOptionsEnvironmentVariable est désactivé (recommandé en production) l'ignorent : utilisez le mode observation avec une version de développement, par exemple le dossier de l'application avec Electron installé.",
-	"watchFusesUnreadable": "Aucune configuration de fuses Electron n'a été trouvée dans {{{file}}} : les fuses de l'application empaquetée n'ont pas pu être vérifiés"
+	"watchFusesUnreadable": "Aucune configuration de fuses Electron n'a été trouvée dans {{{file}}} : les fuses de l'application empaquetée n'ont pas pu être vérifiés",
+	"diagnosticsOptionDescription": "écrire un rapport de diagnostic assaini à partager pour le dépannage : ce qui a été analysé ou ignoré, erreurs, durées des vérifications, état du mode observation ; sans code ni texte des résultats",
+	"redactOptionDescription": "termes supplémentaires séparés par des virgules à remplacer dans le rapport de diagnostic (noms d'entreprise, de produit ou de serveurs) ; le nom de l'application, de l'utilisateur et de la machine sont toujours remplacés",
+	"diagnosticsWritten": "Diagnostic écrit dans {{{file}}} : relisez-le avant de le partager"
 }

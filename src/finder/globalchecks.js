@@ -1,6 +1,7 @@
 import { ELECTRON_GLOBAL_UPGRADE_CHECKS } from './checks/GlobalChecks/ElectronGlobalUpgradeChecks.js';
 import { GLOBAL_CHECKS } from './checks/GlobalChecks/index.js';
 import chalk from 'chalk';
+import { diagnostics } from '../util/diagnostics.js';
 
 export class GlobalChecks {
   constructor(customScan, excludeFromScan, electronUpgrade) {
@@ -66,6 +67,7 @@ export class GlobalChecks {
   }
 
   async getResults(issues, output) {
+    this.checkErrors = [];
     var result = [];
     // we use the `processed` flag to track down which issues will be left untouched by the global checks (i.e. non-dependencies)
     issues.forEach(issue => issue.processed = false);
@@ -79,8 +81,18 @@ export class GlobalChecks {
 
       var targetedIssues = issues.filter(issue => check.depends.includes(issue.constructorName) && !issue.visibility.inlineDisabled);
 
-      // the other findings are passed read-only, for checks that combine them with their own
-      result = [...result, ...await check.perform(targetedIssues, output, issues)];
+      // the other findings are passed read-only, for checks that combine them with their own. A failing global check
+      // keeps the findings it was given, instead of aborting the scan
+      const collector = diagnostics();
+      const start = performance.now();
+      try {
+        result = [...result, ...await check.perform(targetedIssues, output, issues)];
+        if (collector) collector.checkRun(check.constructor.name, performance.now() - start);
+      } catch (error) {
+        result = [...result, ...targetedIssues];
+        this.checkErrors.push({ file: 'N/A', check: check.id || check.constructor.name, message: `${check.id || check.constructor.name} failed: ${error && error.message}`, tolerable: false });
+        if (collector) collector.checkRun(check.constructor.name, performance.now() - start, error, 'N/A');
+      }
     }
 
     // in the end we merge the results of the global checks with the other untouched checks

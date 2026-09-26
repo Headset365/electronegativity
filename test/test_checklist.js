@@ -210,7 +210,7 @@ const CASES = [
   { practice: 'AngularJS trusts dynamic markup', insecure: { 'app.js': `$scope.body = $sce.trustAsHtml(comment.html);` }, expect: [{ id: 'ANGULAR_TRUST_HTML_JS_CHECK' }],
     secure: { 'app.js': `$scope.body = $sce.trustAsHtml('<b>welcome</b>');` }, absent: ['ANGULAR_TRUST_HTML_JS_CHECK'] },
   { practice: 'AngularJS compiles server data', insecure: { 'app.js': `$compile(response.data)($scope);` }, expect: [{ id: 'ANGULAR_TRUST_HTML_JS_CHECK', severity: 'HIGH' }] },
-  { practice: 'HTML loaded into a rich-text editor', insecure: { 'editor.js': `editor.setData(note.body);` }, expect: [{ id: 'RICH_TEXT_EDITOR_JS_CHECK', confidence: 'TENTATIVE' }],
+  { practice: 'HTML loaded into a rich-text editor', insecure: { 'editor.js': `editor.setData(note.body);` }, expect: [{ id: 'RICH_TEXT_EDITOR_JS_CHECK', confidence: 'FIRM' }],
     secure: { 'editor.js': `editor.setData('<p>welcome</p>');` }, absent: ['RICH_TEXT_EDITOR_JS_CHECK'] },
   { practice: 'ng-bind-html-unsafe renders raw HTML', insecure: { 'view.html': `<div ng-bind-html-unsafe="comment"></div>` }, expect: [{ id: 'ANGULAR_BIND_HTML_UNSAFE_HTML_CHECK', severity: 'HIGH' }],
     secure: { 'view.html': `<div ng-bind-html="trusted"></div>` }, absent: ['ANGULAR_BIND_HTML_UNSAFE_HTML_CHECK'] },

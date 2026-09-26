@@ -186,5 +186,8 @@
 	"watchStarting": "Starting the app in watch mode: log in and go through the features you want covered, then close the app (or press Ctrl+C here).",
 	"watchLogSaved": "Session log saved to {{{file}}} (reuse it with --watch-log)",
 	"watchNoHook": "The app did not load the watch mode hook, so nothing was observed. Packaged apps with the EnableNodeOptionsEnvironmentVariable fuse off (recommended for production) ignore it: run watch mode on a development build, e.g. the app folder with Electron installed.",
-	"watchFusesUnreadable": "No Electron fuse configuration was found in {{{file}}}, so the fuses of the packaged app could not be checked"
+	"watchFusesUnreadable": "No Electron fuse configuration was found in {{{file}}}, so the fuses of the packaged app could not be checked",
+	"diagnosticsOptionDescription": "write a sanitized diagnostics report to share for troubleshooting: what was scanned or skipped, errors, check timings, watch mode status; no code or findings text",
+	"redactOptionDescription": "extra comma-separated terms to replace in the diagnostics report (company, product or host names); the app name, user name and machine name are always replaced",
+	"diagnosticsWritten": "Diagnostics written to {{{file}}}: review it before sharing"
 }

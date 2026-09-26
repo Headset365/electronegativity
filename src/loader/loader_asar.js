@@ -21,8 +21,15 @@ export class LoaderAsar extends Loader {
 
     for (const f of archived_files) {
       if (f.split(path.sep).includes('node_modules')) continue;
-      if (!isScannableFile(f) || (!allFiles && isNonAppFile(f))) continue;
-      if (!allFiles && this.isVendored(f)) continue;
+      if (!isScannableFile(f)) continue;
+      if (!allFiles && isNonAppFile(f)) {
+        this._skipped.nonAppFiles = (this._skipped.nonAppFiles || 0) + 1;
+        continue;
+      }
+      if (!allFiles && this.isVendored(f)) {
+        this._skipped.vendoredLibraries = (this._skipped.vendoredLibraries || 0) + 1;
+        continue;
+      }
       this._loaded.add(f);
     }
 

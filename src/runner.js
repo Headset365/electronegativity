@@ -1,3 +1,4 @@
+import path from 'node:path';
 import cliProgress from 'cli-progress';
 import Table from 'cli-table3';
 import chalk from 'chalk';
@@ -13,14 +14,18 @@ import { reconcileRuntime } from './watch/reconcile.js';
 import { analyzePackagedFuses, packagedBinaryFor } from './watch/fuses.js';
 import { GlobalChecks, severity, confidence } from './finder/index.js';
 import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util/index.js';
+import { startDiagnostics, stopDiagnostics, diagnostics, writeDiagnostics } from './util/diagnostics.js';
+import pkg from '../package.json' with { type: 'json' };
 
 export default async function run(options, forCli = false) {
   // --offline only applies to this scan
   const previousOffline = process.env.ELECTRONEGATIVITY_OFFLINE;
   if (options.offline) process.env.ELECTRONEGATIVITY_OFFLINE = '1';
+  if (options.diagnostics) startDiagnostics();
   try {
     return await scan(options, forCli);
   } finally {
+    stopDiagnostics();
     if (previousOffline === undefined) delete process.env.ELECTRONEGATIVITY_OFFLINE;
     else process.env.ELECTRONEGATIVITY_OFFLINE = previousOffline;
   }
@@ -47,7 +52,14 @@ async function scan(options, forCli) {
     loader = (extension(options.input) === 'asar') ? new LoaderAsar() : new LoaderFile();
   }
 
+  let phaseStart = performance.now();
+  const endPhase = (name) => {
+    const collector = diagnostics();
+    if (collector) collector.phase(name, performance.now() - phaseStart);
+    phaseStart = performance.now();
+  };
   await loader.load(options.input, { allFiles: !!options.allFiles });
+  endPhase('load');
   const electronVersion = options.electronVersionOverride || loader.electronVersion;
   if (!electronVersion)
     logger.warn(__('electronVersionError'));
@@ -147,6 +159,9 @@ async function scan(options, forCli) {
     }
 
     if (forCli) progress.stop();
+    endPhase('checks');
+    // checks that crashed on a file were isolated: report them with the files that couldn't be analyzed
+    errors.push(...finder.checkErrors);
 
     // copies of libraries skipped by the scan still count for the dependency advisory checks
     if (finder._enabled_checks.some(check => check.name === 'DependencyInventoryLockCheck')) {
@@ -178,6 +193,9 @@ async function scan(options, forCli) {
   // Now that we have all the "naive" findings we may analyze them further to sort out false negatives
   // and false positives before presenting them in the final report (e.g. CSP)
   issues = await globalChecker.getResults(issues, options.output);
+  endPhase('globalChecks');
+  errors.push(...globalChecker.checkErrors);
+  if (forCli) for (const error of globalChecker.checkErrors) console.error(chalk.red(error.message));
 
   // Adjust visibility
   issues = issues.filter(i => !Object.hasOwn(i, 'visibility') || (!i.visibility.inlineDisabled && !i.visibility.globalCheckDisabled));
@@ -259,6 +277,31 @@ async function scan(options, forCli) {
     if (suppressed.length > 0 || stale.length > 0) console.log(chalk.gray(__('baselineSummary', { suppressed: suppressed.length, stale: stale.length })));
     console.log('\x1b[4m\x1b[36m%s\x1b[0m',`${__('tryElectroNg')}`);
   }
+  if (options.diagnostics) {
+    const byExtension = {};
+    for (const file of filenames) {
+      const ext = path.extname(file).toLowerCase() || path.basename(file);
+      byExtension[ext] = (byExtension[ext] || 0) + 1;
+    }
+    writeDiagnostics(options.diagnostics, {
+      input: options.input,
+      inputType: is_directory(options.input) ? 'directory' : extension(options.input) === 'asar' ? 'asar' : 'file',
+      electronVersion,
+      electronVersionSource: options.electronVersionOverride ? 'override' : loader.electronVersion ? 'detected' : 'not found (oldest defaults assumed)',
+      files: { scanned: filenames.length, byExtension, skipped: loader.skipped, bundledLibraries: (loader.vendoredLibraries || []).map(l => `${l.name}@${l.version || '?'}`) },
+      errors,
+      issues: [...issues, ...suppressed],
+      options: {
+        output: options.output ? path.extname(options.output) : undefined, offline: !!options.offline, allFiles: !!options.allFiles,
+        checks: options.customScan.length || 'all', excluded: options.excludeFromScan.length, electronVersionOverride: options.electronVersionOverride,
+        baseline: !!options.baseline, severity: options.severitySet && options.severitySet.name, confidence: options.confidenceSet && options.confidenceSet.name,
+        upgrade: options.electronUpgrade, watch: !!options.runtime,
+      },
+      watch: options.watchDiagnostics,
+    }, { redact: options.redact || [], version: pkg.version });
+    if (forCli) console.log(chalk.gray(__('diagnosticsWritten', { file: options.diagnostics })));
+  }
+
   return {
     globalChecks: globalChecker._enabled_checks.length,
     atomicChecks: finder._enabled_checks.length,

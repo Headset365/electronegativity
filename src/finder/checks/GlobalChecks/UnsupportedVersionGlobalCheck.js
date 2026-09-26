@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { note } from '../../../util/diagnostics.js';
 import { major, coerce, valid, gt } from 'semver';
 import { severity, confidence } from '../../attributes.js';
 import { getStableReleases, supportedMajors } from '../../../util/electron_releases.js';
@@ -25,6 +26,7 @@ export default class UnsupportedVersionGlobalCheck {
     try {
       releases = await this.getReleases();
     } catch (e) {
+      note('network', { lookup: 'Electron releases (releases.electronjs.org)', offline: !!e.offline, message: String(e.message) });
       if (!output && !e.offline) console.log(chalk.yellow(`Something went wrong while fetching Electron's releases (${e.message}). No connectivity?`));
       return [];
     }

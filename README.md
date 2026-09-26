@@ -199,6 +199,20 @@ To detect stored-content injection with `--watch-marker <token>`, put content ca
 
 The observer only records: it doesn't change what the app does. URLs are stored without their query strings, and IPC arguments only by type. It is loaded through `NODE_OPTIONS`, which packaged apps ignore when the `EnableNodeOptionsEnvironmentVariable` fuse is off (as recommended for production): run watch mode on a development or test build. With an app folder, the folder is also scanned statically; with a packaged executable, its `resources/app.asar`.
 
+### Diagnostics
+
+When a scan or a watch session doesn't behave as expected, `--diagnostics <file>` writes a report that can be shared for troubleshooting without sharing the app:
+
+```
+$ electronegativity -i ./my-app -o report.html --diagnostics diagnostics.json --redact "Acme,acme.internal"
+```
+
+It lists what was scanned (files by type), what was skipped and why (tests, bundled libraries, vendored folders), the Electron version and where it came from, files that could not be parsed, checks that failed (with the tool's own stack frames) and the slowest ones, network lookups that failed, finding counts per check and severity, and for watch mode whether the observer loaded, what it recorded and any errors inside it.
+
+It never contains code, finding descriptions or data that passed through the app. The app's name (from `package.json` and the folder name, in its `-`, `_`, space and joined forms), the user name, the machine name and the home folder are replaced, as are the extra terms given with `--redact`; hosts in URLs are replaced by stable pseudonyms. Review the file before sharing it.
+
+A check that crashes on a file no longer stops the other checks on that file: the failure is reported with the files that couldn't be analyzed, with or without `--diagnostics`.
+
 ### Ignoring Lines or Files
 
 Electronegativity lets you disable individual checks using `eng-disable` comments. For example, if you want a specific check to ignore a line of code, you can disable it as follows:

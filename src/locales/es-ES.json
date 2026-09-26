@@ -186,5 +186,8 @@
 	"watchStarting": "Iniciando la aplicación en modo de observación: inicie sesión y recorra las funciones que quiere cubrir; después cierre la aplicación (o pulse Ctrl+C aquí).",
 	"watchLogSaved": "Registro de la sesión guardado en {{{file}}} (reutilícelo con --watch-log)",
 	"watchNoHook": "La aplicación no cargó el módulo de observación, así que no se observó nada. Las aplicaciones empaquetadas con el fuse EnableNodeOptionsEnvironmentVariable desactivado (recomendado en producción) lo ignoran: use el modo de observación con una versión de desarrollo, por ejemplo la carpeta de la aplicación con Electron instalado.",
-	"watchFusesUnreadable": "No se encontró la configuración de fuses de Electron en {{{file}}}, así que no se pudieron comprobar los fuses de la aplicación empaquetada"
+	"watchFusesUnreadable": "No se encontró la configuración de fuses de Electron en {{{file}}}, así que no se pudieron comprobar los fuses de la aplicación empaquetada",
+	"diagnosticsOptionDescription": "escribir un informe de diagnóstico saneado para compartir al solucionar problemas: qué se analizó u omitió, errores, tiempos de las comprobaciones y estado del modo de observación; sin código ni texto de los hallazgos",
+	"redactOptionDescription": "términos adicionales separados por comas que se sustituirán en el informe de diagnóstico (nombres de empresa, producto o servidores); el nombre de la aplicación, del usuario y del equipo siempre se sustituyen",
+	"diagnosticsWritten": "Diagnóstico escrito en {{{file}}}: revíselo antes de compartirlo"
 }

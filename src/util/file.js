@@ -79,13 +79,20 @@ export async function list_files(input, { allFiles = false } = {}) {
   const vendoredDirs = vendoredDirectories(input, entries);
   // skipped copies of libraries are still listed, so their versions can be checked for advisories
   const libraries = [];
+  const skipped = { nonAppFiles: 0, vendoredDirectories: 0, vendoredLibraries: 0 };
   const kept = files.filter(file => {
-    if (isNonAppFile(path.relative(input, file))) return false;
+    if (isNonAppFile(path.relative(input, file))) {
+      skipped.nonAppFiles++;
+      return false;
+    }
     const inVendoredDir = vendoredDirs.some(dir => file.startsWith(dir + path.sep));
     const library = vendoredLibrary(file);
     if (library) libraries.push({ ...library, file });
+    if (library) skipped.vendoredLibraries++;
+    else if (inVendoredDir) skipped.vendoredDirectories++;
     return !library && !inVendoredDir;
   });
+  kept.skipped = skipped;
   // packages bower installed record their name and version in .bower.json
   for (const entry of entries) {
     if (!entry.isFile() || entry.name !== '.bower.json') continue;

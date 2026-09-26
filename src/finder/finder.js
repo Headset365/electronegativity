@@ -7,10 +7,14 @@ import chalk from 'chalk';
 import { gte, compare, coerce } from 'semver';
 import { setAnalysisContext } from './checks/analysis.js';
 import { Parser } from '../parser/parser.js';
+import { diagnostics } from '../util/diagnostics.js';
+
+const SAMPLE = 32;
 import all_defaults from '../../defaults.json' with { type: 'json' };
 
 export class Finder {
   constructor(customScan, excludeFromScan, electronUpgrade) {
+    this.checkErrors = []; // checks that crashed on a file: { file, check, message }
     let candidateChecks = Array.from(CHECKS);
 
     // init electron-upgrade specific checks given user-provided version numbers
@@ -73,6 +77,43 @@ export class Finder {
     }
   }
 
+  // Runs one check, isolating its failures: a crash is recorded in checkErrors instead of losing the whole file
+  runCheck(check, file, failed, fn) {
+    // with --diagnostics, 1 call in SAMPLE is timed and scaled up: timing every call on every node costs a third of
+    // the scan time, sampling finds the slow checks all the same
+    const collector = diagnostics();
+    // counted per check: a shared counter would sample some checks more than others, or never
+    const timed = collector && (check.sampleTick = (check.sampleTick || 0) + 1) % SAMPLE === 0;
+    const start = timed ? performance.now() : 0;
+    try {
+      const result = fn();
+      if (timed) collector.checkRun(check.constructor.name, (performance.now() - start) * SAMPLE, undefined, undefined, SAMPLE);
+      return result;
+    } catch (error) {
+      this.recordCheckError(check, file, failed, error, collector, start);
+      return null;
+    }
+  }
+
+  async runCheckAsync(check, file, failed, fn) {
+    const collector = diagnostics();
+    const start = collector ? performance.now() : 0;
+    try {
+      const result = await fn();
+      if (collector) collector.checkRun(check.constructor.name, performance.now() - start);
+      return result;
+    } catch (error) {
+      this.recordCheckError(check, file, failed, error, collector, start);
+      return null;
+    }
+  }
+
+  recordCheckError(check, file, failed, error, collector, start) {
+    failed.add(check);
+    this.checkErrors.push({ file, check: check.id || check.constructor.name, message: `${check.id || check.constructor.name} failed: ${error && error.message}`, tolerable: false });
+    if (collector) collector.checkRun(check.constructor.name, performance.now() - start, error, file);
+  }
+
   async find(file, data, type, content, use_only_checks = null, electronVersion = null) {
     // If the loader didn't detect the Electron version, assume the first one. Not knowing the version, we have to assume the worst (i.e.
     // all options defaulting to insecure values). By always setting the version here, the code in the checkers is simplified as they now
@@ -90,6 +131,8 @@ export class Finder {
     });
     const fileLines = content.toString().split('\n');
     const issues = [];
+    // checks that failed on this file: recorded once, then skipped for the rest of the file so the others still run
+    const failed = new Set();
     const rootData = data;
 
     switch (type) {
@@ -104,7 +147,8 @@ export class Finder {
             const astNode = rootData.astParser.getNode(node);
             rootData.Scope.updateFunctionScope(astNode, "enter");
             for (const check of checks) {
-              const matches = check.match(astNode, rootData.astParser, rootData.Scope, defaults, electronVersion, context);
+              if (failed.has(check)) continue;
+              const matches = this.runCheck(check, file, failed, () => check.match(astNode, rootData.astParser, rootData.Scope, defaults, electronVersion, context));
               if (matches) {
                 for(const m of matches) {
                   const firstLineSample = getSample(fileLines, 0);
@@ -138,7 +182,7 @@ export class Finder {
           if (scriptData) issues.push(...await this.find(file, scriptData, sourceTypes.JAVASCRIPT, content, use_only_checks, electronVersion));
         }
         for (const check of checks) {
-          const matches = check.match(data, content, defaults, electronVersion);
+          const matches = this.runCheck(check, file, failed, () => check.match(data, content, defaults, electronVersion));
           if(matches){
             for(const m of matches) {
               const firstLineSample = getSample(fileLines, 0);
@@ -153,7 +197,7 @@ export class Finder {
       case sourceTypes.JSON:
       case sourceTypes.LOCKFILE:
         for (const check of checks) {
-          const matches = await check.match(data, defaults, electronVersion);
+          const matches = await this.runCheckAsync(check, file, failed, () => check.match(data, defaults, electronVersion));
           if (matches) {
             for(const m of matches) {
               const sample = getSample(fileLines, m.line - 1);

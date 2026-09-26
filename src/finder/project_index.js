@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import { sourceTypes } from '../parser/types.js';
 import { sourceOfCall, dependsOnParams, moduleBindings } from './checks/analysis.js';
 import { isFunction, visit } from './checks/helpers.js';
+import { diagnostics } from '../util/diagnostics.js';
 
 // How many calls deep untrusted data is followed from a handler into helpers
 const MAX_CALL_DEPTH = 6;
@@ -112,7 +113,12 @@ export class ProjectIndex {
    * of the source or undefined.
    */
   untrustedSource(file, fn) {
-    this.taintedFunctions ??= this.findTaintedFunctions();
+    if (!this.taintedFunctions) {
+      const start = performance.now();
+      this.taintedFunctions = this.findTaintedFunctions();
+      const collector = diagnostics();
+      if (collector) collector.phase('crossFileDataFlow (within checks)', performance.now() - start);
+    }
     return this.taintedFunctions.get(functionKey(file, fn));
   }
 
@@ -157,6 +163,8 @@ export class ProjectIndex {
   // Scanned files whose source contains the word, e.g. every file that might call a helper
   filesMentioning(name) {
     if (!this.words) {
+      const start = performance.now();
+      const collector = diagnostics();
       this.words = new Map();
       for (const file of this.files) {
         if (!/\.[cm]?[jt]sx?$/.test(file)) continue;
@@ -165,6 +173,7 @@ export class ProjectIndex {
           this.words.get(word).push(file);
         }
       }
+      if (collector) collector.phase('wordIndex (within checks)', performance.now() - start);
     }
     return this.words.get(name) || [];
   }

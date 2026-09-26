@@ -44,6 +44,8 @@ async function main() {
     .option('--watch-args <args>', __('watchArgsOptionDescription'))
     .option('--watch-log <file>', __('watchLogOptionDescription'))
     .option('--watch-marker <token>', __('watchMarkerOptionDescription'))
+    .option('--diagnostics <file>', __('diagnosticsOptionDescription'))
+    .option('--redact <terms>', __('redactOptionDescription'))
     .parse(process.argv);
 
   const options = program.opts();
@@ -71,6 +73,7 @@ async function main() {
 
   // Watch mode: run the app with the observation hook while the user goes through it, then analyze what happened
   let runtime;
+  let watchDiagnostics;
   if (options.watch || options.watchLog) {
     let log = options.watchLog;
     let packagedApp;
@@ -83,7 +86,17 @@ async function main() {
         log = await watchApp(options.watch, { args: options.watchArgs ? options.watchArgs.split(/\s+/).filter(Boolean) : [], marker: options.watchMarker });
         console.log(chalk.gray(__('watchLogSaved', { file: log })));
       }
-      runtime = analyzeWatchLog(readWatchLog(log));
+      const records = readWatchLog(log);
+      runtime = analyzeWatchLog(records);
+      // for --diagnostics: what the hook captured, by kind, and anything that went wrong inside it
+      const recordKinds = {};
+      for (const record of records) recordKinds[record.kind] = (recordKinds[record.kind] || 0) + 1;
+      const start = records.find(r => r.kind === 'start');
+      watchDiagnostics = {
+        mode: options.watch ? 'launched' : 'log', packaged: !!packagedApp, hookStarted: !!start, lateStart: !!(start && start.late),
+        electron: start && start.electron, marker: !!options.watchMarker, records: recordKinds,
+        hookErrors: records.filter(r => r.kind === 'hook-error').slice(0, 20).map(r => r.message), summary: { ...runtime.summary, fuses: undefined },
+      };
       // read the fuses actually written into the packaged binary, which the static FUSES_* checks can't see
       if (packagedApp) {
         const fuses = analyzePackagedFuses(packagedApp);
@@ -91,6 +104,7 @@ async function main() {
           runtime.issues.push(...fuses.issues);
           runtime.summary.fuses = fuses.states;
         } else console.error(chalk.yellow(__('watchFusesUnreadable', { file: fuses.binary })));
+        watchDiagnostics.fusesRead = fuses.read;
       }
     } catch (error) {
       console.error(chalk.red(error.message));
@@ -161,7 +175,10 @@ async function main() {
       allFiles: options.allFiles,
       baseline: options.baseline,
       writeBaseline: options.writeBaseline,
-      runtime
+      runtime,
+      diagnostics: options.diagnostics,
+      redact: options.redact ? options.redact.split(',').map(term => term.trim()).filter(Boolean) : [],
+      watchDiagnostics
     }, forCli);
     // CI gate: fail when a reported finding reaches the given severity
     if (failOn) {

@@ -1,5 +1,6 @@
 import { valid, coerce } from 'semver';
 import chalk from 'chalk';
+import { note } from '../../../util/diagnostics.js';
 import { severity, confidence } from '../../attributes.js';
 import { queryNpmAdvisories } from '../../../util/osv.js';
 
@@ -62,6 +63,7 @@ export default class AvailableSecurityFixesGlobalCheck {
       const results = await queryNpmAdvisories(versions.map(version => ({ name: 'electron', version })), { timeout: 15000 });
       return new Map(versions.map((version, i) => [version, results[i]]));
     } catch (e) {
+      note('network', { lookup: 'Electron security advisories (OSV)', offline: !!e.offline, message: String(e.message) });
       if (!output && !e.offline)
         console.log(chalk.yellow(`Something went wrong while fetching Electron's security advisories (${e.message}). No connectivity?`));
       return undefined;
