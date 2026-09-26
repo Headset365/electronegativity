@@ -26,3 +26,16 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+
+  watch-mode:
+    name: Watch mode end to end (Electron under Xvfb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save electron@38
+      - run: npx mocha test/test_watch.js

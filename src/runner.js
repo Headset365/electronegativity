@@ -177,6 +177,9 @@ async function scan(options, forCli) {
   // Adjust visibility
   issues = issues.filter(i => !Object.hasOwn(i, 'visibility') || (!i.visibility.inlineDisabled && !i.visibility.globalCheckDisabled));
 
+  // findings observed while the app ran (--watch)
+  if (options.runtime) issues.push(...options.runtime.issues);
+
   // Baseline: accepted findings are not reported again
   let suppressed = [];
   let stale = [];
@@ -194,7 +197,7 @@ async function scan(options, forCli) {
   // adjust to Relative or Absolute path
   if (options.isRelative)
     issues.forEach(function(issue, i, issues) {
-      issues[i].file = getRelativePath(options.input, issue.file);
+      if (issue.constructorName !== 'Runtime') issues[i].file = getRelativePath(options.input, issue.file);
     });
 
   let rows = [];
@@ -225,7 +228,8 @@ async function scan(options, forCli) {
       filesScanned: filenames.length,
       globalChecks: globalChecker._enabled_checks.length,
       atomicChecks: finder._enabled_checks.length,
-      errors
+      errors,
+      runtime: options.runtime && options.runtime.summary
     });
   }
 

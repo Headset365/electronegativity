@@ -42,8 +42,8 @@
 	"tableLocation": "Ubicación",
 	"tableDescription": "Descripción del problema",
 	"numberOfChecksLoaded": "{{{total}}} verificaciones cargadas correctamente: {{{globalChecks}}} globales, {{{atomicChecks}}} atómicas",
-	"tolerableErrorParsing": "Error tolerable al analizar {{{file}}} - {{{message}}}",
-	"errorParsing": "Error al analizar {{{file}}} - {{{message}}}",
+	"tolerableErrorParsing": "Error tolerable al analizar {{{{file}}}} - {{{message}}}",
+	"errorParsing": "Error al analizar {{{{file}}}} - {{{message}}}",
 	"reviewRequired": "Revisión requerida",
 	"noIssuesFound": "No se encontraron problemas.",
 	"tryElectroNg": "Consejo: guarde un informe HTML filtrable con -o informe.html (o .json, .sarif, .csv).\n",
@@ -165,7 +165,7 @@
 	"baselineOptionDescription": "no informar los hallazgos aceptados en este archivo de referencia (baseline)",
 	"writeBaselineOptionDescription": "escribir los hallazgos actuales en un archivo de referencia (se conservan los motivos ya registrados)",
 	"failOnOptionDescription": "salir con el código 1 cuando un hallazgo informado tenga esta gravedad o superior (high, medium, low, informational)",
-	"baselineWritten": "Archivo de referencia con {{count}} hallazgo(s) escrito en {{file}}",
+	"baselineWritten": "Archivo de referencia con {{count}} hallazgo(s) escrito en {{{file}}}",
 	"baselineSummary": "{{suppressed}} hallazgo(s) aceptado(s) por el archivo de referencia no se informaron; {{stale}} entrada(s) del archivo de referencia ya no coinciden con nada",
 	"failOnTriggered": "{{count}} hallazgo(s) con gravedad {{severity}} o superior",
 	"DOWNLOAD_JS_CHECK": "Revise el manejo de las descargas",
@@ -175,5 +175,11 @@
 	"ANGULAR_RESOURCE_URL_LIST_JS_CHECK": "La lista de URL de recursos permitidas de AngularJS permite cargar plantillas desde ubicaciones no confiables",
 	"END_OF_LIFE_LIBRARY_GLOBAL_CHECK": "Versión de biblioteca que ya no recibe correcciones de seguridad",
 	"WINDOW_SUMMARY_JS_CHECK": "Configuración de seguridad de la ventana",
-	"EXPOSED_API_JS_CHECK": "API expuesta al contenido web"
+	"EXPOSED_API_JS_CHECK": "API expuesta al contenido web",
+	"watchOptionDescription": "ejecutar la aplicación (su carpeta, el ejecutable empaquetado o el paquete .app) e informar de lo que ocurre mientras la usa; cierre la aplicación al terminar",
+	"watchArgsOptionDescription": "argumentos adicionales de línea de comandos para la aplicación iniciada con --watch",
+	"watchLogOptionDescription": "analizar el registro de una sesión anterior de --watch en lugar de iniciar la aplicación",
+	"watchStarting": "Iniciando la aplicación en modo de observación: inicie sesión y recorra las funciones que quiere cubrir; después cierre la aplicación (o pulse Ctrl+C aquí).",
+	"watchLogSaved": "Registro de la sesión guardado en {{{file}}} (reutilícelo con --watch-log)",
+	"watchNoHook": "La aplicación no cargó el módulo de observación, así que no se observó nada. Las aplicaciones empaquetadas con el fuse EnableNodeOptionsEnvironmentVariable desactivado (recomendado en producción) lo ignoran: use el modo de observación con una versión de desarrollo, por ejemplo la carpeta de la aplicación con Electron instalado."
 }

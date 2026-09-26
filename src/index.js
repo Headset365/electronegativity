@@ -8,6 +8,8 @@ import _i18n from './locales/i18n.js';
 import run from './runner.js';
 import { severity } from './finder/attributes.js';
 import { OUTPUT_FORMATS } from './util/index.js';
+import { resolveApp, watchApp } from './watch/launch.js';
+import { readWatchLog, analyzeWatchLog } from './watch/analyze.js';
 
 async function main() {
 
@@ -37,6 +39,9 @@ async function main() {
     .option('--baseline <file>', __('baselineOptionDescription'))
     .option('--write-baseline <file>', __('writeBaselineOptionDescription'))
     .option('--fail-on <severity>', __('failOnOptionDescription'))
+    .option('--watch <app>', __('watchOptionDescription'))
+    .option('--watch-args <args>', __('watchArgsOptionDescription'))
+    .option('--watch-log <file>', __('watchLogOptionDescription'))
     .parse(process.argv);
 
   const options = program.opts();
@@ -60,6 +65,26 @@ async function main() {
     console.log("\x1b[4m\x1b[33m%s\x1b[0m", __('contactUs'));
     console.log("\x1b[4m\x1b[33m%s\x1b[0m", __('foundBug'));
     console.log(__('startScan'));
+  }
+
+  // Watch mode: run the app with the observation hook while the user goes through it, then analyze what happened
+  let runtime;
+  if (options.watch || options.watchLog) {
+    let log = options.watchLog;
+    try {
+      if (options.watch) {
+        const { staticInput } = resolveApp(options.watch);
+        if (!options.input && staticInput) options.input = staticInput;
+        console.log(chalk.cyan(__('watchStarting')));
+        log = await watchApp(options.watch, { args: options.watchArgs ? options.watchArgs.split(/\s+/).filter(Boolean) : [] });
+        console.log(chalk.gray(__('watchLogSaved', { file: log })));
+      }
+      runtime = analyzeWatchLog(readWatchLog(log));
+    } catch (error) {
+      console.error(chalk.red(error.message));
+      process.exit(2);
+    }
+    if (!runtime.summary.started) console.error(chalk.yellow(__('watchNoHook')));
   }
 
   if(!options.input){
@@ -123,7 +148,8 @@ async function main() {
       offline: options.offline,
       allFiles: options.allFiles,
       baseline: options.baseline,
-      writeBaseline: options.writeBaseline
+      writeBaseline: options.writeBaseline,
+      runtime
     }, forCli);
     // CI gate: fail when a reported finding reaches the given severity
     if (failOn) {

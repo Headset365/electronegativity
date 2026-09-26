@@ -41,7 +41,7 @@ function findingRow(issue, index) {
  * @param {Array} issues findings, as returned by run()
  * @param {Object} meta { version, input, electronVersion, filesScanned, globalChecks, atomicChecks, errors, generatedAt }
  */
-const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK'];
+const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'RUNTIME_WINDOW_SUMMARY', 'RUNTIME_IPC', 'RUNTIME_COVERAGE'];
 const place = (issue) => `${issue.file}${issue.location && issue.location.line ? ':' + issue.location.line : ''}`;
 
 // What page script could reach in each window, if content it renders were ever to run as code
@@ -63,8 +63,30 @@ function settingCell(settings, name, risky) {
   return `<td${cls}>${escapeHtml(text)}${source === 'default' && typeof value === 'boolean' ? ' <small>default</small>' : ''}</td>`;
 }
 
-function attackSurface(windows, apis) {
-  if (windows.length === 0 && apis.length === 0) return '';
+// What watch mode saw: the pages each window really showed with its settings, IPC use and what was never exercised
+function runtimeSurface(runtimeWindows, ipc, coverage, summary) {
+  if (!summary && runtimeWindows.length === 0) return '';
+  const unused = coverage[0] && coverage[0].properties ? coverage[0].properties.unusedChannels : [];
+  return `
+  <h3>Observed while the app ran</h3>${summary ? `
+  <p class="note">${escapeHtml(summary.windows)} window(s) and ${escapeHtml(summary.pages)} page load(s) observed; ${escapeHtml(summary.usedChannels)} of ${escapeHtml(summary.channels)} registered IPC channels used.${summary.started ? '' : ' <span class="risk">The app did not load the watch hook: nothing was observed.</span>'}</p>` : ''}${runtimeWindows.length > 0 ? `
+  <div class="table-wrap"><table class="surface">
+    <thead><tr><th>Page</th><th>nodeIntegration</th><th>contextIsolation</th><th>sandbox</th><th>webSecurity</th><th>Page script reaches</th></tr></thead>
+    <tbody>${runtimeWindows.map(w => { const p = w.properties || {}; return `
+      <tr><td class="loc">${escapeHtml(p.url)}</td>${settingCell(p.settings, 'nodeIntegration', true)}${settingCell(p.settings, 'contextIsolation', false)}${settingCell(p.settings, 'sandbox', false)}${settingCell(p.settings, 'webSecurity', false)}<td>${reach(p.settings)}</td></tr>`; }).join('')}
+    </tbody>
+  </table></div>` : ''}${ipc.length > 0 ? `
+  <div class="table-wrap"><table class="surface">
+    <thead><tr><th>IPC channel used</th><th>By pages from</th></tr></thead>
+    <tbody>${ipc.map(i => { const p = i.properties || {}; return `
+      <tr><td><code>${escapeHtml(p.channel)}</code></td><td>${escapeHtml((p.senders || []).join(', '))}</td></tr>`; }).join('')}
+    </tbody>
+  </table></div>` : ''}${unused.length > 0 ? `
+  <p class="note"><b>Not exercised during the session:</b> ${unused.map(c => `<code>${escapeHtml(c)}</code>`).join(' ')}. Go through the features that use these channels to cover them.</p>` : ''}`;
+}
+
+function attackSurface(windows, apis, runtime = '') {
+  if (windows.length === 0 && apis.length === 0 && !runtime) return '';
   return `
   <h2>Renderer attack surface</h2>
   <p class="note">What script running in each window could reach if content the window renders were ever interpreted as code. Values come from the code, or from the defaults of the Electron version in use.</p>${windows.length > 0 ? `
@@ -79,12 +101,14 @@ function attackSurface(windows, apis) {
     <tbody>${apis.map(a => { const p = a.properties || {}; return `
       <tr><td>window.${escapeHtml(p.world)}</td><td>${p.members && p.members.length ? p.members.map(m => `<code>${escapeHtml(m)}</code>`).join(' ') : 'not listed statically'}</td><td class="loc">${escapeHtml(place(a))}</td></tr>`; }).join('')}
     </tbody>
-  </table></div>` : ''}`;
+  </table></div>` : ''}${runtime}`;
 }
 
 export function renderHtmlReport(allIssues, meta) {
   const windows = allIssues.filter(i => i.id === 'WINDOW_SUMMARY_JS_CHECK');
   const apis = allIssues.filter(i => i.id === 'EXPOSED_API_JS_CHECK');
+  const runtime = runtimeSurface(allIssues.filter(i => i.id === 'RUNTIME_WINDOW_SUMMARY'), allIssues.filter(i => i.id === 'RUNTIME_IPC'),
+    allIssues.filter(i => i.id === 'RUNTIME_COVERAGE'), meta.runtime);
   const issues = allIssues.filter(i => !INVENTORY.includes(i.id));
   const sorted = [...issues].sort((a, b) =>
     b.severity.value - a.severity.value || b.confidence.value - a.confidence.value ||
@@ -172,6 +196,7 @@ export function renderHtmlReport(allIssues, meta) {
   .surface td.unknown { color: var(--muted, #777); font-style: italic; }
   .surface small { color: var(--muted, #777); }
   .note { color: var(--muted, #777); font-size: 13px; margin: 0 0 8px; }
+  .table-wrap + .table-wrap, .table-wrap + .note { margin-top: 12px; }
   @media print { .toolbar, .checks { display: none; } .card { cursor: default; } body { background: #fff; } }
 </style>
 </head>
@@ -192,7 +217,7 @@ ${SEVERITIES.map(s => `    <button type="button" class="card sev-${s.toLowerCase
     <div class="card"><div class="n">${manual}</div><div class="l">Need manual review</div></div>
   </div>
 
-${attackSurface(windows, apis)}
+${attackSurface(windows, apis, runtime)}
   <h2>Findings by check</h2>
   <div class="checks">
 ${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check="${escapeHtml(id)}"><span class="badge sev-${e.severity.name.toLowerCase()}" style="min-width:0">${e.count}</span> ${escapeHtml(id)}</button>`).join('\n')}

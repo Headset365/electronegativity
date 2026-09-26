@@ -42,8 +42,8 @@
 	"tableLocation": "Emplacement",
 	"tableDescription": "Description du problème",
 	"numberOfChecksLoaded": "{{{total}}} vérification(s) chargée(s) avec succès : {{{globalChecks}}} globale(s), {{{atomicChecks}}} atomique(s)",
-	"tolerableErrorParsing": "Erreur tolérable en analysant {{{file}}} - {{{message}}}",
-	"errorParsing": "Erreur en analysant {{{file}}} - {{{message}}}",
+	"tolerableErrorParsing": "Erreur tolérable en analysant {{{{file}}}} - {{{message}}}",
+	"errorParsing": "Erreur en analysant {{{{file}}}} - {{{message}}}",
 	"reviewRequired": "Revue requise",
 	"noIssuesFound": "Aucun problème n'a été détecté.",
 	"tryElectroNg": "Astuce : enregistrez un rapport HTML filtrable avec -o rapport.html (ou .json, .sarif, .csv).\n",
@@ -165,7 +165,7 @@
 	"baselineOptionDescription": "ne pas signaler les résultats acceptés dans ce fichier de référence (baseline)",
 	"writeBaselineOptionDescription": "écrire les résultats actuels dans un fichier de référence (les motifs déjà enregistrés sont conservés)",
 	"failOnOptionDescription": "quitter avec le code 1 lorsqu'un résultat signalé a cette gravité ou une gravité supérieure (high, medium, low, informational)",
-	"baselineWritten": "Fichier de référence avec {{count}} résultat(s) écrit dans {{file}}",
+	"baselineWritten": "Fichier de référence avec {{count}} résultat(s) écrit dans {{{file}}}",
 	"baselineSummary": "{{suppressed}} résultat(s) accepté(s) par le fichier de référence n'ont pas été signalés ; {{stale}} entrée(s) du fichier de référence ne correspondent plus à rien",
 	"failOnTriggered": "{{count}} résultat(s) de gravité {{severity}} ou supérieure",
 	"DOWNLOAD_JS_CHECK": "Vérifiez la gestion des téléchargements",
@@ -175,5 +175,11 @@
 	"ANGULAR_RESOURCE_URL_LIST_JS_CHECK": "La liste d'URL de ressources autorisées d'AngularJS permet de charger des modèles depuis des emplacements non fiables",
 	"END_OF_LIFE_LIBRARY_GLOBAL_CHECK": "Version de bibliothèque qui ne reçoit plus de correctifs de sécurité",
 	"WINDOW_SUMMARY_JS_CHECK": "Paramètres de sécurité de la fenêtre",
-	"EXPOSED_API_JS_CHECK": "API exposée au contenu web"
+	"EXPOSED_API_JS_CHECK": "API exposée au contenu web",
+	"watchOptionDescription": "lancer l'application (son dossier, l'exécutable empaqueté ou le paquet .app) et signaler ce qui se passe pendant que vous l'utilisez ; fermez l'application une fois terminé",
+	"watchArgsOptionDescription": "arguments de ligne de commande supplémentaires pour l'application lancée par --watch",
+	"watchLogOptionDescription": "analyser le journal d'une session --watch précédente au lieu de lancer l'application",
+	"watchStarting": "Lancement de l'application en mode observation : connectez-vous et parcourez les fonctionnalités à couvrir, puis fermez l'application (ou appuyez sur Ctrl+C ici).",
+	"watchLogSaved": "Journal de la session enregistré dans {{{file}}} (réutilisable avec --watch-log)",
+	"watchNoHook": "L'application n'a pas chargé le module d'observation, rien n'a donc été observé. Les applications empaquetées dont le fuse EnableNodeOptionsEnvironmentVariable est désactivé (recommandé en production) l'ignorent : utilisez le mode observation avec une version de développement, par exemple le dossier de l'application avec Electron installé."
 }

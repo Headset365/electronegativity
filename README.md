@@ -81,6 +81,7 @@ Checks run on JavaScript/TypeScript, HTML, `package.json`/`electron-builder.json
 | Downloads and updates | `DOWNLOAD_JS_CHECK` (auto-opened downloads, server-chosen file names), `UPDATE_SECURITY_*` (HTTP feeds, unverified signatures, downgrades) |
 | Outdated software | `ELECTRON_VERSION_JSON_CHECK`, `AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK`, `UNSUPPORTED_VERSION_GLOBAL_CHECK`, `DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK` (also for library copies bundled with the app), `END_OF_LIFE_LIBRARY_GLOBAL_CHECK` (AngularJS, jQuery 1.x/2.x, Bootstrap 2-4; works offline) |
 | Attack surface inventory | `WINDOW_SUMMARY_JS_CHECK`, `EXPOSED_API_JS_CHECK` (informational, shown as tables in the HTML report) |
+| Runtime (`--watch`) | `RUNTIME_NODE_INTEGRATION`, `RUNTIME_CONTEXT_ISOLATION`, `RUNTIME_SANDBOX`, `RUNTIME_WEB_SECURITY`, `RUNTIME_CSP`, `RUNTIME_INSECURE_LOAD`, `RUNTIME_NAVIGATION`, `RUNTIME_NEW_WINDOW`, `RUNTIME_WEBVIEW`, `RUNTIME_OPEN_EXTERNAL`, `RUNTIME_OPEN_PATH`, `RUNTIME_PERMISSION`, `RUNTIME_CERTIFICATE_ERROR`, `RUNTIME_IPC`, `RUNTIME_COVERAGE` |
 
 The outdated software checks need network access: they query [releases.electronjs.org](https://releases.electronjs.org) (cached for 12 hours) and the [OSV](https://osv.dev) vulnerability database. Offline, they print a warning and are skipped; `--offline` skips them without trying.
 
@@ -171,6 +172,27 @@ $ electronegativity -i /path/to/electron/app -v -u 22..32
 ```
 
 Note: if you're running into the Fatal Error "JavaScript heap out of memory", you can run node using ```node --max-old-space-size=4096 electronegativity -i /path/to/asar/archive -o result.csv```
+
+### Watch mode (runtime observation)
+
+Static analysis reads all the code, including the parts behind a login. Watch mode adds what actually happens when the app runs: settings computed at runtime, the Content Security Policy each page really gets, and which IPC channels your session exercised.
+
+```
+$ electronegativity --watch ./my-app -o report.html          # app folder with Electron installed
+$ electronegativity --watch ./dist/linux-unpacked/my-app -o report.html   # packaged executable
+$ electronegativity --watch-log session.jsonl -i ./my-app -o report.html  # re-analyze an earlier session
+```
+
+The app starts with a small observer loaded into its main process. Log in and go through the features you want covered, then close the app. The report then includes:
+
+* every page each window showed, with the `nodeIntegration`, `contextIsolation`, `sandbox` and `webSecurity` values it ran with;
+* pages shown without a Content Security Policy (header or `<meta>`), or with one allowing inline scripts or `eval`;
+* content loaded over plain http, navigation to other origins, new windows and `<webview>`s created for web content;
+* `shell.openExternal` calls with non-web URLs and `shell.openPath` on executable file types;
+* permissions granted automatically because the app has no permission request handler, and certificate errors;
+* the IPC channels pages used and, as coverage, the channels the app registered that the session never exercised.
+
+The observer only records: it doesn't change what the app does. URLs are stored without their query strings, and IPC arguments only by type. It is loaded through `NODE_OPTIONS`, which packaged apps ignore when the `EnableNodeOptionsEnvironmentVariable` fuse is off (as recommended for production): run watch mode on a development or test build. With an app folder, the folder is also scanned statically; with a packaged executable, its `resources/app.asar`.
 
 ### Ignoring Lines or Files
 
