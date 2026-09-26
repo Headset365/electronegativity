@@ -9,7 +9,7 @@ export default class RemoteModuleJSCheck {
     this.id = "REMOTE_MODULE_JS_CHECK";
     this.description = __("REMOTE_MODULE_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/REMOTE_MODULE_JS_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/breaking-changes#removed-remote-module";
   }
 
   match(astNode, astHelper, scope, defaults){

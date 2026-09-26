@@ -7,7 +7,7 @@ export default class PreloadJSCheck {
     this.id = "PRELOAD_JS_CHECK";
     this.description = __("PRELOAD_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/PRELOAD_JS_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#20-do-not-expose-electron-apis-to-untrusted-web-content";
   }
 
   match(astNode, astHelper, scope, defaults = {}){

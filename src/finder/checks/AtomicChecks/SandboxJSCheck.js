@@ -7,7 +7,7 @@ export default class SandboxJSCheck {
     this.id = "SANDBOX_JS_CHECK";
     this.description = __("SANDBOX_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/SANDBOX_JS_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#4-enable-process-sandboxing";
   }
 
   match(astNode, astHelper, scope, defaults){

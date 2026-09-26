@@ -6,7 +6,7 @@ export default class CSPJSCheck {
     this.id = "CSP_JS_CHECK";
     this.description = __("CSP_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/CSP_JS_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#7-define-a-content-security-policy";
   }
 
   match(astNode, astHelper){

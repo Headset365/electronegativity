@@ -53,14 +53,14 @@ To update a global install, run the `npm install -g` command again.
 * Checks account for the secure defaults of newer Electron releases: `contextIsolation` (Electron 12+), `sandbox` (Electron 20+, unless `nodeIntegration` is enabled) and the removal of the `remote` module (Electron 14+). When the Electron version can't be detected, the oldest (least secure) defaults are still assumed.
 * `AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK` now queries the [OSV](https://osv.dev) database of published Electron security advisories (GitHub Security Advisories), as Electron's former release feed stopped being updated in 2022. Findings list the matching advisory IDs.
 * Native ES modules with no build step, running on current versions of all dependencies (Babel 8, TypeScript ESTree 8, espree, eslint-scope, cheerio 1.x, commander, chalk).
-* 86 security checks (up from 42), covering the current [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security): IPC sender validation, APIs exposed through `contextBridge`, Electron Fuses, `setWindowOpenHandler`, `<webview>` hardening, custom scheme privileges, disabled TLS validation, `shell` APIs, deep link and file association handlers, downloads, update feeds, plaintext secrets, screen capture, DevTools, Secure Keyboard Entry, WebGL/WebSQL, unsandboxed iframes and certificate pinning.
-* Outdated software: end-of-life Electron majors, newer patch releases of pinned versions, and known vulnerabilities in every locked npm dependency.
+* 87 security checks (up from 42), covering the current [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security): IPC sender validation, APIs exposed through `contextBridge`, Electron Fuses, `setWindowOpenHandler`, `<webview>` hardening, custom scheme privileges, disabled TLS validation, `shell` APIs, deep link and file association handlers, downloads, update feeds, plaintext secrets, screen capture, DevTools, Secure Keyboard Entry, WebGL/WebSQL, unsandboxed iframes and certificate pinning.
+* Outdated software: end-of-life Electron majors, newer patch releases of pinned versions, and known vulnerabilities in every locked npm dependency. Development-only packages are reported as LOW: npm lockfiles record them, and for Yarn and pnpm lockfiles they are worked out from the `dependencies` of the project's `package.json` files and workspaces.
 * Findings follow the Electron version in use, e.g. `affinity` is ignored from Electron 14 and the `new-window` event is reported as ineffective from Electron 22.
 * Upgrade checks (`-u`) for the breaking changes of Electron 12 to 32.
 * A self-contained, filterable HTML report (`-o report.html`) and JSON output, next to CSV and SARIF.
-* Cross-file analysis: handlers, helpers and constants imported from other files (ES modules, CommonJS, re-exports, `tsconfig.json` `baseUrl`/`paths` aliases) and handler factories are followed. Window options merged from shared defaults (`{ ...defaults }`, `Object.assign({}, defaults, options)`, `Object.freeze(...)`, also across files) and helpers that handlers pass untrusted data to are followed. Minified bundles (`new o.BrowserWindow(...)`, `!0`/`!1`) are understood, and inline `<script>` blocks of HTML files go through the JavaScript checks.
+* Cross-file analysis: handlers, helpers and constants imported from other files (ES modules, CommonJS, re-exports, `tsconfig.json` `baseUrl`/`paths` aliases) and handler factories are followed. Window options merged from shared defaults (`{ ...defaults }`, `Object.assign({}, defaults, options)`, `Object.freeze(...)`, also across files) and data from IPC, navigation and deep link handlers is followed into the helpers it is passed to, across files and up to six calls deep. A helper parameter that every caller in the project sets to a constant is reported as LOW. Minified bundles (`new o.BrowserWindow(...)`, `!0`/`!1`) are understood, and inline `<script>` blocks of HTML files go through the JavaScript checks.
 * Baselines (`--baseline`, `--write-baseline`) and a CI exit code (`--fail-on`), see [CI](#cicd).
-* Tests, fixtures, vendored code, tooling folders (`scripts`, `tools`, dot-folders) and minified files are skipped by default (`--all-files` to include them).
+* Tests, fixtures, vendored code, tooling folders (`scripts`, `tools`, dot-folders) and minified files are skipped by default (`--all-files` to include them). Vendored code includes bower and jspm folders (`.bowerrc`) and copied libraries, recognized by a header comment naming the file with a version and license (e.g. `js/jquery.js`).
 * Validated on Signal Desktop, Element, VS Code, Mattermost, GitHub Desktop, Hyper and Electron Fiddle: no parse errors, and the remaining HIGH findings were confirmed by hand. Cross-checked against old releases with published vulnerabilities, see [Known vulnerabilities](#known-vulnerabilities).
 
 ## Checks
@@ -95,11 +95,11 @@ Rather than flagging every use of a sensitive API, checks look at what the code 
 
 ### Test coverage
 
-`test/test_checklist.js` covers each item of the [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) and the other practices above with an insecure example, which must be reported with the expected severity and confidence, and a secure one, which must not be. `test/apps` contains a hardened sample app, which must only produce low-severity "review the allowlist" notes, and a vulnerable one, which must trigger each check with a firm or certain confidence.
+`test/test_checklist.js` covers each item of the [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) and the other practices above with an insecure example, which must be reported with the expected severity and confidence, and a secure one, which must not be. `test/apps` contains a hardened sample app, which must only produce low-severity "review the allowlist" notes, and a vulnerable one, which must trigger each check with a firm or certain confidence. Every finding links to documentation of the problem; `npm run check:references` (needs network access) verifies that each linked page, and the section it points to, still exists.
 
 ### Known vulnerabilities
 
-The root cause of each published vulnerability below is reported when scanning the affected release (`--offline`):
+The root cause of each published vulnerability below is reported when scanning the affected release, offline:
 
 | Release | Vulnerability | Reported |
 |---|---|---|
@@ -107,8 +107,20 @@ The root cause of each published vulnerability below is reported when scanning t
 | Signal Desktop 1.10.0 | CVE-2018-11101: XSS in quoted replies | `XSS_SINK_JS_CHECK` (`dangerouslySetInnerHTML`) at `Quote.tsx:114`; `CONTEXT_ISOLATION_JS_CHECK` HIGH (Electron 1.8 default) |
 | Jitsi Meet Electron 2.0.0 | CVE-2020-25019: `shell.openExternal` on any link | `OPEN_EXTERNAL_JS_CHECK` HIGH/FIRM at `main.js:165` (value from `new-window`, not validated) |
 | MarkText 0.16.3 | CVE-2021-29996, CVE-2023-2318: XSS to RCE (paste handling, `nodeIntegration`) | `NODE_INTEGRATION_JS_CHECK` and `CONTEXT_ISOLATION_JS_CHECK` HIGH/CERTAIN (options merged from `config.js`), `WEB_SECURITY_JS_CHECK`, `XSS_SINK_JS_CHECK` at `pasteCtrl.js:54` |
-| Joplin 2.8.8 | CVE-2022-35131 and later note-viewer XSS to RCE | `NODE_INTEGRATION_JS_CHECK` and `CONTEXT_ISOLATION_JS_CHECK` HIGH/CERTAIN, `XSS_SINK_JS_CHECK` in the note viewer's inline script, `IFRAME_SANDBOX_JS_CHECK` for the unsandboxed viewer frame |
+| Joplin 2.8.8 | CVE-2022-35131 and later note-viewer XSS to RCE | `NODE_INTEGRATION_JS_CHECK` and `CONTEXT_ISOLATION_JS_CHECK` HIGH/CERTAIN, `XSS_SINK_JS_CHECK` in the note viewer's inline script, `IFRAME_SANDBOX_JS_CHECK` for the unsandboxed viewer frame, raised to MEDIUM because the window enables `nodeIntegration` |
 | Element Desktop 1.9.6 | CVE-2022-23597: deep links loaded into the main window | `UNTRUSTED_LOAD_URL_JS_CHECK` HIGH/FIRM at `protocol.ts:32`, no longer reported on the fixed 1.9.7 |
+
+With network access, the same releases are also reported as end-of-life, with the Electron advisories that affect them (the list matches a direct OSV query, e.g. all 48 advisories for Electron 1.8.4, including CVE-2018-15685):
+
+| Release | Electron | Electron advisories | Dependency advisories (runtime / development) |
+|---|---|---|---|
+| Signal Desktop 1.10.0 | 1.8.4 | 48 | 39 / 158 |
+| Jitsi Meet Electron 2.0.0 | 8.2.1 | 49 | 27 / 52 |
+| MarkText 0.16.3 | 11.1.1 | 42 | 51 / 126 |
+| Element Desktop 1.9.6 | 13.5.1 | 41 | 16 / 39 |
+| Joplin 2.8.8 | 14.1.0 | 41 | 119 / 82 |
+
+Advisory counts grow as new advisories are published.
 
 ## Usage
 
@@ -219,65 +231,66 @@ const run = require('@doyensec/electronegativity')
 // or: import run from '@doyensec/electronegativity';
 
 run({
-  // input (directory, .js, .html, .asar)
+  // input (directory, .js, .ts, .html, .asar)
   input: '/path/to/electron/app',
-  // save the results to a file in csv or sarif format (optional)
-  output: '/path/for/output/file',
-  // true to save output as sarif, false to save as csv (optional)
-  isSarif: false,
+  // save the results to a file (optional); the format follows the extension: .html, .json, .sarif or .csv
+  output: '/path/for/output/report.html',
   // only run the specified checks (optional)
   customScan: ['dangerousfunctionsjscheck', 'remotemodulejscheck'],
+  // skip the specified checks (optional)
+  excludeFromScan: ['devtoolsjscheck'],
   // only return findings with the specified level of severity or above (optional)
   severitySet: 'high',
   // only return findings with the specified level of confidence or above (optional)
-  confidenceSet: 'certain',
+  confidenceSet: 'firm',
   // show relative path for files (optional)
-  isRelative: false,
-  // run Electron upgrade checks, eg -u 7..8 to check upgrade from Electron 7 to 8 (optional)
+  isRelative: true,
+  // run Electron upgrade checks, eg 7..8 to check an upgrade from Electron 7 to 8 (optional)
   electronUpgrade: '7..8',
-  // assume the set Electron version, overriding the detected one
-  electronVersionOverride: '5.0.0',
-  // use additional Babel parser plugins
+  // assume the set Electron version, overriding the detected one (optional)
+  electronVersionOverride: '28.0.0',
+  // skip the checks that need network access (optional)
+  offline: true,
+  // don't report findings accepted in a baseline file (optional)
+  baseline: '.electronegativity-baseline.json',
+  // also scan tests, fixtures, vendored and minified files (optional)
+  allFiles: false,
+  // use additional Babel parser plugins (optional)
   parserPlugins: ['doExpressions']
 })
     .then(result => console.log(result))
     .catch(err => console.error(err));
 ```
 
-The result contains the number of global and atomic checks, any errors encountered while parsing and an array of the issues found, like this:
+The result contains the number of global and atomic checks that ran, the files that could not be parsed, every finding (`issues`), the findings left after applying the baseline (`reported`), the ones the baseline accepted (`suppressed`) and baseline entries that no longer match anything (`staleBaselineEntries`):
 
 ```js
 {
-  globalChecks: 6,
-  atomicChecks: 36,
-  errors: [
+  globalChecks: 14,
+  atomicChecks: 72,
+  errors: [],
+  issues: [
     {
-      file: 'ts/main/main.ts',
-      sample: 'shell.openExternal(url);',
-      location: { line: 328, column: 4 },
-      id: 'OPEN_EXTERNAL_JS_CHECK',
-      description: 'Review the use of openExternal',
-      properties: undefined,
-      severity: { value: 2, name: 'MEDIUM', format: [Function: format] },
-      confidence: { value: 0, name: 'TENTATIVE', format: [Function: format] },
-      manualReview: true,
-      shortenedURL: 'https://git.io/JeuMC'
-    },
-    {
-      file: 'ts/main/main.ts',
-      sample: 'const popup = new BrowserWindow(options);',
-      location: { line: 340, column: 18 },
-      id: 'CONTEXT_ISOLATION_JS_CHECK',
-      description: 'Review the use of the contextIsolation option',
-      properties: undefined,
-      severity: { value: 3, name: 'HIGH', format: [Function: format] },
-      confidence: { value: 1, name: 'FIRM', format: [Function: format] },
+      file: 'src/main.js',
+      sample: "win.webContents.on('will-navigate', (event, url) => console.log('navigating to', url));",
+      location: { line: 20, column: 2 },
+      id: 'LIMIT_NAVIGATION_JS_CHECK',
+      description: 'Evaluate the implementation of the navigation limits (will-navigate, will-frame-navigate, setWindowOpenHandler): the will-navigate handler never calls event.preventDefault(), so it blocks nothing',
+      properties: { event: 'will-navigate-noop' },
+      severity: { value: 3, name: 'HIGH' },
+      confidence: { value: 2, name: 'CERTAIN' },
       manualReview: false,
-      shortenedURL: 'https://git.io/Jeu1p'
-    }
-  ]
+      shortenedURL: 'https://www.electronjs.org/docs/latest/tutorial/security#13-disable-or-limit-navigation'
+    },
+    // ...
+  ],
+  reported: [ /* ... */ ],
+  suppressed: [],
+  staleBaselineEntries: []
 }
 ```
+
+Each finding's `shortenedURL` points to the documentation of the problem: the matching section of the [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) or API docs where there is one, otherwise MDN, OWASP, Node.js or OSV.
 
 ## Contributing
 

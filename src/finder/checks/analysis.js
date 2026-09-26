@@ -450,7 +450,7 @@ const UNTRUSTED_SOURCES = [
   { test: (call, name) => ['on', 'once'].includes(name) && ['message', 'ipc-message'].includes(literalValue(call.arguments[0])), source: 'a message from web content' },
 ];
 
-function sourceOfCall(call) {
+export function sourceOfCall(call) {
   if (!isCall(call)) return undefined;
   const name = memberName(call.callee);
   const object = call.callee && call.callee.object;
@@ -500,7 +500,17 @@ export function untrustedSource(ancestors, fn) {
   // named handler: function openFile(event, path) {...} ... ipcMain.handle('open', openFile)
   const name = fn && fn.id ? fn.id.name : (index > 0 && ancestors[index - 1].type === 'VariableDeclarator' && ancestors[index - 1].id.type === 'Identifier' ? ancestors[index - 1].id.name : undefined);
   const program = ancestors.find(n => n.type === 'Program') || ancestors[0];
-  return name && program ? registeredSource(program, name) : undefined;
+  const local = name && program ? registeredSource(program, name) : undefined;
+  if (local) return local;
+  // helpers reached from a handler in another file, or several calls deep
+  const project = analysisContext.index;
+  return project && analysisContext.file && fn ? project.untrustedSource(analysisContext.file, fn) : undefined;
+}
+
+// Is `fn` only called with constant arguments across the project? (see ProjectIndex.onlyConstantCallers)
+export function onlyConstantCallers(fn) {
+  const project = analysisContext.index;
+  return !!(fn && project && analysisContext.file && project.onlyConstantCallers(analysisContext.file, fn));
 }
 
 const bindingCache = new WeakMap();

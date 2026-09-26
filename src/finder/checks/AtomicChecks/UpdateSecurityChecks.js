@@ -45,7 +45,7 @@ export class UpdateSecurityJSONCheck {
     this.id = "UPDATE_SECURITY_JSON_CHECK";
     this.description = __("UPDATE_SECURITY_JS_CHECK");
     this.type = sourceTypes.JSON;
-    this.shortenedURL = "https://www.electron.build/configuration/publish";
+    this.shortenedURL = "https://www.electron.build/docs/publish";
   }
 
   async match(content) {

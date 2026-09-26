@@ -79,7 +79,8 @@ export class GlobalChecks {
 
       var targetedIssues = issues.filter(issue => check.depends.includes(issue.constructorName) && !issue.visibility.inlineDisabled);
 
-      result = [...result, ...await check.perform(targetedIssues, output)];
+      // the other findings are passed read-only, for checks that combine them with their own
+      result = [...result, ...await check.perform(targetedIssues, output, issues)];
     }
 
     // in the end we merge the results of the global checks with the other untouched checks

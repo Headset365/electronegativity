@@ -8,7 +8,7 @@ export default class CustomArgumentsJSONCheck {
     this.id = "CUSTOM_ARGUMENTS_JSON_CHECK";
     this.description = __("CUSTOM_ARGUMENTS_JSON_CHECK");
     this.type = sourceTypes.JSON;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/CUSTOM_ARGUMENTS_JSON_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/api/command-line-switches";
     this.dangerousArguments = [
       "--ignore-certificate-errors",
       "--ignore-certificate-errors-spki-list",

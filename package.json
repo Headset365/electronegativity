@@ -21,7 +21,8 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "test": "mocha"
+    "test": "mocha",
+    "check:references": "node scripts/check-references.js"
   },
   "repository": {
     "type": "git",

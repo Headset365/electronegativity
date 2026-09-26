@@ -6,7 +6,7 @@ export default class CSPHTMLCheck {
     this.id = "CSP_HTML_CHECK";
     this.description = __("CSP_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/CSP_HTML_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#7-define-a-content-security-policy";
   }
 
   match(cheerioObj, content) {

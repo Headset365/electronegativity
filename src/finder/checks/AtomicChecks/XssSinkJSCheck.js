@@ -14,7 +14,7 @@ export default class XssSinkJSCheck {
     this.id = "XSS_SINK_JS_CHECK";
     this.description = __("XSS_SINK_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#7-define-a-content-security-policy";
+    this.shortenedURL = "https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html";
   }
 
   match(astNode, astHelper, scope) {

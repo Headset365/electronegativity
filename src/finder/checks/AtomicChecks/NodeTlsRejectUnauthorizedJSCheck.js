@@ -9,7 +9,7 @@ export default class NodeTlsRejectUnauthorizedJSCheck {
     this.id = "NODE_TLS_REJECT_UNAUTHORIZED_JS_CHECK";
     this.description = __("NODE_TLS_REJECT_UNAUTHORIZED_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://nodejs.org/api/cli.html#node_tls_reject_unauthorized";
+    this.shortenedURL = "https://nodejs.org/api/cli.html#node_tls_reject_unauthorizedvalue";
   }
 
   match(astNode, astHelper, scope) {

@@ -6,7 +6,7 @@ export default class BlinkFeaturesHTMLCheck {
     this.id = "BLINK_FEATURES_HTML_CHECK";
     this.description = __("BLINK_FEATURES_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/BLINK_FEATURES_HTML_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#10-do-not-use-enableblinkfeatures";
   }
 
   match(cheerioObj, content) {

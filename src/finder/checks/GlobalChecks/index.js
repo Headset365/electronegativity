@@ -12,6 +12,7 @@ import DependencyVulnerabilitiesGlobalCheck from './DependencyVulnerabilitiesGlo
 import UnsupportedVersionGlobalCheck from './UnsupportedVersionGlobalCheck.js';
 import SandboxGlobalCheck from './SandboxGlobalCheck.js';
 import AuxclickGlobalCheck from './AuxclickGlobalCheck.js';
+import IframeSandboxGlobalCheck from './IframeSandboxGlobalCheck.js';
 
 const GLOBAL_CHECKS = [
   AffinityGlobalCheck,
@@ -27,7 +28,8 @@ const GLOBAL_CHECKS = [
   DependencyVulnerabilitiesGlobalCheck,
   UnsupportedVersionGlobalCheck,
   SandboxGlobalCheck,
-  AuxclickGlobalCheck
+  AuxclickGlobalCheck,
+  IframeSandboxGlobalCheck
 ];
 
 export { GLOBAL_CHECKS };

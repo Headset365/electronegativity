@@ -6,7 +6,7 @@ export default class WebKitDirectoryChange {
     this.id = "WEBKITDIRECTORY_CHANGE";
     this.description = __("WEBKITDIRECTORY_CHANGE");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/WEBKITDIRECTORY_CHANGE";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/breaking-changes#behavior-changed-webkitdirectory-attribute-for-input-typefile-now-lists-directory-contents";
   }
 
   match(cheerioObj, content) {

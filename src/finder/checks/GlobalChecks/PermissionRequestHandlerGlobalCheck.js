@@ -6,7 +6,7 @@ export default class PermissionRequestHandlerGlobalCheck {
     this.id = "PERMISSION_REQUEST_HANDLER_GLOBAL_CHECK";
     this.description = { NONE_FOUND: __('PERMISSION_REQUEST_HANDLER_GLOBAL_CHECK')};
     this.depends = ["PermissionRequestHandlerJSCheck"];
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/PERMISSION_REQUEST_HANDLER_GLOBAL_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#5-handle-session-permission-requests-from-remote-content";
   }
 
   async perform(issues) {

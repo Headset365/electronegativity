@@ -3,7 +3,7 @@ import { severity, confidence } from '../../attributes.js';
 import { finding } from '../helpers.js';
 import { constantValue } from '../analysis.js';
 
-const URL = "https://github.com/doyensec/electronegativity/wiki/IFRAME_SANDBOX_CHECK";
+const URL = "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox";
 
 // With both flags the framed page can remove its own sandbox, so it is as good as none
 const isEffective = (sandbox) => !(/\ballow-scripts\b/i.test(sandbox) && /\ballow-same-origin\b/i.test(sandbox));

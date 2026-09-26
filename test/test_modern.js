@@ -261,6 +261,47 @@ describe('Lockfile inventory', () => {
     const pnpm = "lockfileVersion: '9.0'\npackages:\n  '@scope/pkg@1.2.0':\n    resolution: {integrity: sha512-a}\n  react-dom@18.2.0(react@18.2.0):\n    resolution: {integrity: sha512-b}\n";
     listLockfilePackages('pnpm-lock.yaml', pnpm).map(p => `${p.name}@${p.version}`).should.deep.equal(['@scope/pkg@1.2.0', 'react-dom@18.2.0']);
   });
+
+  // Yarn and pnpm 9 lockfiles don't mark dev packages: they're worked out from the package.json files
+  const devFlags = (files, lockName) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-lock-'));
+    try {
+      for (const [name, content] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+        fs.writeFileSync(path.join(dir, name), content);
+      }
+      return Object.fromEntries(listLockfilePackages(path.join(dir, lockName), files[lockName]).map(p => [`${p.name}@${p.version}`, p.dev]));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it('tells runtime and development packages apart in Yarn classic lockfiles', () => {
+    devFlags({
+      'package.json': JSON.stringify({ dependencies: { got: '^11.0.0' }, devDependencies: { 'electron-builder': '^24.0.0' } }),
+      'yarn.lock': 'got@^11.0.0:\n  version "11.8.6"\n  dependencies:\n    lowercase-keys "^2.0.0"\n\nlowercase-keys@^2.0.0:\n  version "2.0.0"\n\n' +
+        'electron-builder@^24.0.0:\n  version "24.13.3"\n  dependencies:\n    tar "^6.1.12"\n\ntar@^6.1.12:\n  version "6.2.1"\n'
+    }, 'yarn.lock').should.deep.equal({ 'got@11.8.6': false, 'lowercase-keys@2.0.0': false, 'electron-builder@24.13.3': true, 'tar@6.2.1': true });
+  });
+
+  it('follows workspaces in Yarn Berry lockfiles', () => {
+    devFlags({
+      'package.json': JSON.stringify({ workspaces: ['packages/*'], devDependencies: { eslint: '^9.0.0' } }),
+      'packages/app/package.json': JSON.stringify({ dependencies: { '@app/lib': 'workspace:*' } }),
+      'packages/lib/package.json': JSON.stringify({ name: '@app/lib', dependencies: { marked: '^12.0.0' } }),
+      'yarn.lock': '__metadata:\n  version: 8\n\n"@app/lib@workspace:*, @app/lib@workspace:packages/lib":\n  version: 0.0.0-use.local\n  resolution: "@app/lib@workspace:packages/lib"\n  dependencies:\n    marked: ^12.0.0\n\n' +
+        '"marked@npm:^12.0.0":\n  version: 12.0.2\n  resolution: "marked@npm:12.0.2"\n\n"eslint@npm:^9.0.0":\n  version: 9.1.0\n  resolution: "eslint@npm:9.1.0"\n'
+    }, 'yarn.lock').should.deep.equal({ 'marked@12.0.2': false, 'eslint@9.1.0': true });
+  });
+
+  it('uses the importers of pnpm 9 lockfiles', () => {
+    devFlags({
+      'package.json': '{}',
+      'pnpm-lock.yaml': "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      react-dom:\n        specifier: ^18.0.0\n        version: 18.2.0(react@18.2.0)\n    devDependencies:\n      vite:\n        specifier: ^5.0.0\n        version: 5.2.0\n" +
+        "packages:\n  react-dom@18.2.0:\n    resolution: {integrity: sha512-a}\n  react@18.2.0:\n    resolution: {integrity: sha512-b}\n  vite@5.2.0:\n    resolution: {integrity: sha512-c}\n" +
+        "snapshots:\n  react-dom@18.2.0(react@18.2.0):\n    dependencies:\n      react: 18.2.0\n  react@18.2.0: {}\n  vite@5.2.0: {}\n"
+    }, 'pnpm-lock.yaml').should.deep.equal({ 'react-dom@18.2.0': false, 'react@18.2.0': false, 'vite@5.2.0': true });
+  });
 });
 
 describe('Unsupported Electron versions', () => {

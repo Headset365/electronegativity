@@ -2,7 +2,7 @@ import path from 'node:path';
 import * as asar from '@electron/asar';
 
 import logger from '../util/logger.js';
-import { isScannableFile, isNonAppFile } from '../util/index.js';
+import { isScannableFile, isNonAppFile, isVendoredLibrary } from '../util/index.js';
 import { Loader } from './loader_interface.js';
 import { findOldestElectronVersion } from "../util/electron_version.js";
 
@@ -21,7 +21,9 @@ export class LoaderAsar extends Loader {
 
     for (const f of archived_files) {
       if (f.split(path.sep).includes('node_modules')) continue;
-      if (isScannableFile(f) && (allFiles || !isNonAppFile(f))) this._loaded.add(f);
+      if (!isScannableFile(f) || (!allFiles && isNonAppFile(f))) continue;
+      if (!allFiles && this.isVendored(f)) continue;
+      this._loaded.add(f);
     }
 
     const readAndOptionallyParse = (filename, shouldParse) => {
@@ -44,6 +46,15 @@ export class LoaderAsar extends Loader {
     if (electronVersion) this._electronVersion = electronVersion;
 
     logger.debug(`Discovered ${this.list_files.size} files`);
+  }
+
+  isVendored(file) {
+    if (!/\.[cm]?js$/i.test(file)) return false;
+    try {
+      return isVendoredLibrary(file, this.load_buffer(file).subarray(0, 2048).toString());
+    } catch {
+      return false;
+    }
   }
 
   load_buffer(filename) {

@@ -6,7 +6,7 @@ export default class HTTPResourcesAndNodeIntegrationGlobalCheck {
     this.id = "HTTP_RESOURCES_WITH_NODE_INTEGRATION_GLOBAL_CHECK";
     this.description = { INSECURE_INTEGRATION: __('HTTP_RESOURCES_WITH_NODE_INTEGRATION_GLOBAL_CHECK')};
     this.depends = ["HTTPResourcesJavascriptCheck","HTTPResourcesHTMLCheck","NodeIntegrationHTMLCheck", "NodeIntegrationJSCheck"];
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/HTTP_RESOURCES_WITH_NODE_INTEGRATION_GLOBAL_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#2-do-not-enable-nodejs-integration-for-remote-content";
   }
 
   async perform(issues) {

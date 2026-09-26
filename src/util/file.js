@@ -71,11 +71,58 @@ export function isNonAppFile(relativePath) {
 
 export async function list_files(input, { allFiles = false } = {}) {
   const entries = await fs.promises.readdir(input, { recursive: true, withFileTypes: true });
-  return entries
+  const files = entries
     .filter(entry => entry.isFile())
     .map(entry => path.join(entry.parentPath, entry.name))
-    .filter(file => !file.split(path.sep).includes('node_modules') && isScannableFile(file))
-    .filter(file => allFiles || !isNonAppFile(path.relative(input, file)));
+    .filter(file => !file.split(path.sep).includes('node_modules') && isScannableFile(file));
+  if (allFiles) return files;
+  const vendored = vendoredDirectories(input, entries);
+  return files.filter(file => !isNonAppFile(path.relative(input, file)) &&
+    !vendored.some(dir => file.startsWith(dir + path.sep)) && !isVendoredLibrary(file));
+}
+
+// Folders package managers other than npm install into: bower (.bowerrc "directory", bower_components, and any package
+// it installed, which gets a .bower.json), jspm
+function vendoredDirectories(input, entries) {
+  const directories = new Set(['bower_components', 'jspm_packages'].map(name => path.join(input, name)));
+  try {
+    const bowerrc = JSON.parse(fs.readFileSync(path.join(input, '.bowerrc'), 'utf8'));
+    if (typeof bowerrc.directory === 'string') directories.add(path.resolve(input, bowerrc.directory));
+  } catch {
+    // no .bowerrc
+  }
+  for (const entry of entries) if (entry.isFile() && entry.name === '.bower.json') directories.add(entry.parentPath);
+  return [...directories].map(dir => dir.replace(/[\\/]+$/, ''));
+}
+
+const normalize = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * A copy of a third-party library, e.g. js/jquery.js starting with "jQuery JavaScript Library v2.1.1 ... MIT license":
+ * the header comment names the file itself and carries a version and a license or copyright. App bundles with their
+ * own banner (main.js, "MyApp v1.0.0") don't match, as the banner doesn't name the file.
+ */
+export function isVendoredLibrary(file, head) {
+  if (!/\.[cm]?js$/i.test(file)) return false;
+  const name = normalize(path.basename(file).replace(/\.[cm]?js$/i, '').replace(/([.-](min|umd|bundle|dist|debug|prod|production|slim))+$/i, '').replace(/[.-]v?\d+(\.\d+)*$/, ''));
+  if (name.length < 3) return false;
+  try {
+    head ??= readHead(file);
+  } catch {
+    return false;
+  }
+  const header = (head.match(/^[\s;]*((?:\/\*[\s\S]*?\*\/|\/\/[^\n]*)\s*)+/) || [''])[0];
+  return /\bv?\d+\.\d+/.test(header) && /(copyright|\(c\)|©|licen[cs]e)/i.test(header) && normalize(header).includes(name);
+}
+
+function readHead(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buffer = Buffer.alloc(2048);
+    return buffer.toString('utf8', 0, fs.readSync(fd, buffer, 0, buffer.length, 0));
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 export const OUTPUT_FORMATS = ['csv', 'sarif', 'html', 'htm', 'json'];
@@ -175,9 +222,9 @@ export function writeIssues(root, isRelative, filename, result, isSarif, meta = 
           properties: {
             category: "Security"
           },
-          helpUri: `https://github.com/doyensec/electronegativity/wiki/${issue.id}`,
+          helpUri: issue.shortenedURL,
           help: {
-            text: `https://github.com/doyensec/electronegativity/wiki/${issue.id}`
+            text: issue.shortenedURL
           }
         });
         seenRules.add(issue.id);
@@ -222,7 +269,7 @@ export function writeIssues(root, isRelative, filename, result, isSarif, meta = 
         escapeCsv(`${issue.location.line}:${issue.location.column}`),
         escapeCsv(issue.sample),
         escapeCsv(issue.description),
-        `https://github.com/doyensec/electronegativity/wiki/${issue.id}`
+        escapeCsv(issue.shortenedURL || '')
       ].toString();
       output += os.EOL;
     });

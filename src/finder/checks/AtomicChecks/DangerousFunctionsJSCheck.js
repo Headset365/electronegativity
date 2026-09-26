@@ -7,7 +7,7 @@ export default class DangerousFunctionsJSCheck {
     this.id = "DANGEROUS_FUNCTIONS_JS_CHECK";
     this.description = __("DANGEROUS_FUNCTIONS_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/DANGEROUS_FUNCTIONS_JS_CHECK";
+    this.shortenedURL = "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/eval#never_use_direct_eval!";
   }
 
   match(astNode, astHelper, scope){

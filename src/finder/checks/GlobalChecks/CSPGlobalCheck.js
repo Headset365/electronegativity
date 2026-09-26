@@ -10,7 +10,7 @@ export default class CSPGlobalCheck {
       WEAK_CSP: __("CSP_GLOBAL_CHECK_WEAK_CSP"),
       INVALID_CSP: __("CSP_GLOBAL_CHECK_INVALID_CSP") };
     this.depends = ["CSPJSCheck", "CSPHTMLCheck"];
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/CSP_GLOBAL_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#7-define-a-content-security-policy";
   }
 
   async perform(issues) {

@@ -3,6 +3,14 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { sourceTypes } from '../parser/types.js';
+import { sourceOfCall, dependsOnParams, moduleBindings } from './checks/analysis.js';
+import { isFunction, visit } from './checks/helpers.js';
+
+// How many calls deep untrusted data is followed from a handler into helpers
+const MAX_CALL_DEPTH = 6;
+// Files that may register handlers for untrusted input (see UNTRUSTED_SOURCES in analysis.js)
+const SOURCE_HINT = /ipcMain|setWindowOpenHandler|will-navigate|will-frame-navigate|did-start-navigation|new-window|will-redirect|open-url|open-file|second-instance|['"`](ipc-)?message['"`]/;
+const functionKey = (file, fn) => fn && fn.loc ? `${file}:${fn.loc.start.line}:${fn.loc.start.column}` : undefined;
 
 const EXTENSIONS = ['.ts', '.tsx', '.js', '.mjs', '.cjs', '.mts', '.cts', '.jsx'];
 
@@ -47,6 +55,11 @@ export class ProjectIndex {
     this.files = new Set(loader.list_files);
     this.exports = new Map();
     this.aliases = loadAliases(root);
+    // cross-file taint: per-file summaries, handlers (seeds), calls passing parameters on (edges), call sites
+    this.summaries = new Map();
+    this.seeds = new Map();
+    this.edges = new Map();
+    this.callSites = new Map();
   }
 
   // Resolves an import specifier to a scanned file (or a file on disk, for directory scans)
@@ -91,6 +104,125 @@ export class ProjectIndex {
     }
     this.exports.set(file, result);
     return result;
+  }
+
+  /**
+   * Where the data a function receives comes from, when a handler for untrusted input (IPC, navigation, deep links,
+   * ...) passes its data to it, directly or through other helpers, in any file of the project. Returns a description
+   * of the source or undefined.
+   */
+  untrustedSource(file, fn) {
+    this.taintedFunctions ??= this.findTaintedFunctions();
+    return this.taintedFunctions.get(functionKey(file, fn));
+  }
+
+  // Is the function only ever called, anywhere in the project, with constant arguments (and never passed around)?
+  onlyConstantCallers(file, fn) {
+    const summary = this.summarize(file);
+    const name = summary && summary.names.get(functionKey(file, fn));
+    if (!name) return false; // anonymous or default-exported: callers can't be found by name
+    for (const candidate of this.filesMentioning(name)) this.summarize(candidate);
+    const calls = this.callSites.get(functionKey(file, fn));
+    return !!calls && calls.count > 0 && calls.constant && !calls.escapes;
+  }
+
+  // Seeds are the handlers in files registering them; files the data flows into are summarized on demand
+  findTaintedFunctions() {
+    for (const file of this.files) if (SOURCE_HINT.test(this.text(file))) this.summarize(file);
+    const tainted = new Map(this.seeds);
+    let frontier = [...this.seeds.keys()];
+    for (let depth = 0; depth < MAX_CALL_DEPTH && frontier.length > 0; depth++) {
+      const next = [];
+      for (const key of frontier) {
+        this.summarize(key.slice(0, key.lastIndexOf(':', key.lastIndexOf(':') - 1)));
+        for (const target of this.edges.get(key) || []) {
+          if (tainted.has(target)) continue;
+          tainted.set(target, tainted.get(key));
+          next.push(target);
+        }
+      }
+      frontier = next;
+    }
+    return tainted;
+  }
+
+  text(file) {
+    try {
+      return (this.files.has(file) ? this.loader.load_buffer(file) : fs.readFileSync(file)).toString();
+    } catch {
+      return '';
+    }
+  }
+
+  // Scanned files whose source contains the word, e.g. every file that might call a helper
+  filesMentioning(name) {
+    if (!this.words) {
+      this.words = new Map();
+      for (const file of this.files) {
+        if (!/\.[cm]?[jt]sx?$/.test(file)) continue;
+        for (const word of new Set(this.text(file).match(/[A-Za-z_$][\w$]*/g) || [])) {
+          if (!this.words.has(word)) this.words.set(word, []);
+          this.words.get(word).push(file);
+        }
+      }
+    }
+    return this.words.get(name) || [];
+  }
+
+  /**
+   * Records, once per file: the handlers registered in it (seeds), which functions pass their parameters (or values
+   * derived from them) to which callees (edges), how each function is called (call sites) and the names of functions.
+   */
+  summarize(file) {
+    if (this.summaries.has(file)) return this.summaries.get(file);
+    this.summaries.set(file, undefined);
+    let program;
+    try {
+      const [type, data] = this.parser.parse(file, this.text(file));
+      if (type !== sourceTypes.JAVASCRIPT || !data) return undefined;
+      program = data.type === 'File' ? data.program : data;
+    } catch {
+      return undefined;
+    }
+    const local = localFunctions(program);
+    const names = new Map();
+    for (const [name, fns] of local) for (const fn of fns) names.set(functionKey(file, fn), name);
+    const resolve = (callee) => {
+      if (!callee || callee.type !== 'Identifier') return isFunction(callee) ? [functionKey(file, callee)] : [];
+      if (local.has(callee.name)) return local.get(callee.name).map(fn => functionKey(file, fn));
+      const binding = moduleBindings(program).get(callee.name);
+      const found = binding && binding.module && this.lookup(file, binding.module, binding.imported === '*' ? 'default' : binding.imported);
+      return found && isFunction(found.node) ? [functionKey(found.file, found.node)] : [];
+    };
+    const site = (key) => {
+      if (!this.callSites.has(key)) this.callSites.set(key, { count: 0, constant: true, escapes: false });
+      return this.callSites.get(key);
+    };
+    // one walk: a call passing a function's parameters (or values derived from them) links that function to the callee
+    visit(program, (node, ancestors) => {
+      if (node.type !== 'CallExpression' && node.type !== 'OptionalCallExpression' && node.type !== 'NewExpression') return true;
+      const source = node.type !== 'NewExpression' ? sourceOfCall(node) : undefined;
+      if (source) for (const handler of node.arguments) for (const key of resolve(handler)) if (key && !this.seeds.has(key)) this.seeds.set(key, source);
+      const callees = resolve(node.callee).filter(Boolean);
+      for (const key of callees) {
+        const calls = site(key);
+        calls.count++;
+        if (!node.arguments.every(isConstant)) calls.constant = false;
+      }
+      // list.forEach(helper), setTimeout(helper): called with data we don't follow
+      for (const argument of node.arguments) if (argument.type === 'Identifier') for (const key of resolve(argument)) if (key) site(key).escapes = true;
+      if (callees.length > 0) {
+        for (const fn of ancestors) {
+          if (!isFunction(fn) || !node.arguments.some(argument => dependsOnParams(argument, fn))) continue;
+          const key = functionKey(file, fn);
+          this.edges.set(key, [...(this.edges.get(key) || []), ...callees]);
+        }
+      }
+      return true;
+    });
+    const summary = { names };
+    this.summaries.set(file, summary);
+    return summary;
   }
 
   /**
@@ -193,4 +325,29 @@ function collectExports(program) {
     }
   }
   return { named, star, default: defaultExport, program };
+}
+
+// Literal arguments: 'https://example.com', 42, `text`, ['a', 'b'], { a: 1 }
+function isConstant(node) {
+  if (!node) return true;
+  switch (node.type) {
+    case 'Literal': case 'StringLiteral': case 'NumericLiteral': case 'BooleanLiteral': case 'NullLiteral': return true;
+    case 'TemplateLiteral': return node.expressions.length === 0;
+    case 'ArrayExpression': return node.elements.every(isConstant);
+    case 'ObjectExpression': return node.properties.every(p => (p.type === 'Property' || p.type === 'ObjectProperty') && !p.computed && isConstant(p.value));
+    case 'UnaryExpression': return isConstant(node.argument);
+    default: return false;
+  }
+}
+
+// Functions declared in a file by name: function f() {}, const f = () => {}, const f = function () {}
+function localFunctions(program) {
+  const functions = new Map();
+  const add = (name, fn) => functions.set(name, [...(functions.get(name) || []), fn]);
+  visit(program, (node) => {
+    if (node.type === 'FunctionDeclaration' && node.id) add(node.id.name, node);
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && isFunction(node.init)) add(node.id.name, node.init);
+    return true;
+  });
+  return functions;
 }

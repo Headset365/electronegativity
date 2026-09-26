@@ -35,7 +35,7 @@ export default class CommandInjectionJSCheck {
     this.id = "COMMAND_INJECTION_JS_CHECK";
     this.description = __("COMMAND_INJECTION_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://nodejs.org/api/child_process.html#spawning-shell-scripts";
+    this.shortenedURL = "https://nodejs.org/api/child_process.html#child_processexeccommand-options-callback";
   }
 
   match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {

@@ -8,7 +8,7 @@ export default class AffinityJSCheck {
     this.id = "AFFINITY_JS_CHECK";
     this.description = __("AFFINITY_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/AFFINITY_JS_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/breaking-changes#removed-browser-window-affinity";
   }
 
   match(astNode, astHelper, scope, defaults, electronVersion) {

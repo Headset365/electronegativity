@@ -7,7 +7,7 @@ export default class BlinkFeaturesJSCheck {
     this.id = "BLINK_FEATURES_JS_CHECK";
     this.description = __("BLINK_FEATURES_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/BLINK_FEATURES_JS_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#10-do-not-use-enableblinkfeatures";
   }
 
   match(astNode, astHelper, scope){

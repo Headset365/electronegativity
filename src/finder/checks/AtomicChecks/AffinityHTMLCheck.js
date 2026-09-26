@@ -8,7 +8,7 @@ export default class AffinityHTMLCheck {
     this.id = "AFFINITY_HTML_CHECK";
     this.description = __("AFFINITY_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/AFFINITY_HTML_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/breaking-changes#removed-browser-window-affinity";
   }
 
   match(cheerioObj, content, defaults, electronVersion) {

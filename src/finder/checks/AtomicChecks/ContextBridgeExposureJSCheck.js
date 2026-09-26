@@ -40,7 +40,7 @@ export default class ContextBridgeExposureJSCheck {
     this.id = "CONTEXT_BRIDGE_EXPOSURE_JS_CHECK";
     this.description = __("CONTEXT_BRIDGE_EXPOSURE_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/context-isolation#security-considerations";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#20-do-not-expose-electron-apis-to-untrusted-web-content";
   }
 
   match(astNode, astHelper, scope, defaults, electronVersion) {
@@ -116,11 +116,11 @@ export default class ContextBridgeExposureJSCheck {
         }
 
         // ipcRenderer.on('x', callback): the callback receives the IpcRendererEvent, which exposes ipcRenderer itself
-        // (until Electron 29, which stopped ipcRenderer from crossing contextBridge)
+        // Electron 29 made ipcRenderer a class instance: contextBridge copies own properties only, so its methods are dropped
         const listener = n.arguments[1];
         if (calleeObject === 'ipcRenderer' && ['on', 'once', 'addListener'].includes(calleeMethod) &&
             listener && listener.type === 'Identifier' && isParam(listener.name)) {
-          if (eventSenderStripped) report(n, severity.LOW, confidence.FIRM, 'passes the IPC event object to renderer callbacks; Electron 29+ no longer sends ipcRenderer (event.sender) over contextBridge, but pass only the arguments');
+          if (eventSenderStripped) report(n, severity.LOW, confidence.FIRM, 'passes the IPC event object to renderer callbacks; since Electron 29 event.sender reaches the page without its send/invoke methods, but the Electron docs still recommend passing only the arguments');
           else report(n, severity.MEDIUM, confidence.FIRM, 'passes the IPC event object to renderer callbacks');
         }
 

@@ -7,7 +7,7 @@ export default class InsecureContentHTMLCheck {
     this.id = "INSECURE_CONTENT_HTML_CHECK";
     this.description = __("INSECURE_CONTENT_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/INSECURE_CONTENT_HTML_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#8-do-not-enable-allowrunninginsecurecontent";
   }
 
   match(cheerioObj, content) {

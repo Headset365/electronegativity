@@ -7,7 +7,7 @@ export default class FileHandlerJSONCheck {
     this.id = "FILE_HANDLER_JSON_CHECK";
     this.description = __("FILE_HANDLER_JSON_CHECK");
     this.type = sourceTypes.JSON;
-    this.shortenedURL = "https://www.electron.build/configuration#fileassociation";
+    this.shortenedURL = "https://www.electron.build/docs/configuration#fileassociations";
   }
 
   async match(content) {

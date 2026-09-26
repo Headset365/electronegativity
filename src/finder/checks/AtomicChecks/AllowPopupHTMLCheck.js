@@ -6,7 +6,7 @@ export default class AllowPopupsHTMLCheck {
     this.id = "ALLOWPOPUPS_HTML_CHECK";
     this.description = __("ALLOWPOPUPS_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/ALLOWPOPUPS_HTML_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#11-do-not-use-allowpopups-for-webviews";
   }
 
   match(cheerioObj, content) {

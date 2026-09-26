@@ -10,7 +10,7 @@ export default class LimitNavigationGlobalCheck {
       WILL_NAVIGATE_MISSING: __('LIMIT_NAVIGATION_GLOBAL_CHECK_WILL_NAVIGATE_MISSING')
     };
     this.depends = ["LimitNavigationJSCheck"];
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/LIMIT_NAVIGATION_GLOBAL_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#13-disable-or-limit-navigation";
   }
 
   async perform(issues) {

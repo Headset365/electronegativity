@@ -7,7 +7,7 @@ export default class SecurityWarningsDisabledJSONCheck {
     this.id = "SECURITY_WARNINGS_DISABLED_JSON_CHECK";
     this.description = __("SECURITY_WARNINGS_DISABLED_JSON_CHECK");
     this.type = sourceTypes.JSON;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/SECURITY_WARNINGS_DISABLED_JSON_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security";
     this.dangerousFlag = "ELECTRON_DISABLE_SECURITY_WARNINGS";
   }
 

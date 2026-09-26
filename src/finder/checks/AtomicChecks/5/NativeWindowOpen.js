@@ -7,7 +7,7 @@ export default class NativeWindowOpen {
     this.id = "NATIVE_WINDOW_OPEN_CHANGE";
     this.description = __("NATIVE_WINDOW_OPEN_CHANGE");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/NATIVE_WINDOW_OPEN_CHANGE";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/breaking-changes#default-changed-nativewindowopen-defaults-to-true";
   }
 
   match(astNode, astHelper, scope){

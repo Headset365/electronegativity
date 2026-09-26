@@ -6,7 +6,7 @@ export default class HTTPResourcesHTMLCheck {
     this.id = "HTTP_RESOURCES_HTML_CHECK";
     this.description = __("HTTP_RESOURCES_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/HTTP_RESOURCES_HTML_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#1-only-load-secure-content";
   }
 
   match(cheerioObj, content) {

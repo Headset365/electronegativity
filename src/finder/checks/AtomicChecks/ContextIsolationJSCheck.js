@@ -9,7 +9,7 @@ export default class ContextIsolationJSCheck {
     this.id = "CONTEXT_ISOLATION_JS_CHECK";
     this.description = __("CONTEXT_ISOLATION_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/CONTEXT_ISOLATION_JS_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#3-enable-context-isolation";
   }
 
   match(astNode, astHelper, scope, defaults){

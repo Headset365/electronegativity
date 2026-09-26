@@ -6,7 +6,7 @@ export default class SecurityWarningsDisabledJSCheck {
     this.id = "SECURITY_WARNINGS_DISABLED_JS_CHECK";
     this.description = __("SECURITY_WARNINGS_DISABLED_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/SECURITY_WARNINGS_DISABLED_JS_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security";
   }
 
   match(astNode){

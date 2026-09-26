@@ -7,7 +7,7 @@ export default class AuxclickJSCheck {
     this.id = "AUXCLICK_JS_CHECK";
     this.description = __("AUXCLICK_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/AUXCLICK_JS_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#14-disable-or-limit-creation-of-new-windows";
   }
 
   match(astNode, astHelper, scope) {

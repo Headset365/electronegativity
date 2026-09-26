@@ -330,6 +330,35 @@ const CASES = [
   { practice: 'regression: navigation helper checking a destructured protocol (Signal Desktop handleUrl)', secure: { 'main.ts': `async function handleUrl(rawTarget: string) {\n  const parsedUrl = maybeParseUrl(rawTarget);\n  if (!parsedUrl) return;\n  const { protocol } = parsedUrl;\n  if (protocol === 'http:' || protocol === 'https:') await shell.openExternal(rawTarget);\n}\nfunction setup(window) {\n  window.webContents.on('will-navigate', (event, rawTarget) => { event.preventDefault(); drop(handleUrl(rawTarget)); });\n}` },
     absent: [], expectSecure: [{ id: 'OPEN_EXTERNAL_JS_CHECK', severity: 'LOW' }] },
 
+  { practice: 'regression: bower packages and copied libraries are skipped (Signal 1.10.0)', secure: {
+    '.bowerrc': '{ "directory": "components/" }', 'components/mocha/mocha.js': `div.innerHTML = html;`, 'lib/other/.bower.json': '{}', 'lib/other/index.js': `div.innerHTML = html;`,
+    'js/jquery.js': `/*!\n * jQuery JavaScript Library v2.1.1-pre\n * Copyright 2005, 2014 jQuery Foundation, Inc. and other contributors\n * Released under the MIT license\n */\nelem.innerHTML = value;` },
+  absent: ['XSS_SINK_JS_CHECK'] },
+  { practice: 'regression: app files with their own banner are still scanned', insecure: { 'dist/main.js': `/*! MyApp v1.2.3 | (c) 2024 Me | MIT license */\nelem.innerHTML = value;` },
+    expect: [{ id: 'XSS_SINK_JS_CHECK' }] },
+
+  { practice: 'cross-file: deep link passed to a helper in another file', insecure: {
+    'src/main.ts': `import { openLink } from './links';\napp.on('open-url', (event, url) => { event.preventDefault(); openLink(url); });`,
+    'src/links.ts': `export function openLink(target: string) {\n  shell.openExternal(target);\n}` },
+  expect: [{ id: 'OPEN_EXTERNAL_JS_CHECK', severity: 'HIGH', confidence: 'FIRM', match: /deep link/ }] },
+  { practice: 'cross-file: IPC data passed through two helpers before reaching exec', insecure: {
+    'src/main.js': `const { runTool } = require('./tools');\nipcMain.handle('run', (event, name) => runTool(name));`,
+    'src/tools.js': `const { exec } = require('child_process');\nfunction buildCommand(tool) { return launch('tool ' + tool); }\nfunction launch(command) { exec(command); }\nfunction runTool(name) { return buildCommand(name); }\nmodule.exports = { runTool };` },
+  expect: [{ id: 'COMMAND_INJECTION_JS_CHECK', severity: 'HIGH', match: /IPC message/ }] },
+  { practice: 'cross-file: helpers called only with trusted data stay unflagged', secure: {
+    'src/main.ts': `import { openLink } from './links';\nipcMain.handle('help', () => openLink('https://example.com/help'));`,
+    'src/links.ts': `export function openLink(target: string) {\n  shell.openExternal(target);\n}` },
+  absent: [], expectSecure: [{ id: 'OPEN_EXTERNAL_JS_CHECK', severity: 'LOW', confidence: 'FIRM', match: /every caller/ }] },
+  { practice: 'cross-file: helpers passed around as callbacks are not assumed trusted', secure: {
+    'src/main.ts': `import { openLink } from './links';\nopenLink('https://example.com/help');\nlinks.forEach(openLink);`,
+    'src/links.ts': `export function openLink(target: string) {\n  shell.openExternal(target);\n}` },
+  absent: [], expectSecure: [{ id: 'OPEN_EXTERNAL_JS_CHECK', severity: 'MEDIUM', confidence: 'TENTATIVE' }] },
+
+  { practice: 'unsandboxed iframe in an app with nodeIntegration is raised (Joplin 2.8.8)', insecure: {
+    'main.js': `const win = new BrowserWindow({ webPreferences: { nodeIntegration: true, contextIsolation: false } });`,
+    'gui/NoteTextViewer.jsx': `export default function Viewer() { return <iframe className="noteTextViewer" src="gui/note-viewer/index.html"></iframe>; }` },
+  expect: [{ id: 'IFRAME_SANDBOX_JS_CHECK', severity: 'MEDIUM', confidence: 'CERTAIN', match: /parent\.require/ }] },
+
   // Cross-file analysis
   { practice: 'cross-file: imported IPC handler without sender validation', insecure: { 'src/main.ts': `import { getSecrets } from './handlers';\nipcMain.handle('get-secrets', getSecrets);`,
     'src/handlers.ts': `export function getSecrets(event: IpcMainInvokeEvent) { return store.secrets; }` },

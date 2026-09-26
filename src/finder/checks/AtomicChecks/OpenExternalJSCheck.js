@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, finding } from '../helpers.js';
-import { constantValue, constantPrefix, possibleValues, enclosingFunction, untrustedSource, dependsOnParams, hasUrlValidation, isConditional } from '../analysis.js';
+import { constantValue, constantPrefix, possibleValues, enclosingFunction, untrustedSource, dependsOnParams, hasUrlValidation, isConditional, onlyConstantCallers } from '../analysis.js';
 
 // Schemes that are fine to hand to the OS: web pages and mail
 const SAFE_URL = /^(https:\/\/[^/?#]+[/?#]|https:\/\/[^/?#]+$|mailto:)/i;
@@ -60,6 +60,11 @@ export function assessUrlSink(check, call, arg, scope, ancestors, safePattern, {
   if (validated) {
     return finding(check, call, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true,
       description: describe('the value is validated first; review the allowlist') });
+  }
+  // a helper parameter, and every caller in the project passes a constant
+  if (!source && dependsOnParams(arg, fn) && onlyConstantCallers(fn)) {
+    return finding(check, call, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true,
+      description: describe('the value is a parameter that every caller sets to a constant') });
   }
   return finding(check, call, { severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true,
     description: describe('the origin of the value could not be determined') });

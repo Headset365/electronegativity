@@ -14,7 +14,7 @@ export default class AvailableSecurityFixesGlobalCheck {
     this.description = { SECURITY_ISSUES : __('AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK_SECURITY_ISSUES'),
       OUTDATED_VERSION :  __('AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK_OUTDATED_VERSION')};
     this.depends = ["ElectronVersionJSONCheck"];
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK";
+    this.shortenedURL = "https://github.com/electron/electron/security/advisories";
   }
 
   async perform(issues, output) {

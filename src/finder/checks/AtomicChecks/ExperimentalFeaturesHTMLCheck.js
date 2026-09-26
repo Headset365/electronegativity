@@ -7,7 +7,7 @@ export default class ExperimentalFeaturesHTMLCheck {
     this.id = "EXPERIMENTAL_FEATURES_HTML_CHECK";
     this.description = __("EXPERIMENTAL_FEATURES_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/EXPERIMENTAL_FEATURES_HTML_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#9-do-not-enable-experimental-features";
   }
 
   match(cheerioObj, content) {

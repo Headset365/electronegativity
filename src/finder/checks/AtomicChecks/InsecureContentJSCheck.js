@@ -7,7 +7,7 @@ export default class InsecureContentJSCheck {
     this.id = "INSECURE_CONTENT_JS_CHECK";
     this.description = __("INSECURE_CONTENT_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/INSECURE_CONTENT_JS_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#8-do-not-enable-allowrunninginsecurecontent";
   }
 
   match(astNode, astHelper, scope){

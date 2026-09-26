@@ -6,7 +6,7 @@ export default class AffinityGlobalCheck {
     this.id = "AFFINITY_GLOBAL_CHECK";
     this.description = { AFFINITY_FOUND: __("AFFINITY_GLOBAL_CHECK_AFFINITY_FOUND")};
     this.depends = ["AffinityJSCheck", "AffinityHTMLCheck"];
-    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/AFFINITY_GLOBAL_CHECK";
+    this.shortenedURL = "https://www.electronjs.org/docs/latest/breaking-changes#removed-browser-window-affinity";
   }
 
   async perform(issues) {
