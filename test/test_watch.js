@@ -4,6 +4,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { should as chaiShould } from 'chai';
+import * as asar from '@electron/asar';
+import run from '../src/runner.js';
 import { analyzeWatchLog } from '../src/watch/analyze.js';
 import { resolveApp } from '../src/watch/launch.js';
 import { readFuseWire, analyzePackagedFuses, fuseBinaryFor } from '../src/watch/fuses.js';
@@ -225,6 +227,23 @@ describe('Watch mode', () => {
       analyzePackagedFuses(write(Buffer.from('no fuses here'))).read.should.equal(false);
     });
 
+    it('reads the fuses of the executable when scanning a packaged app statically', async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-packaged-'));
+      const source = path.join(dir, 'src');
+      fs.mkdirSync(source);
+      fs.writeFileSync(path.join(source, 'package.json'), '{"name":"app","main":"main.js"}');
+      fs.writeFileSync(path.join(source, 'main.js'), 'const { app } = require("electron");');
+      fs.mkdirSync(path.join(dir, 'app', 'resources'), { recursive: true });
+      await asar.createPackage(source, path.join(dir, 'app', 'resources', 'app.asar'));
+      fs.writeFileSync(path.join(dir, 'app', 'myapp'), wire('11001100'), { mode: 0o755 });
+      fs.writeFileSync(path.join(dir, 'app', 'chrome-sandbox'), 'helper', { mode: 0o755 });
+      const result = await run({ input: path.join(dir, 'app', 'resources', 'app.asar'), offline: true, isRelative: true });
+      const ids = result.issues.map(i => i.id);
+      ids.should.include('PACKAGED_FUSES');
+      ids.should.not.include('FUSES_GLOBAL_CHECK'); // the binary is the ground truth
+      result.issues.filter(i => i.id === 'PACKAGED_FUSES' && /RunAsNode/.test(i.description))[0].severity.name.should.equal('HIGH');
+    });
+
     it('reads the Electron Framework of a macOS app bundle, where the fuses live', () => {
       fuseBinaryFor('/Applications/My App.app/Contents/MacOS/My App')
         .should.equal(path.join(path.resolve('/Applications/My App.app'), 'Contents', 'Frameworks', 'Electron Framework.framework', 'Electron Framework'));
@@ -279,6 +298,7 @@ describe('Watch mode', () => {
       staticWithPreload.should.have.length(2);
       staticWithPreload.every(i => i.properties.observedAt).should.equal(true, 'both preload windows were opened and linked');
       report.issues.filter(i => i.id === 'RUNTIME_MARKER' && /safe-view\.html/.test(i.file) && !i.properties.live).should.have.length(1, 'text in a form field value is shown safely');
+      report.issues.filter(i => i.id === 'RUNTIME_DOM_INJECTION' && /safe-view\.html/.test(i.file)).should.have.length(0, 'attributes merely starting with "on" are not event handlers');
       // the static scan of the same app ran too
       ids.should.include('NODE_INTEGRATION_JS_CHECK');
     });

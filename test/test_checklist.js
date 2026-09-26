@@ -424,6 +424,13 @@ const CASES = [
     'main.js': `const path = require('path');\nconst a = new BrowserWindow({ webPreferences: { preload: path.join(__dirname, 'preload.js') } });\nconst b = new BrowserWindow({ webPreferences: { preload: \`\${__dirname}/bridge.cjs\` } });` },
   absent: [], expectSecure: [{ id: 'WINDOW_SUMMARY_JS_CHECK', match: /preload preload\.js/ }, { id: 'WINDOW_SUMMARY_JS_CHECK', match: /preload bridge\.cjs/ }] },
 
+  { practice: 'regression: event.data outside a message handler is not assumed to be server data', secure: {
+    'r.js': `button.addEventListener('click', (event) => { panel.innerHTML = event.data; });` },
+  absent: [], expectSecure: [{ id: 'XSS_SINK_JS_CHECK', severity: 'MEDIUM', match: /a dynamic value/ }] },
+  { practice: 'message event data rendered as HTML is HIGH', insecure: {
+    'm.js': `window.addEventListener('message', (event) => { panel.innerHTML = event.data; });` },
+  expect: [{ id: 'XSS_SINK_JS_CHECK', severity: 'HIGH', match: /server-controlled/ }] },
+
   // Cross-file analysis
   { practice: 'cross-file: imported IPC handler without sender validation', insecure: { 'src/main.ts': `import { getSecrets } from './handlers';\nipcMain.handle('get-secrets', getSecrets);`,
     'src/handlers.ts': `export function getSecrets(event: IpcMainInvokeEvent) { return store.secrets; }` },

@@ -90,6 +90,39 @@ export function fuseBinaryFor(executable) {
 }
 
 /**
+ * The executable of a packaged app, from its scanned resources (resources/app.asar or resources/app): the file holding
+ * the fuse wire, or undefined when the input isn't inside a packaged app.
+ */
+export function packagedBinaryFor(input) {
+  const resolved = path.resolve(input);
+  const mac = resolved.match(/^(.*\.app)[\\/]Contents[\\/]Resources[\\/]app(\.asar)?$/);
+  if (mac) {
+    const framework = path.join(mac[1], 'Contents', 'Frameworks', 'Electron Framework.framework', 'Electron Framework');
+    return fs.existsSync(framework) ? framework : undefined;
+  }
+  if (!/[\\/]resources[\\/]app(\.asar)?$/i.test(resolved)) return undefined;
+  const appDir = path.dirname(path.dirname(resolved));
+  let entries;
+  try {
+    entries = fs.readdirSync(appDir, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  // the app's executable: an .exe on Windows, an executable file without extension elsewhere; helpers are skipped
+  const HELPERS = /^(chrome-sandbox|chrome_crashpad_handler|crashpad_handler|uninstall.*|squirrel\.exe|update\.exe|elevate\.exe)$/i;
+  const candidates = entries.filter(e => e.isFile() && !HELPERS.test(e.name)).map(e => path.join(appDir, e.name)).filter(file => {
+    if (/\.exe$/i.test(file)) return true;
+    if (path.extname(file)) return false;
+    try {
+      return (fs.statSync(file).mode & 0o111) !== 0;
+    } catch {
+      return false;
+    }
+  });
+  return candidates.find(file => readFuseWire(file));
+}
+
+/**
  * Reads the fuses from a packaged binary and turns the insecure ones into findings, in the same shape as the other
  * runtime findings. @returns {{ read:boolean, issues:Array, states?:Object }}
  */

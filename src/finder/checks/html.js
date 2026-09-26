@@ -7,7 +7,9 @@ import { resolveLocal, dependsOnParams } from './analysis.js';
 // Objects whose methods reach the network, and the request/response members that carry the server's answer
 const SERVER_OBJECTS = /^(axios|ky|superagent|got|\$http|\$resource|\$q|http|https|socket|ws|websocket)$/i;
 const RESPONSE_MEMBERS = /^(responseText|responseXML)$/;
-const RESPONSE_HOLDERS = /^(res|resp|response|reply|msg|message|event|ev|ws|socket|xhr|req|request|payload)$/i;
+// names that hold a server response; message event data is covered by inServerContext, which checks the handler
+// actually receives it, rather than by guessing from names like event.data or req.body
+const RESPONSE_HOLDERS = /^(res|resp|response|reply|xhr)$/i;
 const PROMISE_CALLBACKS = /^(then|catch|finally|subscribe|success|error|done|fail|always)$/;
 const MESSAGE_EVENTS = new Set(['message', 'websocket-message']);
 

@@ -10,6 +10,7 @@ import { Finder } from './finder/index.js';
 import { ProjectIndex } from './finder/project_index.js';
 import { loadBaseline, applyBaseline, writeBaseline } from './util/baseline.js';
 import { reconcileRuntime } from './watch/reconcile.js';
+import { analyzePackagedFuses, packagedBinaryFor } from './watch/fuses.js';
 import { GlobalChecks, severity, confidence } from './finder/index.js';
 import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util/index.js';
 
@@ -74,6 +75,9 @@ async function scan(options, forCli) {
   // Normalize the user-provided list. They should be already normalized if coming from the index.js,
   // but this is not granted in case Electronegativity is used programmatically
   options.customScan = (options.customScan || []).map(c => c.toLowerCase());
+  // read the fuses of a packaged binary unless the fuse checks were left out (-l without them, or -x)
+  const readBinaryFuses = (options.customScan.length === 0 || options.customScan.includes('fusesglobalcheck')) &&
+    !(options.excludeFromScan || []).map(c => c.toLowerCase()).includes('fusesglobalcheck');
   options.excludeFromScan = (options.excludeFromScan || []).map(c => c.toLowerCase());
 
   // Parser options initialization
@@ -183,6 +187,16 @@ async function scan(options, forCli) {
     issues.push(...options.runtime.issues);
     reconcileRuntime(issues);
   }
+
+  // A packaged app (its app.asar or resources/app): read the fuses written into its executable, which are what ships.
+  // Watch mode of a packaged app has already done so.
+  if (readBinaryFuses && !issues.some(i => i.id === 'PACKAGED_FUSES')) {
+    const binary = packagedBinaryFor(options.input);
+    const fuses = binary ? analyzePackagedFuses(binary) : undefined;
+    if (fuses && fuses.read) issues.push(...fuses.issues);
+  }
+  // the fuses in the binary are the ground truth: they replace the guess that no fuse configuration exists
+  if (issues.some(i => i.id === 'PACKAGED_FUSES')) issues = issues.filter(i => i.id !== 'FUSES_GLOBAL_CHECK');
 
   // Baseline: accepted findings are not reported again
   let suppressed = [];

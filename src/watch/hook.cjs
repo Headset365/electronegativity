@@ -85,6 +85,8 @@ function instrument(electron, late) {
   };
 
   const { app, ipcMain, shell } = electron;
+  // name of the renderer observer's global, different for every session
+  const OBSERVER_KEY = `__eng_${require('crypto').randomBytes(6).toString('hex')}`;
   write('start', { electron: process.versions.electron, platform: process.platform, late: !!late });
 
   // preload scripts, by webContents id: getLastWebPreferences() does not report them, so capture them where the window
@@ -246,7 +248,7 @@ function instrument(electron, late) {
       const drain = () => {
         if (contents.isDestroyed()) return;
         const url = redact(contents.getURL());
-        contents.executeJavaScript('(window.__engObserver ? window.__engObserver.drain() : [])', false)
+        contents.executeJavaScript(`(window[${JSON.stringify(OBSERVER_KEY)}] ? window[${JSON.stringify(OBSERVER_KEY)}].drain() : [])`, false)
           .then(list => { for (const e of (list || [])) write('dom-observed', { id, url, event: e.type, detail: e.detail, live: e.live }); })
           .catch(() => {});
       };
@@ -262,7 +264,8 @@ function instrument(electron, late) {
   // pulls them with drain(). Kept dependency-free and defensive so it runs under any page's CSP and isolation settings.
   function rendererObserver(marker) {
     return `(() => { try {
-      if (window.__engObserver) return 'exists';
+      var KEY = ${JSON.stringify(OBSERVER_KEY)};
+      if (window[KEY]) return 'exists';
       var events = [], seen = {};
       var push = function (e) { var k = e.type + '|' + (e.detail || '') + '|' + (e.live === undefined ? '' : e.live); if (seen[k]) return; seen[k] = 1; events.push(e); };
       var MARKER = ${JSON.stringify(marker || null)};
@@ -272,7 +275,8 @@ function instrument(electron, late) {
         var attrs = node.attributes || [];
         for (var i = 0; i < attrs.length; i++) {
           var a = attrs[i];
-          if (/^on/i.test(a.name)) push({ type: 'event-handler', detail: a.name });
+          // an event handler attribute: onclick, onerror... (not onboarding="true"): the element has a matching property
+          if (/^on[a-z]+$/i.test(a.name) && (a.name.toLowerCase() in node)) push({ type: 'event-handler', detail: a.name });
           if (/^\\s*javascript:/i.test(a.value || '')) push({ type: 'javascript-url', detail: a.name });
         }
       };
@@ -308,7 +312,8 @@ function instrument(electron, late) {
           if (present) push({ type: 'marker', detail: MARKER, live: live });
         } catch (e) {}
       };
-      window.__engObserver = { drain: function () { checkMarker(); return events.splice(0); } };
+      // a per-session name, hidden from enumeration and read-only, so pages don't trip over it or replace it
+      Object.defineProperty(window, KEY, { value: Object.freeze({ drain: function () { checkMarker(); return events.splice(0); } }), enumerable: false, writable: false, configurable: false });
       var start = function () { try { mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true }); } catch (e) {} scan(document.documentElement); checkMarker(); };
       if (document.documentElement) start(); else document.addEventListener('DOMContentLoaded', start);
       return 'installed';
