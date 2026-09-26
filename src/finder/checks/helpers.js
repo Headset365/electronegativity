@@ -105,7 +105,7 @@ export function resolveIdentifier(node, scope) {
 // The webPreferences object of a `new BrowserWindow(...)` / `new BrowserView(...)` / `new WebContentsView(...)`, if static
 export function webPreferencesOf(newExpression, scope) {
   if (!newExpression.arguments || newExpression.arguments.length === 0) return undefined;
-  const options = resolveIdentifier(newExpression.arguments[0], scope);
+  const options = scope && typeof scope.resolveVarValue === 'function' ? scope.resolveVarValue(newExpression) : resolveIdentifier(newExpression.arguments[0], scope);
   const prefs = findProperty(options, 'webPreferences');
   return prefs ? resolveIdentifier(prefs[1], scope) : undefined;
 }

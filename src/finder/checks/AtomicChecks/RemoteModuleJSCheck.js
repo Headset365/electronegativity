@@ -1,5 +1,6 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
+import { constantValue } from '../analysis.js';
 import { memberName, literalValue } from '../helpers.js';
 import { isWindowConstructor } from '../helpers.js';
 
@@ -34,17 +35,18 @@ export default class RemoteModuleJSCheck {
 
       for (const node of found_nodes) {
         wasFound = true;
-        if (literalValue(node.value) === false) {
-          continue;
-        }
-        loc.push({ line: node.key.loc.start.line, column: node.key.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: false });
+        const value = constantValue(node.value, scope);
+        if (value === false) continue;
+        const at = { line: node.key.loc.start.line, column: node.key.loc.start.column, id: this.id, shortenedURL: this.shortenedURL, severity: severity.MEDIUM };
+        if (value === undefined) loc.push({ ...at, description: `${this.description} (enableRemoteModule is set from a value that can't be determined statically)`, confidence: confidence.TENTATIVE, manualReview: true });
+        else loc.push({ ...at, description: `${this.description} (enableRemoteModule is enabled)`, confidence: confidence.CERTAIN, manualReview: false });
       }
     }
 
     if (wasFound) {
       return loc;
-    } else if (defaults.enableRemoteModule) { // in earlier versions, 'remote' is enabled by default (assuming nodeIntegration:true), which is a misconfiguration
-      return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true }];
+    } else if (defaults.enableRemoteModule) { // before Electron 10 the remote module is enabled unless enableRemoteModule is false
+      return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: `${this.description} (the remote module is enabled by default before Electron 10)`, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: false }];
     }
   }
 

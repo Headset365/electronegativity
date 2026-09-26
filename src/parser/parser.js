@@ -9,6 +9,7 @@ import { parse as parseYaml } from 'yaml';
 import path from 'node:path';
 import { sourceTypes, sourceExtensions } from './types.js';
 
+import { LexicalScope } from '../finder/checks/analysis.js';
 import { EsprimaAst, BabelAst, ESLintAst, TreeSettings, Scope } from '../finder/ast.js';
 
 export class Parser {
@@ -25,6 +26,7 @@ export class Parser {
       "jsx",
       "decorators-legacy",
       "flow",
+      "exportDefaultFrom", // export x from './y', common in Vue/webpack era projects
       "estree",
     ];
 
@@ -76,9 +78,7 @@ export class Parser {
     });
 
     data.astParser = this.esLintBabelTreeAst;
-    data.Scope = {}; // new Scope(data);
-    data.Scope.resolveVarValue = (astNode) => astNode.arguments[0];
-    data.Scope.updateFunctionScope = () => {};
+    data.Scope = new LexicalScope(); // eslint-scope doesn't understand TypeScript nodes
     return data;
   }
 
@@ -92,9 +92,7 @@ export class Parser {
     });
 
     data.astParser = this.esLintESTreeAst;
-    data.Scope = {}; //new Scope(data);
-    data.Scope.resolveVarValue = (astNode) => astNode.arguments[0];
-    data.Scope.updateFunctionScope = () => {};
+    data.Scope = new LexicalScope(); // eslint-scope doesn't understand TypeScript nodes
     return data;
   }
 

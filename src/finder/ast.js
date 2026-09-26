@@ -3,6 +3,8 @@ import estraverse from 'estraverse';
 import * as eslintScope from 'eslint-scope';
 import { getKeys } from 'eslint-visitor-keys';
 import { visitorKeys } from '@typescript-eslint/visitor-keys';
+import { resolveWindowOptions } from './checks/analysis.js';
+import { isWindowConstructor } from './checks/helpers.js';
 
 // ESTree + JSX + TypeScript visitor keys, falling back to the node's own keys for anything unknown (e.g. Flow annotations)
 const keysOf = (node) => visitorKeys[node.type] || getKeys(node);
@@ -126,6 +128,8 @@ export class Scope {
   }
 
   resolveVarValue(astNode) {
+    // BrowserWindow options are often merged from shared defaults: { ...defaults }, Object.assign({}, defaults, options)
+    if (isWindowConstructor(astNode) && astNode.arguments[0]) return resolveWindowOptions(astNode, this);
     if (astNode.arguments[0].type !== "Identifier")
       return astNode.arguments[0];
     else {

@@ -1,3 +1,4 @@
+import { gte, coerce } from 'semver';
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, isFunction, isProperty, resolveIdentifier, visit, finding } from '../helpers.js';
@@ -9,6 +10,19 @@ function mentions(fn, name) {
   visit(fn.body, (n) => {
     if (found) return false;
     if ((n.type === 'IfStatement' || n.type === 'ConditionalExpression') && identifiersIn(n.test).has(name)) found = true;
+    return true;
+  });
+  return found;
+}
+
+// is `name` passed to a validation helper before use, e.g. `validateIPC(channel); return ipcRenderer.invoke(channel)`
+const VALIDATOR = /(valid|check|assert|allow|verif|ensure|guard|permit)/i;
+function validatedByCall(fn, name, sink) {
+  let found = false;
+  visit(fn.body, (n) => {
+    if (found || n === sink) return false;
+    if ((n.type === 'CallExpression' || n.type === 'OptionalCallExpression') && n.callee.type === 'Identifier' && VALIDATOR.test(n.callee.name) &&
+        n.arguments.some(a => a.type === 'Identifier' && a.name === name)) found = true;
     return true;
   });
   return found;
@@ -29,7 +43,7 @@ export default class ContextBridgeExposureJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/context-isolation#security-considerations";
   }
 
-  match(astNode, astHelper, scope) {
+  match(astNode, astHelper, scope, defaults, electronVersion) {
     if (astNode.type !== 'CallExpression' && astNode.type !== 'OptionalCallExpression') return null;
     const method = memberName(astNode.callee);
     let apiArg;
@@ -39,6 +53,7 @@ export default class ContextBridgeExposureJSCheck {
     if (!apiArg) return null;
 
     const api = resolveIdentifier(apiArg, scope);
+    const eventSenderStripped = electronVersion && gte(coerce(electronVersion) || '0.1.0', '29.0.0');
     const issues = [];
     const report = (node, sev, conf, reason) => issues.push(finding(this, node, {
       severity: sev, confidence: conf, manualReview: true,
@@ -94,17 +109,19 @@ export default class ContextBridgeExposureJSCheck {
         if (calleeObject === 'ipcRenderer' && IPC_SEND_METHODS.includes(calleeMethod) &&
             first && first.type === 'Identifier' && isParam(first.name)) {
           const wrapper = [...ancestors].reverse().find(isFunction);
-          if (wrapper && isConditional(n, [...ancestors], wrapper) && mentions(wrapper, first.name))
+          if (wrapper && ((isConditional(n, [...ancestors], wrapper) && mentions(wrapper, first.name)) || validatedByCall(wrapper, first.name, n)))
             report(n, severity.LOW, confidence.FIRM, `forwards a channel to ipcRenderer.${calleeMethod} after checking it; review the allowlist`);
           else
             report(n, severity.HIGH, confidence.FIRM, `forwards an arbitrary channel to ipcRenderer.${calleeMethod}`);
         }
 
         // ipcRenderer.on('x', callback): the callback receives the IpcRendererEvent, which exposes ipcRenderer itself
+        // (until Electron 29, which stopped ipcRenderer from crossing contextBridge)
         const listener = n.arguments[1];
         if (calleeObject === 'ipcRenderer' && ['on', 'once', 'addListener'].includes(calleeMethod) &&
             listener && listener.type === 'Identifier' && isParam(listener.name)) {
-          report(n, severity.MEDIUM, confidence.FIRM, 'passes the IPC event object to renderer callbacks');
+          if (eventSenderStripped) report(n, severity.LOW, confidence.FIRM, 'passes the IPC event object to renderer callbacks; Electron 29+ no longer sends ipcRenderer (event.sender) over contextBridge, but pass only the arguments');
+          else report(n, severity.MEDIUM, confidence.FIRM, 'passes the IPC event object to renderer callbacks');
         }
 
         // () => require(name), (cmd) => exec(cmd)

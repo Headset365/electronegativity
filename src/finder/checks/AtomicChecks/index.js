@@ -53,6 +53,7 @@ import { SecureKeyboardEntryJSCheck, SecureKeyboardEntryHTMLCheck } from './Secu
 import { WebGLJSCheck, WebGLHTMLCheck, WebSQLJSCheck, WebSQLHTMLCheck, PluginsJSCheck, PluginsHTMLCheck, NavigateOnDragDropJSCheck, NavigateOnDragDropHTMLCheck } from './WebPreferenceFeatureChecks.js';
 import { FileProtocolJSCheck, UntrustedLoadUrlJSCheck } from './LoadContentJSChecks.js';
 import XssSinkJSCheck from './XssSinkJSCheck.js';
+import { IframeSandboxHTMLCheck, IframeSandboxJSCheck } from './IframeSandboxChecks.js';
 import CommandInjectionJSCheck from './CommandInjectionJSCheck.js';
 import DownloadJSCheck from './DownloadJSCheck.js';
 import { UpdateSecurityJSCheck, UpdateSecurityJSONCheck } from './UpdateSecurityChecks.js';
@@ -124,6 +125,8 @@ const CHECKS = [
   FileProtocolJSCheck,
   UntrustedLoadUrlJSCheck,
   XssSinkJSCheck,
+  IframeSandboxHTMLCheck,
+  IframeSandboxJSCheck,
   CommandInjectionJSCheck,
   DownloadJSCheck,
   UpdateSecurityJSCheck,

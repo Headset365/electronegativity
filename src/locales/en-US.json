@@ -154,6 +154,7 @@
 	"FUSES_PACKAGER_CONFIG":"Packaging configuration found",
 	"FILE_PROTOCOL_JS_CHECK":"Local content is loaded over file://, which has extra privileges in Electron; prefer a custom protocol (protocol.handle)",
 	"UNTRUSTED_LOAD_URL_JS_CHECK":"An app window loads a URL provided by untrusted input",
+	"IFRAME_SANDBOX_CHECK":"Sandbox iframes that display documents or untrusted content: an unsandboxed frame can script the embedding page and reach its preload APIs or, with nodeIntegration, Node.js",
 	"XSS_SINK_JS_CHECK":"HTML is built from dynamic data; unsanitized input leads to XSS in the renderer",
 	"COMMAND_INJECTION_JS_CHECK":"A child process is started with a dynamic command",
 	"PLUGINS_JS_CHECK":"Browser plugins are enabled",

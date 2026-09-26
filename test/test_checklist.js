@@ -182,7 +182,7 @@ const CASES = [
   // 20. Do not expose Electron APIs to untrusted web content
   { practice: '#20 exposing ipcRenderer', insecure: { 'preload.js': `contextBridge.exposeInMainWorld('electronAPI', { on: ipcRenderer.on });` },
     expect: [{ id: 'CONTEXT_BRIDGE_EXPOSURE_JS_CHECK', severity: 'HIGH', confidence: 'FIRM' }] },
-  { practice: '#20 passing the IPC event to the page', insecure: { 'preload.js': `contextBridge.exposeInMainWorld('electronAPI', { onUpdate: (callback) => ipcRenderer.on('update', callback) });` },
+  { practice: '#20 passing the IPC event to the page', insecure: { 'preload.js': `contextBridge.exposeInMainWorld('electronAPI', { onUpdate: (callback) => ipcRenderer.on('update', callback) });` }, version: '28.3.0',
     expect: [{ id: 'CONTEXT_BRIDGE_EXPOSURE_JS_CHECK', severity: 'MEDIUM', confidence: 'FIRM' }],
     secure: { 'preload.js': `contextBridge.exposeInMainWorld('electronAPI', { onUpdate: (callback) => ipcRenderer.on('update', (_event, value) => callback(value)) });` },
     absent: ['CONTEXT_BRIDGE_EXPOSURE_JS_CHECK'] },
@@ -271,7 +271,7 @@ const CASES = [
   { practice: 'regression: methods named like eval-like globals', secure: { 'main.js': `self.req.setTimeout(timeout, function () { abort(); });\nrequest.setTimeout(ms);` }, absent: ['DANGEROUS_FUNCTIONS_JS_CHECK'] },
   { practice: 'regression: vendored package manager releases are skipped', secure: { 'bin/yarn-standalone.js': `win.webContents.openDevTools();` }, absent: ['DEVTOOLS_JS_CHECK'] },
   { practice: 'regression: tooling in dot-directories is skipped', secure: { '.yarn/releases/yarn.cjs': `win.webContents.openDevTools();` }, absent: ['DEVTOOLS_JS_CHECK'] },
-  { practice: 'regression: tests and vendored code are skipped', secure: { 'test/main.test.js': `win.webContents.openDevTools();`, 'vendor/lib.js': `win.webContents.openDevTools();`, 'src/app.min.js': `win.webContents.openDevTools();` }, absent: ['DEVTOOLS_JS_CHECK'] },
+  { practice: 'regression: tests and vendored code are skipped', secure: { 'test/main.test.js': `win.webContents.openDevTools();`, 'vendor/lib.js': `win.webContents.openDevTools();`, 'src/app.min.js': `win.webContents.openDevTools();`, 'src/assets/libs/snap.svg-min.js': `win.webContents.openDevTools();` }, absent: ['DEVTOOLS_JS_CHECK'] },
 
   { practice: 'minified bundles: namespaced BrowserWindow', insecure: { 'dist/main.js': `const o=require("electron");new o.BrowserWindow({webPreferences:{contextIsolation:!1,nodeIntegration:!0,webSecurity:!1}});` },
     expect: [{ id: 'CONTEXT_ISOLATION_JS_CHECK', severity: 'HIGH' }, { id: 'NODE_INTEGRATION_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' }, { id: 'WEB_SECURITY_JS_CHECK' }] },
@@ -280,6 +280,55 @@ const CASES = [
 
   { practice: 'regression: protocol handlers proxying to http are not file servers', secure: { 'main.js': `protocol.handle('remote', (request) => net.fetch(request.url.replace('remote:', 'http:'), { bypassCustomProtocolHandlers: true }));` },
     expectSecure: [{ id: 'PROTOCOL_HANDLER_JS_CHECK', severity: 'LOW' }] },
+
+  // Found scanning old releases with disclosed vulnerabilities (Joplin 2.8.8, MarkText 0.16.3)
+  { practice: 'regression: TypeScript window options held in a typed variable', insecure: { 'src/app.ts': `class App {\n  createWindow() {\n    const windowOptions: any = { webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false } };\n    this.win_ = new BrowserWindow(windowOptions);\n  }\n}` },
+    expect: [{ id: 'NODE_INTEGRATION_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' }, { id: 'CONTEXT_ISOLATION_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' }, { id: 'WEB_SECURITY_JS_CHECK' }],
+    secure: { 'src/app.ts': `const windowOptions: BrowserWindowConstructorOptions = { webPreferences: { contextIsolation: true, sandbox: true } };\nconst win = new BrowserWindow(windowOptions);` }, absent: ['NODE_INTEGRATION_JS_CHECK', 'CONTEXT_ISOLATION_JS_CHECK', 'SANDBOX_JS_CHECK'] },
+  { practice: 'regression: contextIsolation from an unresolvable value is tentative', insecure: { 'main.js': `const w = new BrowserWindow({ webPreferences: { contextIsolation: config.isolate } });` },
+    expect: [{ id: 'CONTEXT_ISOLATION_JS_CHECK', severity: 'HIGH', confidence: 'TENTATIVE' }] },
+  { practice: 'regression: export-default-from syntax parses', insecure: { 'src/menu/index.js': `export edit from './edit';\nexport default function build() { return new BrowserWindow({ webPreferences: { nodeIntegration: true } }); }` },
+    expect: [{ id: 'NODE_INTEGRATION_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' }] },
+
+  { practice: 'regression: window options merged from shared defaults in another file (MarkText 0.16.3)', insecure: {
+    'src/main/config.js': `export const editorWinOptions = Object.freeze({ minWidth: 550, webPreferences: { enableRemoteModule: true, contextIsolation: false, nodeIntegration: true, webSecurity: false } });`,
+    'src/main/windows/editor.js': `import { BrowserWindow } from 'electron';\nimport { editorWinOptions } from '../config';\nexport function create(options) {\n  const winOptions = Object.assign({ width: 800 }, editorWinOptions, options);\n  return new BrowserWindow(winOptions);\n}` },
+  version: '11.1.1',
+  expect: [{ id: 'NODE_INTEGRATION_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' }, { id: 'CONTEXT_ISOLATION_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' },
+    { id: 'WEB_SECURITY_JS_CHECK' }, { id: 'REMOTE_MODULE_JS_CHECK', confidence: 'CERTAIN' }] },
+  { practice: 'regression: later spread and Object.assign sources override earlier ones', secure: {
+    'main.js': `const base = { webPreferences: { nodeIntegration: true, contextIsolation: false } };\nconst a = new BrowserWindow({ ...base, webPreferences: { sandbox: true } });\nconst b = new BrowserWindow(Object.assign({}, base, { webPreferences: { ...base.webPreferences, nodeIntegration: false, contextIsolation: true } }));` },
+  absent: ['NODE_INTEGRATION_JS_CHECK', 'CONTEXT_ISOLATION_JS_CHECK'] },
+  { practice: 'regression: webPreferences spread from a constant', insecure: { 'main.js': `const unsafe = { nodeIntegration: true };\nconst w = new BrowserWindow({ webPreferences: { ...unsafe, preload: 'p.js' } });` },
+    expect: [{ id: 'NODE_INTEGRATION_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' }] },
+  { practice: 'regression: remote module on by default before Electron 10', insecure: { 'main.js': `const w = new BrowserWindow({ webPreferences: { nodeIntegration: false, preload: 'p.js' } });` }, version: '8.2.1',
+    expect: [{ id: 'REMOTE_MODULE_JS_CHECK', severity: 'MEDIUM', confidence: 'FIRM' }],
+    secure: { 'main.js': `const w = new BrowserWindow({ webPreferences: { enableRemoteModule: false, preload: 'p.js' } });` }, absent: ['REMOTE_MODULE_JS_CHECK'] },
+  { practice: 'regression: deep link passed to a helper that loads it (Element 1.9.6, CVE-2022-23597)', insecure: { 'src/protocol.ts': `const PROTOCOL = 'element://';\nfunction processUrl(url: string): void {\n  global.mainWindow.loadURL(url.replace(PROTOCOL, 'vector://'));\n}\nexport function protocolInit(): void {\n  app.on('open-url', function(ev, url) { ev.preventDefault(); processUrl(url); });\n  app.on('second-instance', (ev, commandLine) => { const url = commandLine[commandLine.length - 1]; if (!url.startsWith(PROTOCOL)) return; processUrl(url); });\n}` },
+    expect: [{ id: 'UNTRUSTED_LOAD_URL_JS_CHECK', severity: 'HIGH', confidence: 'FIRM' }],
+    secure: { 'src/protocol.ts': `function processUrl(url: string): void {\n  const parsed = new URL(url);\n  if (parsed.protocol !== 'element:') return;\n  const urlToLoad = new URL('vector://vector/webapp/');\n  urlToLoad.hash = parsed.hash;\n  global.mainWindow.loadURL(urlToLoad.href);\n}\napp.on('open-url', (ev, url) => processUrl(url));` },
+    absent: ['UNTRUSTED_LOAD_URL_JS_CHECK'] },
+  { practice: 'regression: jQuery .html() sink and escaping undone by a renderer (Signal 1.10.0, CVE-2018-10994)', insecure: { 'js/views/message_view.js': `const escapedBody = _.escape(body);\nthis.$('.body').html(Signal.HTML.render(escapedBody));` },
+    expect: [{ id: 'XSS_SINK_JS_CHECK', severity: 'MEDIUM', match: /\.html\(\)/ }],
+    secure: { 'js/views/message_view.js': `this.$('.body').html(_.escape(body));\nthis.$('.title').html('<b>' + escapeHtml(title) + '</b>');\nlist.append(item);` }, absent: ['XSS_SINK_JS_CHECK'] },
+  { practice: 'regression: HTML built into jQuery append', insecure: { 'renderer.js': `$('#list').append('<li>' + message.text + '</li>');` }, expect: [{ id: 'XSS_SINK_JS_CHECK', match: /\.append\(\)/ }] },
+  { practice: 'regression: inline scripts in HTML files are analyzed (Joplin 2.8.8 note viewer)', insecure: { 'gui/note-viewer/index.html': `<html>\n<body>\n<div id="content"></div>\n<script>\n  ipcProxySendToHost('ready');\n  window.addEventListener('message', (event) => {\n    document.getElementById('content').innerHTML = event.data.html;\n  });\n</script>\n</body>\n</html>` },
+    expect: [{ id: 'XSS_SINK_JS_CHECK', severity: 'MEDIUM' }],
+    secure: { 'index.html': `<script type="text/x-template"><div>{{ html }}</div></script>\n<script type="application/json">{"a": 1}</script>\n<script>document.getElementById('x').textContent = name;</script>` }, absent: ['XSS_SINK_JS_CHECK'] },
+  { practice: 'iframe without sandbox (HTML)', insecure: { 'index.html': `<iframe src="viewer.html"></iframe>` }, expect: [{ id: 'IFRAME_SANDBOX_HTML_CHECK', severity: 'LOW', confidence: 'CERTAIN' }],
+    secure: { 'index.html': `<iframe src="viewer.html" sandbox="allow-scripts"></iframe>` }, absent: ['IFRAME_SANDBOX_HTML_CHECK'] },
+  { practice: 'iframe sandbox with allow-scripts and allow-same-origin', insecure: { 'index.html': `<iframe src="viewer.html" sandbox="allow-scripts allow-same-origin"></iframe>` }, expect: [{ id: 'IFRAME_SANDBOX_HTML_CHECK', match: /allow-same-origin/ }] },
+  { practice: 'iframe without sandbox (JSX, Joplin 2.8.8 NoteTextViewer)', insecure: { 'gui/NoteTextViewer.tsx': `export default function Viewer() { return <iframe className="noteTextViewer" src="gui/note-viewer/index.html"></iframe>; }` },
+    expect: [{ id: 'IFRAME_SANDBOX_JS_CHECK', severity: 'LOW', confidence: 'CERTAIN' }],
+    secure: { 'gui/Viewer.tsx': `export default function Viewer() { return <iframe sandbox="allow-scripts" src="viewer.html" />; }\nexport function Frame(props) { return <iframe {...props} />; }` }, absent: ['IFRAME_SANDBOX_JS_CHECK'] },
+
+  { practice: 'regression: passing the IPC event is low severity once Electron 29 strips ipcRenderer from contextBridge', secure: { 'preload.js': `contextBridge.exposeInMainWorld('electronAPI', { onUpdate: (callback) => ipcRenderer.on('update', callback) });` },
+    expectSecure: [{ id: 'CONTEXT_BRIDGE_EXPOSURE_JS_CHECK', severity: 'LOW', match: /Electron 29/ }] },
+  { practice: 'regression: channels checked by a validation helper (VS Code preload)', secure: { 'preload.ts': `function validateIPC(channel: string): true | never {\n  if (!channel?.startsWith('vscode:')) throw new Error('Unsupported channel');\n  return true;\n}\nconst globals = { ipcRenderer: {\n  invoke(channel: string, ...args: unknown[]) { validateIPC(channel); return ipcRenderer.invoke(channel, ...args); },\n  send(channel: string, ...args: unknown[]) { if (validateIPC(channel)) { ipcRenderer.send(channel, ...args); } }\n} };\ncontextBridge.exposeInMainWorld('vscode', globals);` },
+    absent: [], expectSecure: [{ id: 'CONTEXT_BRIDGE_EXPOSURE_JS_CHECK', severity: 'LOW' }] },
+
+  { practice: 'regression: navigation helper checking a destructured protocol (Signal Desktop handleUrl)', secure: { 'main.ts': `async function handleUrl(rawTarget: string) {\n  const parsedUrl = maybeParseUrl(rawTarget);\n  if (!parsedUrl) return;\n  const { protocol } = parsedUrl;\n  if (protocol === 'http:' || protocol === 'https:') await shell.openExternal(rawTarget);\n}\nfunction setup(window) {\n  window.webContents.on('will-navigate', (event, rawTarget) => { event.preventDefault(); drop(handleUrl(rawTarget)); });\n}` },
+    absent: [], expectSecure: [{ id: 'OPEN_EXTERNAL_JS_CHECK', severity: 'LOW' }] },
 
   // Cross-file analysis
   { practice: 'cross-file: imported IPC handler without sender validation', insecure: { 'src/main.ts': `import { getSecrets } from './handlers';\nipcMain.handle('get-secrets', getSecrets);`,

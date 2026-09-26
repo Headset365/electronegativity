@@ -1,7 +1,9 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
-import { isWindowConstructor, literalValue } from '../helpers.js';
+import { constantValue } from '../analysis.js';
+import { isWindowConstructor } from '../helpers.js';
 
+// Electron security checklist #3: enable context isolation
 export default class ContextIsolationJSCheck {
   constructor() {
     this.id = "CONTEXT_ISOLATION_JS_CHECK";
@@ -14,49 +16,25 @@ export default class ContextIsolationJSCheck {
     if (astNode.type !== 'NewExpression') return null;
     if (!isWindowConstructor(astNode)) return null; // also new electron.BrowserWindow() and minified new o.BrowserWindow()
 
-    let location = [];
-    if (astNode.arguments.length > 0) {
+    const report = (node, description, level, manualReview = false) => ({ line: node.loc.start.line, column: node.loc.start.column, id: this.id,
+      description: `${this.description} (${description})`, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: level, manualReview });
 
-      var target = scope.resolveVarValue(astNode);
+    const target = astNode.arguments.length > 0 ? scope.resolveVarValue(astNode) : undefined;
+    const contextIsolation = target ? astHelper.findNodeByType(target, astHelper.PropertyName, astHelper.PropertyDepth, false,
+      node => (node.key.value === 'contextIsolation' || node.key.name === 'contextIsolation')) : [];
 
-      // astHelper.findNodeByType(target,
-      //   astHelper.PropertyName,
-      //   astHelper.PropertyDepth,
-      //   true, // any preload is enough
-      //   node => (node.key.value === 'preload' || node.key.name === 'preload'));
-
-      const contextIsolation = astHelper.findNodeByType(target,
-        astHelper.PropertyName,
-        astHelper.PropertyDepth,
-        false,
-        node => (node.key.value === 'contextIsolation' || node.key.name === 'contextIsolation'));
-
-      //At the time of writing this check, you always need contextIsolation (trust us!)  
-      //if (preload.length > 0) { 
-      if (contextIsolation.length > 0) {
-        for (const node of contextIsolation) {
-
-          if (node.value.type === "Identifier") {
-            const target = scope.getVarInScope(node.value.name);
-            if ((!target || target.defs.length == 0 || !target.defs[0].node.init || !target.defs[0].node.init.value) || // e.g. var variable; declared but not assigned or assigned later in an undefined way
-                (target && target.defs[0].node.init && target.defs[0].node.init.value !== true)) // e.g. var variable = true; declared and assigned on creation, the only case we can afford to detect atm
-              location.push({ line: node.key.loc.start.line, column: node.key.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false });
-          } else if(literalValue(node.value) !== true) {
-          // in practice if there are two keys with the same name, the value of the last one wins
-          // but technically it is an invalid json
-          // just to be on the safe side show a warning if any value is insecure
-            location.push({ line: node.key.loc.start.line, column: node.key.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false });
-          }
-        }
-      } else if (!defaults.contextIsolation) { // contextIsolation is enabled by default since Electron 12
-        location.push({ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false });
-      }
-      
-    } else if (!defaults.contextIsolation) {
-      //No webpreferences
-      location.push({ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false });
+    // with duplicate keys the last one wins, but report any insecure value to be on the safe side
+    const locations = [];
+    for (const node of contextIsolation) {
+      const value = constantValue(node.value, scope);
+      if (value === undefined) locations.push(report(node.key, "contextIsolation is set from a value that can't be determined statically", confidence.TENTATIVE, true));
+      else if (value !== true) locations.push(report(node.key, 'contextIsolation is disabled', confidence.CERTAIN));
     }
 
-    return location;
+    // contextIsolation is enabled by default since Electron 12
+    if (contextIsolation.length === 0 && !defaults.contextIsolation)
+      locations.push(report(astNode, 'contextIsolation is disabled by default before Electron 12', confidence.FIRM));
+
+    return locations;
   }
 }

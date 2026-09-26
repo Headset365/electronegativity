@@ -59,7 +59,7 @@ export function isScannableFile(file) {
 // Tests, mocks, fixtures and vendored third-party code don't ship as part of the app, and scanning them mostly adds noise
 const NON_APP_DIRECTORIES = new Set(['test', 'tests', '__tests__', '__mocks__', '__fixtures__', 'fixtures', 'spec', 'specs', 'e2e', 'vendor', 'third_party', 'third-party', 'coverage', '.git', 'script', 'scripts', 'tools', 'docs', '.github', '.circleci', 'benchmark', 'benchmarks', 'examples']);
 // tests, stories, minified files and vendored package manager releases (yarn-4.10.3.cjs, yarn-standalone.js)
-const NON_APP_FILES = /\.(test|spec|stories|e2e)\.[cm]?[jt]sx?$|\.min\.js$|^(yarn|pnpm|npm)-[\w.-]+\.c?js$|-standalone\.c?js$/i;
+const NON_APP_FILES = /\.(test|spec|stories|e2e)\.[cm]?[jt]sx?$|[.-]min\.js$|^(yarn|pnpm|npm)-[\w.-]+\.c?js$|-standalone\.c?js$/i;
 
 // relativePath is relative to the scanned folder, so scanning a folder inside a `test` directory still works
 export function isNonAppFile(relativePath) {

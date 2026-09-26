@@ -40,7 +40,7 @@ describe('Sample applications', () => {
 
     const EXPECTED = [
       ['NODE_INTEGRATION_JS_CHECK', 'HIGH', 'CERTAIN'],
-      ['CONTEXT_ISOLATION_JS_CHECK', 'HIGH', 'FIRM'],
+      ['CONTEXT_ISOLATION_JS_CHECK', 'HIGH', 'CERTAIN'],
       ['SANDBOX_JS_CHECK', 'MEDIUM', 'FIRM'],
       ['WEB_SECURITY_JS_CHECK', 'MEDIUM', 'CERTAIN'],
       ['HTTP_RESOURCES_JS_CHECK', 'MEDIUM', 'CERTAIN'],

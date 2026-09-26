@@ -53,15 +53,15 @@ To update a global install, run the `npm install -g` command again.
 * Checks account for the secure defaults of newer Electron releases: `contextIsolation` (Electron 12+), `sandbox` (Electron 20+, unless `nodeIntegration` is enabled) and the removal of the `remote` module (Electron 14+). When the Electron version can't be detected, the oldest (least secure) defaults are still assumed.
 * `AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK` now queries the [OSV](https://osv.dev) database of published Electron security advisories (GitHub Security Advisories), as Electron's former release feed stopped being updated in 2022. Findings list the matching advisory IDs.
 * Native ES modules with no build step, running on current versions of all dependencies (Babel 8, TypeScript ESTree 8, espree, eslint-scope, cheerio 1.x, commander, chalk).
-* 84 security checks (up from 42), covering the current [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security): IPC sender validation, APIs exposed through `contextBridge`, Electron Fuses, `setWindowOpenHandler`, `<webview>` hardening, custom scheme privileges, disabled TLS validation, `shell` APIs, deep link and file association handlers, downloads, update feeds, plaintext secrets, screen capture, DevTools, Secure Keyboard Entry, WebGL/WebSQL and certificate pinning.
+* 86 security checks (up from 42), covering the current [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security): IPC sender validation, APIs exposed through `contextBridge`, Electron Fuses, `setWindowOpenHandler`, `<webview>` hardening, custom scheme privileges, disabled TLS validation, `shell` APIs, deep link and file association handlers, downloads, update feeds, plaintext secrets, screen capture, DevTools, Secure Keyboard Entry, WebGL/WebSQL, unsandboxed iframes and certificate pinning.
 * Outdated software: end-of-life Electron majors, newer patch releases of pinned versions, and known vulnerabilities in every locked npm dependency.
 * Findings follow the Electron version in use, e.g. `affinity` is ignored from Electron 14 and the `new-window` event is reported as ineffective from Electron 22.
 * Upgrade checks (`-u`) for the breaking changes of Electron 12 to 32.
 * A self-contained, filterable HTML report (`-o report.html`) and JSON output, next to CSV and SARIF.
-* Cross-file analysis: handlers, helpers and constants imported from other files (ES modules, CommonJS, re-exports, `tsconfig.json` `baseUrl`/`paths` aliases) and handler factories are followed. Minified bundles (`new o.BrowserWindow(...)`, `!0`/`!1`) are understood.
+* Cross-file analysis: handlers, helpers and constants imported from other files (ES modules, CommonJS, re-exports, `tsconfig.json` `baseUrl`/`paths` aliases) and handler factories are followed. Window options merged from shared defaults (`{ ...defaults }`, `Object.assign({}, defaults, options)`, `Object.freeze(...)`, also across files) and helpers that handlers pass untrusted data to are followed. Minified bundles (`new o.BrowserWindow(...)`, `!0`/`!1`) are understood, and inline `<script>` blocks of HTML files go through the JavaScript checks.
 * Baselines (`--baseline`, `--write-baseline`) and a CI exit code (`--fail-on`), see [CI](#cicd).
 * Tests, fixtures, vendored code, tooling folders (`scripts`, `tools`, dot-folders) and minified files are skipped by default (`--all-files` to include them).
-* Validated on Signal Desktop, Element, VS Code, Mattermost, GitHub Desktop, Hyper and Electron Fiddle: no parse errors, and the remaining HIGH findings were confirmed by hand.
+* Validated on Signal Desktop, Element, VS Code, Mattermost, GitHub Desktop, Hyper and Electron Fiddle: no parse errors, and the remaining HIGH findings were confirmed by hand. Cross-checked against old releases with published vulnerabilities, see [Known vulnerabilities](#known-vulnerabilities).
 
 ## Checks
 
@@ -72,7 +72,7 @@ Checks run on JavaScript/TypeScript, HTML, `package.json`/`electron-builder.json
 | Renderer isolation | `NODE_INTEGRATION_*`, `CONTEXT_ISOLATION_JS_CHECK`, `SANDBOX_*` (incl. `app.enableSandbox()`), `PRELOAD_JS_CHECK`, `REMOTE_MODULE_JS_CHECK` (incl. `@electron/remote`), `AFFINITY_*` |
 | IPC and preload | `IPC_SENDER_VALIDATION_JS_CHECK`, `CONTEXT_BRIDGE_EXPOSURE_JS_CHECK` |
 | Binary hardening | `FUSES_JS_CHECK`, `FUSES_JSON_CHECK`, `FUSES_GLOBAL_CHECK` (RunAsNode, NODE_OPTIONS, `--inspect`, ASAR integrity, cookie encryption, ...) |
-| Web security | `WEB_SECURITY_*`, `INSECURE_CONTENT_*`, `HTTP_RESOURCES_*`, `CSP_*`, `EXPERIMENTAL_FEATURES_*`, `BLINK_FEATURES_*`, `WEBGL_*`, `WEBSQL_*`, `PLUGINS_*`, `NAVIGATE_ON_DRAG_DROP_*`, `XSS_SINK_JS_CHECK` |
+| Web security | `WEB_SECURITY_*`, `INSECURE_CONTENT_*`, `HTTP_RESOURCES_*`, `CSP_*`, `EXPERIMENTAL_FEATURES_*`, `BLINK_FEATURES_*`, `WEBGL_*`, `WEBSQL_*`, `PLUGINS_*`, `NAVIGATE_ON_DRAG_DROP_*`, `XSS_SINK_JS_CHECK` (DOM, React and jQuery sinks), `IFRAME_SANDBOX_*` |
 | Navigation and windows | `LIMIT_NAVIGATION_*`, `WINDOW_OPEN_HANDLER_JS_CHECK`, `UNTRUSTED_LOAD_URL_JS_CHECK`, `FILE_PROTOCOL_JS_CHECK`, `AUXCLICK_*`, `ALLOWPOPUPS_HTML_CHECK`, `WEBVIEW_TAG_JS_CHECK`, `WEBVIEW_GLOBAL_CHECK` |
 | Dangerous APIs | `DANGEROUS_FUNCTIONS_JS_CHECK`, `OPEN_EXTERNAL_JS_CHECK`, `OPEN_PATH_JS_CHECK`, `SHOWITEMINFOLDER_JS_CHECK`, `WRITE_SHORTCUT_JS_CHECK`, `COMMAND_INJECTION_JS_CHECK`, `DEVTOOLS_JS_CHECK` |
 | Protocols and external input | `PROTOCOL_HANDLER_JS_CHECK`, `PROTOCOL_PRIVILEGES_JS_CHECK`, `FILE_HANDLER_JS_CHECK`, `FILE_HANDLER_JSON_CHECK`, `PERMISSION_REQUEST_HANDLER_*` |
@@ -96,6 +96,19 @@ Rather than flagging every use of a sensitive API, checks look at what the code 
 ### Test coverage
 
 `test/test_checklist.js` covers each item of the [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) and the other practices above with an insecure example, which must be reported with the expected severity and confidence, and a secure one, which must not be. `test/apps` contains a hardened sample app, which must only produce low-severity "review the allowlist" notes, and a vulnerable one, which must trigger each check with a firm or certain confidence.
+
+### Known vulnerabilities
+
+The root cause of each published vulnerability below is reported when scanning the affected release (`--offline`):
+
+| Release | Vulnerability | Reported |
+|---|---|---|
+| Signal Desktop 1.10.0 | CVE-2018-10994: XSS in messages, `body.html(Signal.HTML.render(escapedBody))` | `XSS_SINK_JS_CHECK` at `js/views/message_view.js:511` (render re-introduces markup after escaping) |
+| Signal Desktop 1.10.0 | CVE-2018-11101: XSS in quoted replies | `XSS_SINK_JS_CHECK` (`dangerouslySetInnerHTML`) at `Quote.tsx:114`; `CONTEXT_ISOLATION_JS_CHECK` HIGH (Electron 1.8 default) |
+| Jitsi Meet Electron 2.0.0 | CVE-2020-25019: `shell.openExternal` on any link | `OPEN_EXTERNAL_JS_CHECK` HIGH/FIRM at `main.js:165` (value from `new-window`, not validated) |
+| MarkText 0.16.3 | CVE-2021-29996, CVE-2023-2318: XSS to RCE (paste handling, `nodeIntegration`) | `NODE_INTEGRATION_JS_CHECK` and `CONTEXT_ISOLATION_JS_CHECK` HIGH/CERTAIN (options merged from `config.js`), `WEB_SECURITY_JS_CHECK`, `XSS_SINK_JS_CHECK` at `pasteCtrl.js:54` |
+| Joplin 2.8.8 | CVE-2022-35131 and later note-viewer XSS to RCE | `NODE_INTEGRATION_JS_CHECK` and `CONTEXT_ISOLATION_JS_CHECK` HIGH/CERTAIN, `XSS_SINK_JS_CHECK` in the note viewer's inline script, `IFRAME_SANDBOX_JS_CHECK` for the unsandboxed viewer frame |
+| Element Desktop 1.9.6 | CVE-2022-23597: deep links loaded into the main window | `UNTRUSTED_LOAD_URL_JS_CHECK` HIGH/FIRM at `protocol.ts:32`, no longer reported on the fixed 1.9.7 |
 
 ## Usage
 

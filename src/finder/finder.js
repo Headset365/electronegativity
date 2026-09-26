@@ -6,6 +6,7 @@ import { getSample } from "../util/file.js";
 import chalk from 'chalk';
 import { gte, compare, coerce } from 'semver';
 import { setAnalysisContext } from './checks/analysis.js';
+import { Parser } from '../parser/parser.js';
 import all_defaults from '../../defaults.json' with { type: 'json' };
 
 export class Finder {
@@ -97,7 +98,7 @@ export class Finder {
         // nodes enclosing the current one, outermost first, so checks can reason about the surrounding code
         const ancestors = [];
         const context = { ancestors, file };
-        setAnalysisContext({ file, program: data.type === 'File' ? data.program : data, index: this.projectIndex, ancestors });
+        setAnalysisContext({ file, program: data.type === 'File' ? data.program : data, index: this.projectIndex, ancestors, propertyName: data.astParser.PropertyName });
         data.astParser.traverseTree(data, {
           enter: (node) => {
             const astNode = rootData.astParser.getNode(node);
@@ -125,6 +126,17 @@ export class Finder {
         break;
       }
       case sourceTypes.HTML:
+        // inline <script> blocks go through the JavaScript checks, at their position in the HTML file
+        for (const script of inlineScripts(content.toString())) {
+          let scriptData;
+          try {
+            this.scriptParser ??= new Parser(false, true);
+            [, scriptData] = this.scriptParser.parse(`${file}.inline.js`, script);
+          } catch {
+            continue; // templates ({{ }}, <%= %>) and other non-JavaScript content
+          }
+          if (scriptData) issues.push(...await this.find(file, scriptData, sourceTypes.JAVASCRIPT, content, use_only_checks, electronVersion));
+        }
         for (const check of checks) {
           const matches = check.match(data, content, defaults, electronVersion);
           if(matches){
@@ -154,4 +166,25 @@ export class Finder {
 
     return issues;
   }
+}
+
+const JAVASCRIPT_TYPES = /^(|text\/javascript|application\/javascript|module|text\/ecmascript|application\/ecmascript)$/i;
+
+/**
+ * The inline scripts of an HTML document, each as a copy of the document where everything but the script is blanked
+ * out (newlines kept), so line and column numbers of findings point into the HTML file.
+ */
+export function inlineScripts(html) {
+  const scripts = [];
+  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+    const attributes = match[1];
+    if (/\bsrc\s*=/i.test(attributes)) continue;
+    const type = (attributes.match(/\btype\s*=\s*["']?([^"'\s>]*)/i) || [])[1] || '';
+    if (!JAVASCRIPT_TYPES.test(type.trim()) || !match[2].trim()) continue;
+    const start = match.index + match[0].indexOf('>') + 1;
+    const end = start + match[2].length;
+    const blank = (text) => text.replace(/[^\n]/g, ' ');
+    scripts.push(blank(html.slice(0, start)) + html.slice(start, end) + blank(html.slice(end)));
+  }
+  return scripts;
 }

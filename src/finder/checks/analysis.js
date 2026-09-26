@@ -1,7 +1,7 @@
 // Static analysis helpers that let checks reason about what code does, not only which APIs it calls.
 // They are deliberately conservative: when a question can't be answered statically they return `undefined`,
 // and checks then fall back to a lower confidence.
-import { isFunction, memberName, keyName, literalValue, resolveIdentifier, visit } from './helpers.js';
+import { isFunction, memberName, keyName, literalValue, resolveIdentifier, visit, isWindowConstructor } from './helpers.js';
 
 // The file being analyzed and the project index, set by the Finder before each file
 let analysisContext = { file: undefined, program: undefined, index: undefined };
@@ -28,22 +28,47 @@ function inFile(file, program, fn) {
 export function resolveLocal(node, scope) {
   const resolved = resolveIdentifier(node, scope);
   if (resolved !== node || !node || node.type !== 'Identifier') return resolved;
+  const declaration = lexicalDeclaration(node.name);
+  if (!declaration) return node;
+  return declaration.type === 'VariableDeclarator' ? declaration.init : declaration;
+}
+
+// `const name = ...` (with an initializer) or `function name` declared in a block enclosing the current node
+function lexicalDeclaration(name) {
   const ancestors = analysisContext.ancestors || [];
   for (let i = ancestors.length - 1; i >= 0; i--) {
     const block = ancestors[i];
-    const body = block.type === 'BlockStatement' || block.type === 'Program' ? block.body : (block.type === 'StaticBlock' ? block.body : undefined);
+    const body = block.type === 'BlockStatement' || block.type === 'Program' || block.type === 'StaticBlock' ? block.body : undefined;
     if (!Array.isArray(body)) continue;
     for (const statement of body) {
       const declaration = statement && statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
       if (!declaration) continue;
-      if (declaration.type === 'FunctionDeclaration' && declaration.id && declaration.id.name === node.name) return declaration;
+      if (declaration.type === 'FunctionDeclaration' && declaration.id && declaration.id.name === name) return declaration;
       if (declaration.type === 'VariableDeclaration') {
-        const d = declaration.declarations.find(d => d.id.type === 'Identifier' && d.id.name === node.name && d.init);
-        if (d) return d.init;
+        const d = declaration.declarations.find(d => d.id.type === 'Identifier' && d.id.name === name && d.init);
+        if (d) return d;
       }
     }
   }
-  return node;
+  return undefined;
+}
+
+/**
+ * Scope stand-in for TypeScript files, which eslint-scope can't analyze: resolves names to their declarations in the
+ * blocks enclosing the node being matched, so `const options: any = {...}; new BrowserWindow(options)` is understood.
+ */
+export class LexicalScope {
+  updateFunctionScope() {}
+
+  getVarInScope(name) {
+    const declaration = lexicalDeclaration(name);
+    if (!declaration) return null;
+    return { defs: [declaration.type === 'VariableDeclarator' ? { type: 'Variable', node: declaration } : { type: 'FunctionName', node: declaration }] };
+  }
+
+  resolveVarValue(astNode) {
+    return isWindowConstructor(astNode) ? resolveWindowOptions(astNode, this) : resolveLocal(astNode.arguments[0], this);
+  }
 }
 
 /**
@@ -180,6 +205,9 @@ export function hasUrlValidation(fn) {
     // predicates like isTeamUrl(url), isCustomProtocol(url), hasPermission(origin)
     if (name && /^(is|has|can|should|check|verify|ensure|assert)[A-Z_]/.test(name) && n.arguments && n.arguments.length > 0) found = true;
     if (isMember(n) && /^(protocol|origin|host|hostname)$/.test(memberName(n) || '')) found = true;
+    // const { protocol } = new URL(target), maybeParseUrl(target)
+    if (n.type === 'ObjectPattern' && n.properties.some(p => /^(protocol|origin|host|hostname)$/.test(keyName(p.key) || ''))) found = true;
+    if (name && /parse_?ur[il]/i.test(name)) found = true;
     return true;
   });
   return found;
@@ -439,7 +467,17 @@ function registeredSource(program, name) {
     const registered = new Map();
     visit(program, (n) => {
       const source = sourceOfCall(n);
-      if (source) n.arguments.filter(a => a.type === 'Identifier').forEach(a => registered.set(a.name, source));
+      if (!source) return true;
+      n.arguments.filter(a => a.type === 'Identifier').forEach(a => registered.set(a.name, source));
+      // helpers the handler passes the untrusted data to: app.on('open-url', (e, url) => processUrl(url))
+      for (const handler of n.arguments.filter(isFunction)) {
+        visit(handler.body, (inner) => {
+          if (inner !== handler.body && isFunction(inner)) return false;
+          if (isCall(inner) && inner.callee.type === 'Identifier' && !registered.has(inner.callee.name) &&
+              inner.arguments.some(argument => dependsOnParams(argument, handler))) registered.set(inner.callee.name, source);
+          return true;
+        });
+      }
       return true;
     });
     registrationCache.set(program, registered);
@@ -528,3 +566,92 @@ export function programOf(ancestors) {
 }
 
 export { isCall, isMember, keyName, visit };
+
+const TYPE_WRAPPERS = ['TSAsExpression', 'TSSatisfiesExpression', 'TSNonNullExpression', 'TSTypeAssertion', 'TypeCastExpression', 'ParenthesizedExpression'];
+const unwrapType = (node) => {
+  while (node && TYPE_WRAPPERS.includes(node.type)) node = node.expression;
+  return node;
+};
+const isSpread = (node) => node && (node.type === 'SpreadElement' || node.type === 'SpreadProperty' || node.type === 'ExperimentalSpreadProperty');
+
+/**
+ * The properties an object value is built from, in evaluation order: `{ ...base, x }`, `Object.assign({}, base, opts)`,
+ * `Object.freeze({...})`, and constants declared in this file or imported from another one.
+ * Each entry is { property, origin } where `origin` ({ file, program }) is set when the property is defined in another file.
+ */
+function objectProperties(node, scope, origin, depth = 0) {
+  node = unwrapType(node);
+  if (!node || depth > 8) return [];
+  if (node.type === 'Identifier') {
+    const local = resolveLocal(node, scope);
+    if (local !== node) return objectProperties(local, scope, origin, depth + 1);
+    const constant = topLevelConstant(analysisContext.program, node.name);
+    if (constant) return objectProperties(constant, null, origin, depth + 1);
+    const imported = importedDefinition(node.name);
+    return imported ? inFile(imported.file, imported.program, () => objectProperties(imported.node, null, imported, depth + 1)) : [];
+  }
+  if (node.type === 'ObjectExpression') {
+    return node.properties.flatMap(property => isSpread(property) ? objectProperties(property.argument, scope, origin, depth + 1) : [{ property, origin }]);
+  }
+  if (node.type === 'CallExpression' && isMember(node.callee) && node.callee.object.type === 'Identifier' && node.callee.object.name === 'Object') {
+    const method = memberName(node.callee);
+    if (method === 'assign') return node.arguments.flatMap(argument => objectProperties(argument, scope, origin, depth + 1));
+    if (method === 'freeze' || method === 'seal') return objectProperties(node.arguments[0], scope, origin, depth + 1);
+  }
+  return [];
+}
+
+// A copy of a node from another file, placed at `loc` and using this file's property node type, so checks can read it
+function transplant(node, loc, propertyName) {
+  const copy = structuredClone(node);
+  visit(copy, (child) => {
+    child.loc = loc;
+    delete child.range;
+    delete child.start;
+    delete child.end;
+    if ((child.type === 'Property' || child.type === 'ObjectProperty') && propertyName) child.type = propertyName;
+  });
+  return copy;
+}
+
+const needsMerge = (node) => {
+  node = unwrapType(node);
+  return !node || node.type !== 'ObjectExpression' || node.properties.some(isSpread);
+};
+
+/**
+ * The options object of `new BrowserWindow(options)`, merged from every place it is built from (spreads, Object.assign,
+ * constants imported from a shared config file): the last value of each key wins, as at runtime, and webPreferences is
+ * merged the same way. Returns the argument itself when there is nothing to merge.
+ */
+export function resolveWindowOptions(newExpression, scope) {
+  const argument = newExpression.arguments && newExpression.arguments[0];
+  if (!argument) return argument;
+  const { propertyName } = analysisContext;
+  const merge = (node, nodeScope, origin, nested) => {
+    const entries = objectProperties(node, nodeScope, origin);
+    if (entries.length === 0) return undefined;
+    const byKey = new Map();
+    const unnamed = [];
+    for (const entry of entries) {
+      const name = entry.property.computed ? undefined : keyName(entry.property.key);
+      if (name === undefined) unnamed.push(entry);
+      else {
+        byKey.delete(name); // the last definition wins
+        byKey.set(name, entry);
+      }
+    }
+    const properties = [...unnamed, ...byKey.values()].map(({ property, origin: from }) => {
+      if (!nested && keyName(property.key) === 'webPreferences' && needsMerge(property.value)) {
+        const prefs = from ? inFile(from.file, from.program, () => merge(property.value, null, from, true)) : merge(property.value, nodeScope, undefined, true);
+        if (prefs) return { ...(from ? transplant(property, newExpression.loc, propertyName) : property), value: prefs };
+      }
+      return from ? transplant(property, newExpression.loc, propertyName) : property;
+    });
+    return { type: 'ObjectExpression', properties, loc: newExpression.loc };
+  };
+  // the common case, a literal without spreads: keep the original node
+  const direct = unwrapType(argument);
+  if (!needsMerge(direct) && !direct.properties.some(p => keyName(p.key) === 'webPreferences' && needsMerge(p.value))) return direct;
+  return merge(argument, scope, undefined, false) || resolveLocal(argument, scope);
+}
