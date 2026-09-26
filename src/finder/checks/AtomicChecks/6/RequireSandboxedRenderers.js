@@ -8,7 +8,7 @@ export default class RequireSandboxedRenderers {
     this.id = "REQUIRE_SANDBOXED_RENDERERS_DEPRECATION";
     this.description = __("REQUIRE_SANDBOXED_RENDERERS_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/JvalR';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

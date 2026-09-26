@@ -2,7 +2,7 @@ import path from 'node:path';
 import * as asar from '@electron/asar';
 
 import logger from '../util/logger.js';
-import { isScannableFile } from '../util/index.js';
+import { isScannableFile, isNonAppFile } from '../util/index.js';
 import { Loader } from './loader_interface.js';
 import { findOldestElectronVersion } from "../util/electron_version.js";
 
@@ -12,7 +12,7 @@ export class LoaderAsar extends Loader {
   }
 
   // returns map filename -> content
-  async load(archive) {
+  async load(archive, { allFiles = false } = {}) {
     this.archive = archive;
 
     const archived_files = asar.listPackage(archive, { isPack: false })
@@ -21,7 +21,7 @@ export class LoaderAsar extends Loader {
 
     for (const f of archived_files) {
       if (f.split(path.sep).includes('node_modules')) continue;
-      if (isScannableFile(f)) this._loaded.add(f);
+      if (isScannableFile(f) && (allFiles || !isNonAppFile(f))) this._loaded.add(f);
     }
 
     const readAndOptionallyParse = (filename, shouldParse) => {

@@ -6,7 +6,7 @@ export default class NodeIntegrationHTMLCheck {
     this.id = "NODE_INTEGRATION_HTML_CHECK";
     this.description = __("NODE_INTEGRATION_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://git.io/JeuMG";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/NODE_INTEGRATION_HTML_CHECK";
   }
 
   match(cheerioObj, content) {

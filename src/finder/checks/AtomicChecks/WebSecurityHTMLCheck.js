@@ -7,7 +7,7 @@ export default class WebSecurityHTMLCheck {
     this.id = "WEB_SECURITY_HTML_CHECK";
     this.description = __("WEB_SECURITY_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://git.io/JeuMr";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/WEB_SECURITY_HTML_CHECK";
   }
 
   match(cheerioObj, content) {

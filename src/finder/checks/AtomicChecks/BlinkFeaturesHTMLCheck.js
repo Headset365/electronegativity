@@ -6,7 +6,7 @@ export default class BlinkFeaturesHTMLCheck {
     this.id = "BLINK_FEATURES_HTML_CHECK";
     this.description = __("BLINK_FEATURES_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://git.io/Jeu19";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/BLINK_FEATURES_HTML_CHECK";
   }
 
   match(cheerioObj, content) {

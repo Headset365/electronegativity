@@ -6,7 +6,7 @@ export default class SecurityWarningsDisabledJSCheck {
     this.id = "SECURITY_WARNINGS_DISABLED_JS_CHECK";
     this.description = __("SECURITY_WARNINGS_DISABLED_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/JeuMa";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/SECURITY_WARNINGS_DISABLED_JS_CHECK";
   }
 
   match(astNode){

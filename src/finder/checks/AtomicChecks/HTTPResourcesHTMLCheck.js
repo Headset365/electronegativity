@@ -6,7 +6,7 @@ export default class HTTPResourcesHTMLCheck {
     this.id = "HTTP_RESOURCES_HTML_CHECK";
     this.description = __("HTTP_RESOURCES_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://git.io/JeuMt";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/HTTP_RESOURCES_HTML_CHECK";
   }
 
   match(cheerioObj, content) {

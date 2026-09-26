@@ -3,6 +3,8 @@ import path from 'node:path';
 import { compare, minVersion, valid } from 'semver';
 import lockfile from '@yarnpkg/lockfile';
 import { parse as parseYaml } from 'yaml';
+import { pnpmLockPackages } from './lockfiles.js';
+import { parseAllDocuments } from 'yaml';
 
 export function minMatchingVersion(versionString) {
   try {
@@ -70,12 +72,22 @@ export function findElectronVersionsFromYarnLock(yarnLockData) {
   return findElectronVersionsFromPackageLock({ dependencies: parsed.object });
 }
 
+// node-gyp style .npmrc used by apps building native modules against Electron: runtime="electron", target="43.7.3"
+export function findElectronVersionFromNpmrc(npmrcData) {
+  const settings = {};
+  for (const line of npmrcData.toString().split(/\r?\n/)) {
+    const match = line.match(/^\s*([\w-]+)\s*=\s*"?([^"#;]*)"?/);
+    if (match) settings[match[1].toLowerCase()] = match[2].trim();
+  }
+  const isElectron = settings.runtime === 'electron' || /electronjs\.org|electron/i.test(settings.disturl || '');
+  return isElectron ? minMatchingVersion(settings.target) : undefined;
+}
+
 export function findElectronVersionsFromPnpmLock(pnpmLockData) {
-  const data = parseYaml(pnpmLockData.toString());
   const versions = [];
 
   // pnpm >= 7 keys look like "electron@30.0.0" (v9) or "/electron@30.0.0" (v6); older ones "/electron/30.0.0"
-  for (const key of Object.keys(data.packages || {})) {
+  for (const key of Object.keys(pnpmLockPackages(pnpmLockData.toString()))) {
     const match = key.match(/^\/?electron[@/](\d[^(@/]*)/);
     if (match) versions.push(minMatchingVersion(match[1]));
   }
@@ -92,27 +104,83 @@ export function findElectronVersionsFromPnpmLock(pnpmLockData) {
  * @param {Object} [places.plockData] The data from the package-lock.json (or npm-shrinkwrap.json) file.
  * @param {string} [places.yarnLockData] The data from the yarn.lock file.
  * @param {string} [places.pnpmLockData] The data from the pnpm-lock.yaml file.
+ * @param {string} [places.npmrcData] The data from the .npmrc file.
  *
  * @returns {string} The oldest version found.
  */
 export async function findOldestElectronVersion(places) {
-  let versions = [];
-
   const collect = (fn) => {
     try {
       const found = fn();
-      if (Array.isArray(found)) versions.push(...found);
-      else if (found) versions.push(found);
+      return (Array.isArray(found) ? found : [found]).filter(Boolean);
     } catch {
-      // a malformed lockfile should not prevent the scan
+      return []; // a malformed lockfile should not prevent the scan
     }
   };
 
-  if (places.pjsonData) collect(() => findElectronVersionFromPackageJson(places.pjsonData));
-  if (places.rootPath) versions.push(...await findElectronVersionsFromInstalledPackages(places.rootPath));
-  if (places.plockData) collect(() => findElectronVersionsFromPackageLock(places.plockData));
-  if (places.yarnLockData) collect(() => findElectronVersionsFromYarnLock(places.yarnLockData));
-  if (places.pnpmLockData) collect(() => findElectronVersionsFromPnpmLock(places.pnpmLockData));
+  // What the app itself runs on: the installed package, the lockfile entries resolving the root package.json's
+  // dependency, or the version node-gyp builds against. Lockfiles also list Electron copies pulled in by tools
+  // (test runners, rebuild helpers...), so those are only used when nothing better is known.
+  const root = [
+    ...(places.rootPath ? await findElectronVersionsFromInstalledPackages(places.rootPath) : []),
+    ...(places.plockData ? collect(() => findRootElectronFromPackageLock(places.plockData)) : []),
+    ...(places.pnpmLockData ? collect(() => findRootElectronFromPnpmLock(places.pnpmLockData)) : []),
+    ...(places.yarnLockData && places.pjsonData ? collect(() => findRootElectronFromYarnLock(places.yarnLockData, places.pjsonData)) : []),
+    ...(places.npmrcData ? collect(() => findElectronVersionFromNpmrc(places.npmrcData)) : []),
+  ];
+  if (root.length > 0) return oldestVersion(root);
 
-  return oldestVersion(versions);
+  const declared = places.pjsonData ? collect(() => findElectronVersionFromPackageJson(places.pjsonData)) : [];
+  if (declared.length > 0) return oldestVersion(declared);
+
+  return oldestVersion([
+    ...(places.plockData ? collect(() => findElectronVersionsFromPackageLock(places.plockData)) : []),
+    ...(places.yarnLockData ? collect(() => findElectronVersionsFromYarnLock(places.yarnLockData)) : []),
+    ...(places.pnpmLockData ? collect(() => findElectronVersionsFromPnpmLock(places.pnpmLockData)) : []),
+  ]);
+}
+
+// package-lock v2/v3: the top-level node_modules/electron is the root project's
+export function findRootElectronFromPackageLock(plockData) {
+  const pkg = plockData.packages && plockData.packages['node_modules/electron'];
+  if (pkg) return [minMatchingVersion(pkg.version)];
+  const dep = plockData.dependencies && plockData.dependencies.electron;
+  return dep ? [minMatchingVersion(dep.version)] : [];
+}
+
+// pnpm: importers['.'] lists the root project's resolved dependencies
+export function findRootElectronFromPnpmLock(pnpmLockData) {
+  const versions = [];
+  for (const doc of parseAllDocuments(pnpmLockData.toString())) {
+    const data = doc.toJSON() || {};
+    const root = data.importers && data.importers['.'];
+    // lockfile v5 kept the root project's dependencies at the top level
+    const sources = root ? [root] : [data];
+    for (const source of sources) {
+      for (const kind of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+        const entry = source[kind] && source[kind].electron;
+        if (!entry) continue;
+        const version = String(typeof entry === 'object' ? entry.version : entry).replace(/\(.*$/, '');
+        versions.push(minMatchingVersion(version));
+      }
+    }
+  }
+  return versions;
+}
+
+// yarn: the entry whose descriptor matches the range of the root package.json
+export function findRootElectronFromYarnLock(yarnLockData, pjsonData) {
+  const range = Object.assign({}, pjsonData.devDependencies, pjsonData.dependencies).electron;
+  if (!range) return [];
+  const text = yarnLockData.toString();
+  const descriptors = [`electron@${range}`, `electron@npm:${range}`];
+  if (/^__metadata:/m.test(text)) {
+    return Object.entries(parseYaml(text))
+      .filter(([descriptor]) => descriptor.split(/,\s*/).some(d => descriptors.includes(d.replace(/^"|"$/g, ''))))
+      .map(([, entry]) => minMatchingVersion(entry.version));
+  }
+  const parsed = lockfile.parse(text);
+  if (parsed.type !== 'success') return [];
+  const entry = parsed.object[`electron@${range}`];
+  return entry ? [minMatchingVersion(entry.version)] : [];
 }

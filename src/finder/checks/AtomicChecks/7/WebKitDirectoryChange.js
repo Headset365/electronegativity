@@ -6,7 +6,7 @@ export default class WebKitDirectoryChange {
     this.id = "WEBKITDIRECTORY_CHANGE";
     this.description = __("WEBKITDIRECTORY_CHANGE");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://git.io/JvVIu";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/WEBKITDIRECTORY_CHANGE";
   }
 
   match(cheerioObj, content) {

@@ -3,6 +3,61 @@
 // and checks then fall back to a lower confidence.
 import { isFunction, memberName, keyName, literalValue, resolveIdentifier, visit } from './helpers.js';
 
+// The file being analyzed and the project index, set by the Finder before each file
+let analysisContext = { file: undefined, program: undefined, index: undefined };
+
+export function setAnalysisContext(context) {
+  analysisContext = { ...analysisContext, ...context };
+}
+
+// Runs `fn` as if analyzing another file (to evaluate a value defined there)
+function inFile(file, program, fn) {
+  const previous = analysisContext;
+  analysisContext = { ...analysisContext, file, program, ancestors: [] };
+  try {
+    return fn();
+  } finally {
+    analysisContext = previous;
+  }
+}
+
+/**
+ * Resolves an identifier to the value it was declared with. Uses scope analysis when available, and otherwise
+ * (TypeScript files, other files) looks for `const name = ...` / `function name` in the enclosing blocks.
+ */
+export function resolveLocal(node, scope) {
+  const resolved = resolveIdentifier(node, scope);
+  if (resolved !== node || !node || node.type !== 'Identifier') return resolved;
+  const ancestors = analysisContext.ancestors || [];
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const block = ancestors[i];
+    const body = block.type === 'BlockStatement' || block.type === 'Program' ? block.body : (block.type === 'StaticBlock' ? block.body : undefined);
+    if (!Array.isArray(body)) continue;
+    for (const statement of body) {
+      const declaration = statement && statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
+      if (!declaration) continue;
+      if (declaration.type === 'FunctionDeclaration' && declaration.id && declaration.id.name === node.name) return declaration;
+      if (declaration.type === 'VariableDeclaration') {
+        const d = declaration.declarations.find(d => d.id.type === 'Identifier' && d.id.name === node.name && d.init);
+        if (d) return d.init;
+      }
+    }
+  }
+  return node;
+}
+
+/**
+ * The node a name imported from another file of the project refers to: { node, file, program } or undefined.
+ * import { handler } from './handlers'; const { URL_BASE } = require('./constants');
+ */
+export function importedDefinition(name, program = analysisContext.program) {
+  const { index, file } = analysisContext;
+  if (!index || !file || !program) return undefined;
+  const binding = moduleBindings(program).get(name);
+  if (!binding) return undefined;
+  return index.lookup(file, binding.module, binding.imported === '*' ? 'default' : binding.imported);
+}
+
 const isCall = (node) => !!node && (node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression');
 const isMember = (node) => !!node && (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression');
 
@@ -48,8 +103,21 @@ export function constantValue(node, scope, depth = 0) {
   const literal = literalValue(node);
   if (literal !== undefined) return literal;
   if (node.type === 'Identifier') {
-    const resolved = resolveIdentifier(node, scope);
-    return resolved !== node ? constantValue(resolved, scope, depth + 1) : undefined;
+    const resolved = resolveLocal(node, scope);
+    if (resolved !== node) return constantValue(resolved, scope, depth + 1);
+    // top-level constants of the file, when scope information is unavailable (e.g. evaluating another file)
+    const local = topLevelConstant(analysisContext.program, node.name);
+    if (local) return constantValue(local, null, depth + 1);
+    const imported = importedDefinition(node.name);
+    return imported ? inFile(imported.file, imported.program, () => constantValue(imported.node, null, depth + 1)) : undefined;
+  }
+  // imported namespace members: Constants.RELEASE_NOTES_URL
+  if (node.type === 'MemberExpression' && !node.computed && node.object.type === 'Identifier') {
+    const binding = analysisContext.program && moduleBindings(analysisContext.program).get(node.object.name);
+    if (binding && binding.imported === '*' && analysisContext.index) {
+      const found = analysisContext.index.lookup(analysisContext.file, binding.module, memberName(node));
+      if (found) return inFile(found.file, found.program, () => constantValue(found.node, null, depth + 1));
+    }
   }
   if (node.type === 'TemplateLiteral') {
     let out = '';
@@ -72,10 +140,19 @@ export function constantValue(node, scope, depth = 0) {
 }
 
 // Values an expression can take: both branches of `a ? b : c`, or its constant value (undefined when unknown)
-export function possibleValues(node, scope) {
-  if (node && node.type === 'ConditionalExpression')
-    return [...possibleValues(node.consequent, scope), ...possibleValues(node.alternate, scope)];
-  return [constantValue(node, scope)];
+export function possibleValues(node, scope, depth = 0) {
+  if (!node || depth > 5) return [undefined];
+  if (node.type === 'ConditionalExpression')
+    return [...possibleValues(node.consequent, scope, depth + 1), ...possibleValues(node.alternate, scope, depth + 1)];
+  const constant = constantValue(node, scope);
+  if (constant !== undefined || node.type !== 'Identifier') return [constant];
+  // a name bound to a ternary: const URL = beta ? 'https://a' : 'https://b' (possibly in another file)
+  const resolved = resolveLocal(node, scope);
+  if (resolved !== node) return possibleValues(resolved, scope, depth + 1);
+  const local = topLevelConstant(analysisContext.program, node.name);
+  if (local) return possibleValues(local, null, depth + 1);
+  const imported = importedDefinition(node.name);
+  return imported ? inFile(imported.file, imported.program, () => possibleValues(imported.node, null, depth + 1)) : [undefined];
 }
 
 // The constant prefix of a string expression: `https://example.com/${path}` -> 'https://example.com/'
@@ -99,7 +176,9 @@ export function hasUrlValidation(fn) {
     if (n.type === 'NewExpression' && n.callee.type === 'Identifier' && n.callee.name === 'URL') found = true;
     const name = isCall(n) ? (n.callee.type === 'Identifier' ? n.callee.name : memberName(n.callee)) : undefined;
     if (name && /^(startsWith|endsWith|test|match|includes|has|indexOf|parse|canParse)$/.test(name)) found = true;
-    if (name && /(valid|allow|trust|safe|whitelist|permit|isInternal|isExternal|checkUrl|checkOrigin)/i.test(name)) found = true;
+    if (name && /(valid|allow|trust|safe|whitelist|permit|sanitiz|isInternal|isExternal|checkUrl|checkOrigin)/i.test(name)) found = true;
+    // predicates like isTeamUrl(url), isCustomProtocol(url), hasPermission(origin)
+    if (name && /^(is|has|can|should|check|verify|ensure|assert)[A-Z_]/.test(name) && n.arguments && n.arguments.length > 0) found = true;
     if (isMember(n) && /^(protocol|origin|host|hostname)$/.test(memberName(n) || '')) found = true;
     return true;
   });
@@ -191,10 +270,95 @@ export function callbackAnswers(fn, callbackIndex, grantValue, scope) {
   };
 }
 
-// The function a handler argument refers to (inline or declared elsewhere in the file)
-export function handlerFunction(node, scope) {
-  const resolved = resolveIdentifier(node, scope);
-  return isFunction(resolved) ? resolved : undefined;
+// The function a handler argument refers to: inline, declared elsewhere in the file, a method of the enclosing
+// class (this.onNavigate, this.onNavigate.bind(this)) or of an object literal in the file (handlers.onNavigate)
+export function handlerFunction(node, scope, ancestors = []) {
+  if (!node) return undefined;
+  // fn.bind(this) and wrappers like once(fn) keep the handler's body
+  if (isCall(node) && memberName(node.callee) === 'bind' && isMember(node.callee)) return handlerFunction(node.callee.object, scope, ancestors);
+  // factories: on('will-navigate', makeNavigationHandler(log)) analyzes the function the factory returns
+  if (isCall(node) && node.type !== 'NewExpression') return factoryProduct(node, scope, ancestors);
+  if (isMember(node) && node.object.type === 'ThisExpression') return classMember(ancestors, memberName(node));
+  if (isMember(node) && node.object.type === 'Identifier') {
+    const object = resolveIdentifier(node.object, scope);
+    const prop = object && object.type === 'ObjectExpression' && object.properties.find(p => keyName(p.key) === memberName(node));
+    if (prop) return isFunction(prop) ? prop : handlerFunction(prop.value, scope, ancestors);
+  }
+  const resolved = resolveLocal(node, scope);
+  if (isFunction(resolved)) return resolved;
+  if (resolved !== node && isCall(resolved)) return factoryProduct(resolved, scope, ancestors);
+  // a function declared anywhere in the file (hoisted, or when scope information is unavailable)
+  if (node.type === 'Identifier') {
+    const declared = declaredFunction(programOf(ancestors) || analysisContext.program, node.name);
+    if (declared) return declared;
+    // imported from another file of the project
+    const imported = importedDefinition(node.name);
+    if (imported && isFunction(imported.node)) return imported.node;
+  }
+  return undefined;
+}
+
+const factoryDepth = { current: 0 };
+
+function factoryProduct(call, scope, ancestors) {
+  if (factoryDepth.current > 3) return undefined;
+  factoryDepth.current++;
+  try {
+    const factory = handlerFunction(call.callee, scope, ancestors);
+    if (!factory) return undefined;
+    const product = returnedValues(factory).map(({ value }) => value).find(isFunction);
+    return product;
+  } finally {
+    factoryDepth.current--;
+  }
+}
+
+// A method, arrow-function field or function-valued property of the class enclosing the current node
+function classMember(ancestors, name) {
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const body = ancestors[i];
+    if (body.type !== 'ClassBody') continue;
+    for (const member of body.body) {
+      if (keyName(member.key) !== name) continue;
+      if (isFunction(member)) return member; // Babel ClassMethod
+      if (member.value && isFunction(member.value)) return member.value; // MethodDefinition, PropertyDefinition, ClassProperty
+      if (member.value && isCall(member.value)) return factoryProduct(member.value, null, ancestors);
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+const constantCache = new WeakMap();
+
+function topLevelConstant(program, name) {
+  if (!program) return undefined;
+  if (!constantCache.has(program)) {
+    const constants = new Map();
+    for (const statement of program.body || []) {
+      const declaration = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
+      if (declaration && declaration.type === 'VariableDeclaration' && declaration.kind === 'const')
+        declaration.declarations.filter(d => d.id.type === 'Identifier' && d.init).forEach(d => constants.set(d.id.name, d.init));
+    }
+    constantCache.set(program, constants);
+  }
+  return constantCache.get(program).get(name);
+}
+
+const declarationCache = new WeakMap();
+
+function declaredFunction(program, name) {
+  if (!program) return undefined;
+  if (!declarationCache.has(program)) {
+    const declared = new Map();
+    visit(program, (n) => {
+      if (n.type === 'FunctionDeclaration' && n.id) declared.set(n.id.name, n);
+      if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && isFunction(n.init)) declared.set(n.id.name, n.init);
+      return true;
+    });
+    declarationCache.set(program, declared);
+  }
+  return declarationCache.get(program).get(name);
 }
 
 // Names bound by a declaration pattern: const { a, b: [c] } = ... -> ['a', 'c']
@@ -222,6 +386,8 @@ export function taintedNames(fn) {
     changed = false;
     for (const [names, init] of assignments) {
       if (names.every(name => tainted.has(name))) continue;
+      // a lookup keyed by untrusted data returns the app's own data: map.get(id), list.find(...)
+      if (isLookup(init)) continue;
       if ([...identifiersIn(init)].some(name => tainted.has(name))) {
         names.forEach(name => tainted.add(name));
         changed = true;
@@ -230,6 +396,14 @@ export function taintedNames(fn) {
   }
   taintCache.set(fn, tainted);
   return tainted;
+}
+
+const LOOKUPS = /^(get|has|find|findIndex|findLast|indexOf|includes|some|every|getItem|getPath|getSavePath|fromId|fromWebContents)$/;
+
+function isLookup(node) {
+  let n = node;
+  while (n && (n.type === 'AwaitExpression' || n.type === 'TSAsExpression' || n.type === 'TSNonNullExpression')) n = n.expression || n.argument;
+  return isCall(n) && LOOKUPS.test(memberName(n.callee) || '');
 }
 
 // Does an expression depend on the parameters of `fn` (i.e. on data handed to the handler), directly or through locals?
@@ -289,6 +463,68 @@ export function untrustedSource(ancestors, fn) {
   const name = fn && fn.id ? fn.id.name : (index > 0 && ancestors[index - 1].type === 'VariableDeclarator' && ancestors[index - 1].id.type === 'Identifier' ? ancestors[index - 1].id.name : undefined);
   const program = ancestors.find(n => n.type === 'Program') || ancestors[0];
   return name && program ? registeredSource(program, name) : undefined;
+}
+
+const bindingCache = new WeakMap();
+
+function requiredModule(node) {
+  if (isCall(node) && node.callee.type === 'Identifier' && node.callee.name === 'require') return literalValue(node.arguments[0]);
+  // await import('m')
+  if (node && node.type === 'AwaitExpression') return requiredModule(node.argument);
+  if (node && node.type === 'ImportExpression') return literalValue(node.source);
+  return undefined;
+}
+
+/**
+ * Where the names of a file come from: import x from 'm', import { a as b } from 'm', const { a } = require('m'),
+ * const cp = require('m'), const run = promisify(exec). Returns Map localName -> { module, imported }
+ * (imported is '*' for the whole module).
+ */
+export function moduleBindings(program) {
+  if (bindingCache.has(program)) return bindingCache.get(program);
+  const bindings = new Map();
+  visit(program, (n) => {
+    if (n.type === 'ImportDeclaration') {
+      const module = literalValue(n.source);
+      for (const spec of n.specifiers) {
+        const imported = spec.type === 'ImportSpecifier' ? keyName(spec.imported) : '*';
+        bindings.set(spec.local.name, { module, imported });
+      }
+    }
+    if (n.type === 'VariableDeclarator' && n.init) {
+      let init = n.init;
+      // promisify(exec), util.promisify(cp.exec)
+      if (isCall(init) && /^promisify$/.test(init.callee.type === 'Identifier' ? init.callee.name : memberName(init.callee) || '') && init.arguments[0]) {
+        const target = init.arguments[0];
+        const from = target.type === 'Identifier' ? bindings.get(target.name)
+          : (isMember(target) && target.object.type === 'Identifier' && bindings.get(target.object.name)
+            ? { module: bindings.get(target.object.name).module, imported: memberName(target) } : undefined);
+        if (from && n.id.type === 'Identifier') bindings.set(n.id.name, from);
+        return true;
+      }
+      // require('m').exec
+      let imported = '*';
+      if (isMember(init) && requiredModule(init.object)) { imported = memberName(init); init = init.object; }
+      const module = requiredModule(init);
+      if (!module) return true;
+      if (n.id.type === 'Identifier') bindings.set(n.id.name, { module, imported });
+      if (n.id.type === 'ObjectPattern') {
+        for (const prop of n.id.properties) {
+          if (prop.type === 'RestElement' || !prop.value) continue;
+          const local = prop.value.type === 'AssignmentPattern' ? prop.value.left : prop.value;
+          if (local.type === 'Identifier') bindings.set(local.name, { module, imported: keyName(prop.key) });
+        }
+      }
+    }
+    return true;
+  });
+  bindingCache.set(program, bindings);
+  return bindings;
+}
+
+// The Program node of the file being analyzed
+export function programOf(ancestors) {
+  return ancestors.find(n => n.type === 'Program') || ancestors[0];
 }
 
 export { isCall, isMember, keyName, visit };

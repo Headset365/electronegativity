@@ -29,7 +29,6 @@
   },
   "author": "info@doyensec.com",
   "license": "Apache-2.0",
-  "i18nSource": "https://electronegativity-i18n.s3.us-west-2.amazonaws.com",
   "bugs": {
     "url": "https://github.com/doyensec/electronegativity/issues"
   },

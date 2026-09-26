@@ -6,7 +6,7 @@ export default class QuerySystemIdleTime {
     this.id = "QUERY_SYSTEM_IDLE_TIME_REMOVAL";
     this.description = __("QUERY_SYSTEM_IDLE_TIME_REMOVAL");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/Jvuxo';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

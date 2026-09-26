@@ -6,7 +6,7 @@ export default class HTTPResourcesAndNodeIntegrationGlobalCheck {
     this.id = "HTTP_RESOURCES_WITH_NODE_INTEGRATION_GLOBAL_CHECK";
     this.description = { INSECURE_INTEGRATION: __('HTTP_RESOURCES_WITH_NODE_INTEGRATION_GLOBAL_CHECK')};
     this.depends = ["HTTPResourcesJavascriptCheck","HTTPResourcesHTMLCheck","NodeIntegrationHTMLCheck", "NodeIntegrationJSCheck"];
-    this.shortenedURL = "https://git.io/JeuM6";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/HTTP_RESOURCES_WITH_NODE_INTEGRATION_GLOBAL_CHECK";
   }
 
   async perform(issues) {

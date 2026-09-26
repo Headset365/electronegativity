@@ -6,7 +6,7 @@ export default class AllowPopupsHTMLCheck {
     this.id = "ALLOWPOPUPS_HTML_CHECK";
     this.description = __("ALLOWPOPUPS_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://git.io/Jeu1V";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/ALLOWPOPUPS_HTML_CHECK";
   }
 
   match(cheerioObj, content) {

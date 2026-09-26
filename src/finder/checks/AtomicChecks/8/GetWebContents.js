@@ -6,7 +6,7 @@ export default class GetWebContents {
     this.id = "GET_WEB_CONTENTS_DEPRECATION";
     this.description = __("GET_WEB_CONTENTS_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/Jvux7';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

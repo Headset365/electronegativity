@@ -207,12 +207,26 @@ packages:
     findElectronVersionsFromPnpmLock(pnpmLock).should.deep.equal(['37.2.0']);
   });
 
-  it('returns the oldest version across sources', async () => {
+  it('reads multi-document pnpm lockfiles (pnpm 10)', () => {
+    const pnpmLock = `lockfileVersion: '9.0'\nimporters:\n  .:\n    configDependencies: {}\n---\nlockfileVersion: '9.0'\npackages:\n  electron@39.1.0:\n    resolution: {integrity: sha512-x}\n`;
+    findElectronVersionsFromPnpmLock(pnpmLock).should.deep.equal(['39.1.0']);
+  });
+
+  it("prefers the root project's locked Electron over copies pulled in by tools", async () => {
     const version = await findOldestElectronVersion({
       pjsonData: { devDependencies: { electron: '^38.0.0' } },
-      plockData: { packages: { 'node_modules/electron': { version: '38.1.2' }, 'packages/legacy/node_modules/electron': { version: '28.3.3' } } }
+      plockData: { packages: { 'node_modules/electron': { version: '38.1.2' }, 'node_modules/some-test-runner/node_modules/electron': { version: '28.3.3' } } }
     });
-    version.should.equal('28.3.3');
+    version.should.equal('38.1.2');
+  });
+
+  it("uses pnpm importers to find the root project's Electron", async () => {
+    const pnpmLock = `lockfileVersion: '9.0'\nimporters:\n  .:\n    devDependencies:\n      electron:\n        specifier: 44.2.0\n        version: 44.2.0\npackages:\n  electron@39.8.10:\n    resolution: {integrity: a}\n  electron@44.2.0:\n    resolution: {integrity: b}\n`;
+    (await findOldestElectronVersion({ pjsonData: { devDependencies: { electron: '44.2.0' } }, pnpmLockData: pnpmLock })).should.equal('44.2.0');
+  });
+
+  it('falls back to every lockfile entry when the root dependency is unknown', async () => {
+    (await findOldestElectronVersion({ plockData: { packages: { 'a/node_modules/electron': { version: '30.0.0' }, 'b/node_modules/electron': { version: '29.1.0' } } } })).should.equal('29.1.0');
   });
 
   it('ignores malformed lockfiles', async () => {

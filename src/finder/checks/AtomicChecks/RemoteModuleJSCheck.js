@@ -1,13 +1,14 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, literalValue } from '../helpers.js';
+import { isWindowConstructor } from '../helpers.js';
 
 export default class RemoteModuleJSCheck {
   constructor() {
     this.id = "REMOTE_MODULE_JS_CHECK";
     this.description = __("REMOTE_MODULE_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/JvqrQ";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/REMOTE_MODULE_JS_CHECK";
   }
 
   match(astNode, astHelper, scope, defaults){
@@ -15,7 +16,7 @@ export default class RemoteModuleJSCheck {
     if (astNode.type === 'ImportDeclaration' && /^@electron\/remote(\/(main|renderer))?$/.test(literalValue(astNode.source) || ''))
       return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true }];
     if (astNode.type !== 'NewExpression') return null;
-    if (astNode.callee.name !== 'BrowserWindow' && astNode.callee.name !== 'BrowserView') return null;
+    if (!isWindowConstructor(astNode)) return null; // also new electron.BrowserWindow() and minified new o.BrowserWindow()
     // the built-in 'remote' module was removed in Electron 14, where enableRemoteModule has no effect
     if (!('enableRemoteModule' in defaults)) return null;
 
@@ -33,7 +34,7 @@ export default class RemoteModuleJSCheck {
 
       for (const node of found_nodes) {
         wasFound = true;
-        if (node.value.value === false) {
+        if (literalValue(node.value) === false) {
           continue;
         }
         loc.push({ line: node.key.loc.start.line, column: node.key.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: false });

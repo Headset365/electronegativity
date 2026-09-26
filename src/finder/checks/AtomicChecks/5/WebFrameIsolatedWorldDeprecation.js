@@ -6,7 +6,7 @@ export default class WebFrameIsolatedWorldDeprecation {
     this.id = "WEB_FRAME_ISOLATED_WORLD_DEPRECATION";
     this.description = __("WEB_FRAME_ISOLATED_WORLD_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/JvVe2';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

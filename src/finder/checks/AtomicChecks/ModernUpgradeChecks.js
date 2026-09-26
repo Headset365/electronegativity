@@ -72,6 +72,10 @@ const UPGRADE_CHECKS = [
     description: 'BrowserView is deprecated since Electron 30, use WebContentsView',
     match: (node) => node.type === 'NewExpression' && (node.callee.name === 'BrowserView' || memberName(node.callee) === 'BrowserView') },
 
+  { version: 35, className: 'SessionPreloadsDeprecation', id: 'SESSION_PRELOADS_DEPRECATION',
+    description: 'session.setPreloads() and session.getPreloads() are deprecated since Electron 35, use session.registerPreloadScript()',
+    match: (node) => isCall(node) && ['setPreloads', 'getPreloads'].includes(memberName(node.callee)) },
+
   { version: 32, className: 'FilePathRemoval', id: 'FILE_PATH_REMOVAL',
     description: 'The non-standard File.path property was removed in Electron 32, use webUtils.getPathForFile(file)',
     match: (node) => isMember(node) && memberName(node) === 'path' &&

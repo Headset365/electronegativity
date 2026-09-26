@@ -15,8 +15,9 @@ export default class NodeTlsRejectUnauthorizedJSCheck {
   match(astNode, astHelper, scope) {
     // process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
     if (astNode.type === 'AssignmentExpression' && memberName(astNode.left) === 'NODE_TLS_REJECT_UNAUTHORIZED') {
+      // Node.js only disables validation for the value '0' (environment values are strings)
       const value = constantValue(astNode.right, scope);
-      if (value === '1' || value === 1 || value === true) return null;
+      if (value !== undefined && String(value) !== '0') return null;
       return [finding(this, astNode, { severity: severity.HIGH, confidence: value === undefined ? confidence.TENTATIVE : confidence.CERTAIN, manualReview: value === undefined })];
     }
     // https.request({ rejectUnauthorized: false }), new https.Agent({ rejectUnauthorized: false }), tls.connect(...)

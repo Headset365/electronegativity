@@ -54,6 +54,9 @@ import { WebGLJSCheck, WebGLHTMLCheck, WebSQLJSCheck, WebSQLHTMLCheck, PluginsJS
 import { FileProtocolJSCheck, UntrustedLoadUrlJSCheck } from './LoadContentJSChecks.js';
 import XssSinkJSCheck from './XssSinkJSCheck.js';
 import CommandInjectionJSCheck from './CommandInjectionJSCheck.js';
+import DownloadJSCheck from './DownloadJSCheck.js';
+import { UpdateSecurityJSCheck, UpdateSecurityJSONCheck } from './UpdateSecurityChecks.js';
+import PlaintextSecretsJSCheck from './PlaintextSecretsJSCheck.js';
 
 const CHECKS = [
   AffinityHTMLCheck,
@@ -122,6 +125,10 @@ const CHECKS = [
   UntrustedLoadUrlJSCheck,
   XssSinkJSCheck,
   CommandInjectionJSCheck,
+  DownloadJSCheck,
+  UpdateSecurityJSCheck,
+  UpdateSecurityJSONCheck,
+  PlaintextSecretsJSCheck,
 ];
 
 export { CHECKS };

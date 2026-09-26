@@ -1,12 +1,13 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
+import { constantValue } from '../analysis.js';
 
 export default class DangerousFunctionsJSCheck {
   constructor() {
     this.id = "DANGEROUS_FUNCTIONS_JS_CHECK";
     this.description = __("DANGEROUS_FUNCTIONS_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/Jeug9";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/DANGEROUS_FUNCTIONS_JS_CHECK";
   }
 
   match(astNode, astHelper, scope){
@@ -30,15 +31,16 @@ export default class DangerousFunctionsJSCheck {
 
     // it's an electron-specific method
     if (electronMethods.includes(astNode.callee.name) || (astNode.callee.property && electronMethods.includes(astNode.callee.property.name))) {
-      if (astNode.arguments.length === 0 || astNode.arguments[0].type === astHelper.StringLiteral) return null; //if it's a constant or is called empty
-      
+      if (astNode.arguments.length === 0 || constantValue(astNode.arguments[0], scope) !== undefined) return null; //if it's a constant (incl. template literals without expressions) or is called empty
+
       shouldReport = true; // always interesting
     }
 
-    // it's a dangerous js function
-    if (evalLikemethods.includes(astNode.callee.name) || (astNode.callee.property && evalLikemethods.includes(astNode.callee.property.name))) {
-      if (astNode.arguments.length === 0 || astNode.arguments[0].type === astHelper.StringLiteral) return null; //if it's a constant or is called empty
-      if (astNode.arguments[0].type === "BinaryExpression") shouldReport = true; // if it's a string concatenation
+    // it's a dangerous js function: the global ones only, not e.g. request.setTimeout(ms, cb)
+    const globalObject = astNode.callee.object && astNode.callee.object.type === 'Identifier' && ['window', 'globalThis', 'self', 'global'].includes(astNode.callee.object.name);
+    if (evalLikemethods.includes(astNode.callee.name) || (astNode.callee.property && globalObject && evalLikemethods.includes(astNode.callee.property.name))) {
+      if (astNode.arguments.length === 0 || constantValue(astNode.arguments[0], scope) !== undefined) return null; //if it's a constant or is called empty
+      if (astNode.arguments[0].type === "BinaryExpression" || astNode.arguments[0].type === "TemplateLiteral") shouldReport = true; // if it's a string concatenation
 
       if (astNode.arguments[0].type === "Identifier") { // is it a variable?
         // if it is a variable we check its type

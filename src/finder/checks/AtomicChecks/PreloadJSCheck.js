@@ -1,17 +1,18 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
+import { isWindowConstructor, literalValue } from '../helpers.js';
 
 export default class PreloadJSCheck {
   constructor() {
     this.id = "PRELOAD_JS_CHECK";
     this.description = __("PRELOAD_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/JeuMu";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/PRELOAD_JS_CHECK";
   }
 
   match(astNode, astHelper, scope, defaults = {}){
     if (astNode.type !== 'NewExpression') return null;
-    if (astNode.callee.name !== 'BrowserWindow' && astNode.callee.name !== 'BrowserView') return null;
+    if (!isWindowConstructor(astNode)) return null; // also new electron.BrowserWindow() and minified new o.BrowserWindow()
 
     let location = [];
 
@@ -28,7 +29,7 @@ export default class PreloadJSCheck {
       // with context isolation the preload only reaches the page through contextBridge, which CONTEXT_BRIDGE_EXPOSURE_JS_CHECK analyzes
       const isolation = astHelper.findNodeByType(target, astHelper.PropertyName, astHelper.PropertyDepth, false,
         node => (node.key.value === 'contextIsolation' || node.key.name === 'contextIsolation'));
-      const isolated = isolation.length > 0 ? isolation.every(node => node.value.value === true) : !!defaults.contextIsolation;
+      const isolated = isolation.length > 0 ? isolation.every(node => literalValue(node.value) === true) : !!defaults.contextIsolation;
 
       for (const node of found_nodes) {
         location.push(isolated

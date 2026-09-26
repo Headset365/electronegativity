@@ -1,6 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { constantValue } from '../analysis.js';
+import { isWindowConstructor } from '../helpers.js';
 
 // Options giving renderers access to Node.js, and how bad it is when they're on
 const OPTIONS = {
@@ -20,7 +21,7 @@ export default class NodeIntegrationJSCheck {
 
   match(astNode, astHelper, scope, defaults){
     if (astNode.type !== 'NewExpression') return null;
-    if (astNode.callee.name !== 'BrowserWindow' && astNode.callee.name !== 'BrowserView') return null;
+    if (!isWindowConstructor(astNode)) return null; // also new electron.BrowserWindow() and minified new o.BrowserWindow()
 
     const locations = [];
     let nodeIntegrationFound = false;

@@ -6,7 +6,7 @@ export default class CSPJSCheck {
     this.id = "CSP_JS_CHECK";
     this.description = __("CSP_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/JeuMe";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/CSP_JS_CHECK";
   }
 
   match(astNode, astHelper){

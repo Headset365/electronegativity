@@ -6,7 +6,7 @@ export default class SetNullMenuDeprecation {
     this.id = "SET_NULL_MENU_DEPRECATION";
     this.description = __("SET_NULL_MENU_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/JvVkc';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

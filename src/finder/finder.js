@@ -5,6 +5,7 @@ import { isDisabledByInlineComment } from "../util/exceptions.js";
 import { getSample } from "../util/file.js";
 import chalk from 'chalk';
 import { gte, compare, coerce } from 'semver';
+import { setAnalysisContext } from './checks/analysis.js';
 import all_defaults from '../../defaults.json' with { type: 'json' };
 
 export class Finder {
@@ -96,6 +97,7 @@ export class Finder {
         // nodes enclosing the current one, outermost first, so checks can reason about the surrounding code
         const ancestors = [];
         const context = { ancestors, file };
+        setAnalysisContext({ file, program: data.type === 'File' ? data.program : data, index: this.projectIndex, ancestors });
         data.astParser.traverseTree(data, {
           enter: (node) => {
             const astNode = rootData.astParser.getNode(node);

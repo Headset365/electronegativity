@@ -6,7 +6,7 @@ export default class ContentTracingGetTraceBufferUsageRemoval {
     this.id = "CONTENT_TRACING_GET_TRACE_BUFFER_USAGE_REMOVAL";
     this.description = __("CONTENT_TRACING_GET_TRACE_BUFFER_USAGE_REMOVAL");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/JvaWM';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

@@ -1,16 +1,25 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { read_file, list_files } from '../util/index.js';
 import { Loader } from './loader_interface.js';
 import { findOldestElectronVersion } from "../util/electron_version.js";
 
+function readIfExists(file) {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
 export class LoaderDirectory extends Loader {
   constructor() {
     super();
   }
 
-  async load(dir) {
-    const files = await list_files(dir);
+  async load(dir, options = {}) {
+    const files = await list_files(dir, options);
 
     for (const file of files) {
       this._loaded.add(file);
@@ -35,6 +44,7 @@ export class LoaderDirectory extends Loader {
       plockData: readAndOptionallyParse('package-lock.json', true) || readAndOptionallyParse('npm-shrinkwrap.json', true),
       yarnLockData: readAndOptionallyParse('yarn.lock', false),
       pnpmLockData: readAndOptionallyParse('pnpm-lock.yaml', false),
+      npmrcData: readIfExists(path.join(dir, '.npmrc')),
     });
     if (electronVersion) this._electronVersion = electronVersion;
   }

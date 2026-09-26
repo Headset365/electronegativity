@@ -6,7 +6,7 @@ export default class AuxclickHTMLCheck {
     this.id = "AUXCLICK_HTML_CHECK";
     this.description = __("AUXCLICK_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://git.io/Jeu1P";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/AUXCLICK_HTML_CHECK";
   }
 
   match(cheerioObj, content) {

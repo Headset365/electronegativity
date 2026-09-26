@@ -6,7 +6,7 @@ export default class VisibleOnFullScreen {
     this.id = "VISIBLE_ON_FULLSCREEN_DEPRECATION";
     this.description = __("VISIBLE_ON_FULLSCREEN_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/Jvuxx';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

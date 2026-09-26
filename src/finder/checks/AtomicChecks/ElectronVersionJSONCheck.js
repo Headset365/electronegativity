@@ -7,7 +7,7 @@ export default class ElectronVersionJSONCheck {
     this.id = "ELECTRON_VERSION_JSON_CHECK";
     this.description = __("ELECTRON_VERSION_JSON_CHECK");
     this.type = sourceTypes.JSON;
-    this.shortenedURL = "https://git.io/JeuMf";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/ELECTRON_VERSION_JSON_CHECK";
   }
 
   async match(content){

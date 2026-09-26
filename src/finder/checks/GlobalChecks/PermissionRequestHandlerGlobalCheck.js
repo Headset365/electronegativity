@@ -6,7 +6,7 @@ export default class PermissionRequestHandlerGlobalCheck {
     this.id = "PERMISSION_REQUEST_HANDLER_GLOBAL_CHECK";
     this.description = { NONE_FOUND: __('PERMISSION_REQUEST_HANDLER_GLOBAL_CHECK')};
     this.depends = ["PermissionRequestHandlerJSCheck"];
-    this.shortenedURL = "https://git.io/JeuM0";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/PERMISSION_REQUEST_HANDLER_GLOBAL_CHECK";
   }
 
   async perform(issues) {

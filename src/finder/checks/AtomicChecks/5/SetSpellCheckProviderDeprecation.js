@@ -6,7 +6,7 @@ export default class SetSpellCheckProviderDeprecation {
     this.id = "SET_SPELLCHECK_PROVIDER_DEPRECATION";
     this.description = __("SET_SPELLCHECK_PROVIDER_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/JvVv0';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

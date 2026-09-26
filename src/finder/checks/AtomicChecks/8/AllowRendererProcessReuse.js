@@ -6,7 +6,7 @@ export default class AllowRendererProcessReuse {
     this.id = "ALLOW_RENDERER_PROCESS_REUSE_DEPRECATION";
     this.description = __("ALLOW_RENDERER_PROCESS_REUSE_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/JvuxX';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

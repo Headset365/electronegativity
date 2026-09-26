@@ -9,7 +9,7 @@ const INTERCEPTIONS = ['interceptFileProtocol', 'interceptHttpProtocol', 'interc
 // calls that turn a request into a file access
 const FILE_SINKS = /^(join|resolve|readFile|readFileSync|createReadStream|fetch|pathToFileURL|sendFile|stat|statSync|access)$/;
 // ways to keep a path inside a directory
-const CONTAINMENT = /^(startsWith|relative|normalize|isAbsolute|realpath|realpathSync|includes|indexOf|test|basename)$/;
+const CONTAINMENT = /^(startsWith|relative|normalize|isAbsolute|realpath|realpathSync|includes|indexOf|test|basename)$|inside|within|contain|allowed|sanitiz|safe|valid/i;
 
 // Custom protocols (checklist #18) replace file://, but their handlers must not serve files outside the app
 export default class ProtocolHandlerJSCheck {
@@ -20,7 +20,7 @@ export default class ProtocolHandlerJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#18-avoid-usage-of-the-file-protocol-and-prefer-usage-of-custom-protocols";
   }
 
-  match(astNode, astHelper, scope) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (astNode.type !== 'CallExpression') return null;
     const method = astNode.callee.type === 'Identifier' ? astNode.callee.name : memberName(astNode.callee);
     const object = astNode.callee.object;
@@ -31,15 +31,18 @@ export default class ProtocolHandlerJSCheck {
       [finding(this, astNode, { severity: sev, confidence: conf, manualReview, description: `${this.description} (${reason})` })];
 
     if (method === 'setAsDefaultProtocolClient')
-      return report(severity.MEDIUM, confidence.CERTAIN, 'the app registers itself as a deep link handler; every URL of this scheme reaches it');
+      return report(severity.LOW, confidence.CERTAIN, 'the app registers itself as a deep link handler; every URL of this scheme reaches it');
     if (INTERCEPTIONS.includes(method))
-      return report(severity.MEDIUM, confidence.CERTAIN, `${method} replaces the handling of a standard scheme`);
+      return report(severity.LOW, confidence.FIRM, `${method} replaces the handling of a standard scheme; review the handler`);
     if (!isHandle && !REGISTRATIONS.includes(method)) return null;
 
-    const fn = astNode.arguments.length > 1 ? handlerFunction(astNode.arguments[1], scope) : undefined;
+    const fn = astNode.arguments.length > 1 ? handlerFunction(astNode.arguments[1], scope, context.ancestors) : undefined;
     if (!fn) return report(severity.LOW, confidence.FIRM, 'custom protocol registered; review what its handler serves');
 
-    const servesFiles = callsIn(fn, (call, name) => FILE_SINKS.test(name || '') && call.arguments.some(a => dependsOnParams(a, fn) || /^file:/i.test(constantPrefix(a, scope) || ''))).length > 0 ||
+    // fetch() only serves files for file: URLs; fetching http(s) is a proxy, not a file server
+    const isFileUrl = (arg) => /^file:/i.test(constantPrefix(arg, scope) || '') || callsIn({ body: arg }, (c, name) => /^(pathToFileURL|join|resolve)$/.test(name || '')).length > 0;
+    const servesFiles = callsIn(fn, (call, name) => FILE_SINKS.test(name || '') &&
+      call.arguments.some(a => (name === 'fetch' ? isFileUrl(a) : true) && (dependsOnParams(a, fn) || /^file:/i.test(constantPrefix(a, scope) || '')))).length > 0 ||
       method === 'registerFileProtocol';
     if (!servesFiles) return report(severity.LOW, confidence.FIRM, 'custom protocol handler; review what it serves');
 

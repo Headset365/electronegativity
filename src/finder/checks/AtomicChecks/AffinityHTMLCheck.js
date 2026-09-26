@@ -8,7 +8,7 @@ export default class AffinityHTMLCheck {
     this.id = "AFFINITY_HTML_CHECK";
     this.description = __("AFFINITY_HTML_CHECK");
     this.type = sourceTypes.HTML;
-    this.shortenedURL = "https://git.io/Jeu1z";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/AFFINITY_HTML_CHECK";
   }
 
   match(cheerioObj, content, defaults, electronVersion) {

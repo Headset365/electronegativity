@@ -1,17 +1,18 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
+import { isWindowConstructor, literalValue } from '../helpers.js';
 
 export default class WebSecurityJSCheck {
   constructor() {
     this.id = "WEB_SECURITY_JS_CHECK";
     this.description = __("WEB_SECURITY_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/JeuMo";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/WEB_SECURITY_JS_CHECK";
   }
 
   match(astNode, astHelper, scope){
     if (astNode.type !== 'NewExpression') return null;
-    if (astNode.callee.name !== 'BrowserWindow' && astNode.callee.name !== 'BrowserView') return null;
+    if (!isWindowConstructor(astNode)) return null; // also new electron.BrowserWindow() and minified new o.BrowserWindow()
 
     let location = [];
 
@@ -26,7 +27,7 @@ export default class WebSecurityJSCheck {
         node => (node.key.value === 'webSecurity' || node.key.name === 'webSecurity'));
 
       for (const node of found_nodes) {
-        if (node.value.value === false) {
+        if (literalValue(node.value) === false) {
           location.push({ line: node.key.loc.start.line, column: node.key.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false });
         }
       }

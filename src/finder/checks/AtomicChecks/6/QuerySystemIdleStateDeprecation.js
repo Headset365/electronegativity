@@ -6,7 +6,7 @@ export default class QuerySystemIdleState {
     this.id = "QUERY_SYSTEM_IDLE_STATE_DEPRECATION";
     this.description = __("QUERY_SYSTEM_IDLE_STATE_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/Jva8V';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

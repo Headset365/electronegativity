@@ -19,7 +19,7 @@ function shellCallCheck({ className, id, methods, sev, reference }) {
       if (astNode.arguments.length === 0) return null;
       // any constant path is the developer's choice, so only non-constant ones are rated
       const result = assessUrlSink(this, astNode, astNode.arguments[0], scope, context.ancestors, /^/, { trustPrefix: false });
-      if (result && result.severity === severity.MEDIUM) result.severity = sev;
+      if (result && (result.severity === severity.MEDIUM || (result.severity === severity.HIGH && sev === severity.LOW))) result.severity = sev;
       return result ? [result] : null;
     }
   };

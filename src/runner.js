@@ -7,6 +7,8 @@ import _i18n from './locales/i18n.js';
 import { LoaderFile, LoaderAsar, LoaderDirectory } from './loader/index.js';
 import { Parser } from './parser/index.js';
 import { Finder } from './finder/index.js';
+import { ProjectIndex } from './finder/project_index.js';
+import { loadBaseline, applyBaseline, writeBaseline } from './util/baseline.js';
 import { GlobalChecks, severity, confidence } from './finder/index.js';
 import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util/index.js';
 
@@ -43,7 +45,7 @@ async function scan(options, forCli) {
     loader = (extension(options.input) === 'asar') ? new LoaderAsar() : new LoaderFile();
   }
 
-  await loader.load(options.input);
+  await loader.load(options.input, { allFiles: !!options.allFiles });
   const electronVersion = options.electronVersionOverride || loader.electronVersion;
   if (!electronVersion)
     logger.warn(__('electronVersionError'));
@@ -89,6 +91,8 @@ async function scan(options, forCli) {
 
   // Finder initialization
   const finder = await new Finder(options.customScan, options.excludeFromScan, options.electronUpgrade);
+  // lets checks follow handlers and constants imported from other files
+  finder.projectIndex = new ProjectIndex(loader, new Parser(false, true), is_directory(options.input) ? options.input : undefined);
   const filenames = [...loader.list_files];
 
   // Results' table initialization
@@ -162,6 +166,20 @@ async function scan(options, forCli) {
   // Adjust visibility
   issues = issues.filter(i => !Object.hasOwn(i, 'visibility') || (!i.visibility.inlineDisabled && !i.visibility.globalCheckDisabled));
 
+  // Baseline: accepted findings are not reported again
+  let suppressed = [];
+  let stale = [];
+  let previousBaseline;
+  if (options.baseline && input_exists(options.baseline)) {
+    previousBaseline = loadBaseline(options.baseline);
+    ({ kept: issues, suppressed, stale } = applyBaseline(issues, previousBaseline, options.input));
+  }
+  if (options.writeBaseline) {
+    const all = [...issues, ...suppressed];
+    const count = writeBaseline(options.writeBaseline, all, options.input, previousBaseline || (input_exists(options.writeBaseline) ? loadBaseline(options.writeBaseline) : undefined));
+    if (forCli) console.log(chalk.green(__('baselineWritten', { count, file: options.writeBaseline })));
+  }
+
   // adjust to Relative or Absolute path
   if (options.isRelative)
     issues.forEach(function(issue, i, issues) {
@@ -186,10 +204,12 @@ async function scan(options, forCli) {
     }
   }
 
+  // file outputs and --fail-on honor the same severity/confidence thresholds as the CLI table
+  const reported = issues.filter(issue => issue.severity.value >= options.severitySet.value && issue.confidence.value >= options.confidenceSet.value);
+
   if (options.output) {
-    // file outputs honor the same severity/confidence thresholds as the CLI table
-    const reported = issues.filter(issue => issue.severity.value >= options.severitySet.value && issue.confidence.value >= options.confidenceSet.value);
     writeIssues(options.input, options.isRelative, options.output, reported, options.isSarif, {
+      suppressedByBaseline: suppressed.length,
       electronVersion: electronVersion || null,
       filesScanned: filenames.length,
       globalChecks: globalChecker._enabled_checks.length,
@@ -203,13 +223,17 @@ async function scan(options, forCli) {
       table.push(...rows);
       console.log(table.toString());
     } else console.log(chalk.green(`\n${__('noIssuesFound')}`));
+    if (suppressed.length > 0 || stale.length > 0) console.log(chalk.gray(__('baselineSummary', { suppressed: suppressed.length, stale: stale.length })));
     console.log('\x1b[4m\x1b[36m%s\x1b[0m',`${__('tryElectroNg')}`);
   }
-  else return {
+  return {
     globalChecks: globalChecker._enabled_checks.length,
     atomicChecks: finder._enabled_checks.length,
     errors,
-    issues
+    issues,
+    reported,
+    suppressed,
+    staleBaselineEntries: stale
   };
 }
 

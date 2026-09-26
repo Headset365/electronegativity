@@ -1,6 +1,6 @@
 import path from 'node:path';
 import lockfile from '@yarnpkg/lockfile';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, parseAllDocuments } from 'yaml';
 import { valid } from 'semver';
 
 export const LOCKFILE_NAMES = ['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml'];
@@ -56,10 +56,19 @@ function yarnPackages(text) {
   return packages;
 }
 
+// pnpm 9+ may write several YAML documents to one lockfile (e.g. for config dependencies), merge their packages
+export function pnpmLockPackages(text) {
+  const packages = {};
+  for (const doc of parseAllDocuments(text)) {
+    const data = doc.toJSON() || {};
+    Object.assign(packages, data.packages || {});
+  }
+  return packages;
+}
+
 function pnpmPackages(text) {
-  const data = parseYaml(text) || {};
   const packages = [];
-  for (const [key, entry] of Object.entries(data.packages || {})) {
+  for (const [key, entry] of Object.entries(pnpmLockPackages(text))) {
     const spec = key.replace(/^\//, '').replace(/\(.*$/, ''); // "/name@1.0.0(peer@2)" -> "name@1.0.0"
     let [name, version] = splitNameVersion(spec);
     if (!version || !valid(version)) { // pnpm <= 5: "/name/1.0.0"

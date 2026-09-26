@@ -1,17 +1,18 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
+import { isWindowConstructor } from '../helpers.js';
 
 export default class BlinkFeaturesJSCheck {
   constructor() {
     this.id = "BLINK_FEATURES_JS_CHECK";
     this.description = __("BLINK_FEATURES_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/Jeu1M";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/BLINK_FEATURES_JS_CHECK";
   }
 
   match(astNode, astHelper, scope){
     if (astNode.type !== 'NewExpression') return null;
-    if (astNode.callee.name !== 'BrowserWindow' && astNode.callee.name !== 'BrowserView') return null;
+    if (!isWindowConstructor(astNode)) return null; // also new electron.BrowserWindow() and minified new o.BrowserWindow()
 
     let location = [];
 

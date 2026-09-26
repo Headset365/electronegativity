@@ -159,5 +159,15 @@
 	"PLUGINS_JS_CHECK":"Browser plugins are enabled",
 	"NAVIGATE_ON_DRAG_DROP_JS_CHECK":"Dropping a file or link onto the window navigates to it",
 	"SANDBOX_JS_CHECK_ENABLED_GLOBALLY":"app.enableSandbox() sandboxes every renderer, regardless of webPreferences.sandbox",
-	"PRELOAD_JS_CHECK_ISOLATED":"Preload script with context isolation; what it exposes through contextBridge is analyzed by CONTEXT_BRIDGE_EXPOSURE_JS_CHECK"
+	"PRELOAD_JS_CHECK_ISOLATED":"Preload script with context isolation; what it exposes through contextBridge is analyzed by CONTEXT_BRIDGE_EXPOSURE_JS_CHECK",
+	"allFilesOptionDescription":"also scan tests, fixtures, vendored and minified files (skipped by default)",
+	"baselineOptionDescription":"don't report the findings accepted in this baseline file",
+	"writeBaselineOptionDescription":"write the current findings to a baseline file (reasons already recorded are kept)",
+	"failOnOptionDescription":"exit with code 1 when a reported finding has this severity or higher (high, medium, low, informational)",
+	"baselineWritten":"Baseline with {{count}} finding(s) written to {{file}}",
+	"baselineSummary":"{{suppressed}} finding(s) accepted by the baseline were not reported; {{stale}} baseline entry(ies) no longer match anything",
+	"failOnTriggered":"{{count}} finding(s) at or above {{severity}} severity",
+	"DOWNLOAD_JS_CHECK":"Review the handling of downloads",
+	"UPDATE_SECURITY_JS_CHECK":"Insecure update configuration",
+	"PLAINTEXT_SECRETS_JS_CHECK":"A secret is stored without encryption"
 }

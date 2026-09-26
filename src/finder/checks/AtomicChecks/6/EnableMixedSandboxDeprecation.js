@@ -6,7 +6,7 @@ export default class EnableMixedSandboxDeprecation {
     this.id = "ENABLE_MIXED_SANDBOX_DEPRECATION";
     this.description = __("ENABLE_MIXED_SANDBOX_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/Jvapp';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

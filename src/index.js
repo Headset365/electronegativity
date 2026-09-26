@@ -6,6 +6,7 @@ import chalk from 'chalk';
 import pkg from '../package.json' with { type: 'json' };
 import _i18n from './locales/i18n.js';
 import run from './runner.js';
+import { severity } from './finder/attributes.js';
 import { OUTPUT_FORMATS } from './util/index.js';
 
 async function main() {
@@ -32,6 +33,10 @@ async function main() {
     .option(__('electronVersionOption'), __('electronVersionOptionDescription'))
     .option(__('parserPluginsOption'), __('parserPluginsOptionDescription'))
     .option('--offline', __('offlineOptionDescription'))
+    .option('--all-files', __('allFilesOptionDescription'))
+    .option('--baseline <file>', __('baselineOptionDescription'))
+    .option('--write-baseline <file>', __('writeBaselineOptionDescription'))
+    .option('--fail-on <severity>', __('failOnOptionDescription'))
     .parse(process.argv);
 
   const options = program.opts();
@@ -92,8 +97,17 @@ async function main() {
 
   const input = path.resolve(options.input);
 
+  let failOn;
+  if (options.failOn) {
+    failOn = severity[options.failOn.toUpperCase()];
+    if (!failOn) {
+      console.error(chalk.red(__('severityLevelError')));
+      process.exit(2);
+    }
+  }
+
   try {
-    await run({
+    const result = await run({
       input,
       output: options.output,
       isSarif: options.fileFormat === 'sarif',
@@ -106,8 +120,19 @@ async function main() {
       electronUpgrade: options.upgrade,
       electronVersionOverride: options.electronVersion,
       parserPlugins: options.parserPlugins,
-      offline: options.offline
+      offline: options.offline,
+      allFiles: options.allFiles,
+      baseline: options.baseline,
+      writeBaseline: options.writeBaseline
     }, forCli);
+    // CI gate: fail when a reported finding reaches the given severity
+    if (failOn) {
+      const failing = result.reported.filter(issue => issue.severity.value >= failOn.value);
+      if (failing.length > 0) {
+        console.error(chalk.red(__('failOnTriggered', { count: failing.length, severity: failOn.name })));
+        process.exitCode = 1;
+      }
+    }
   } catch (error) {
     console.error(chalk.red(error.stack));
     process.exit(1);

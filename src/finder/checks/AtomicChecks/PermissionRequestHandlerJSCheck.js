@@ -1,13 +1,14 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, finding } from '../helpers.js';
-import { handlerFunction, callbackAnswers, returnedValues, constantValue, isConditional, hasUrlValidation, visit, isMember } from '../analysis.js';
+import { handlerFunction, callbackAnswers, returnedValues, constantValue, isConditional, hasUrlValidation, visit, isMember, paramNames, callsIn } from '../analysis.js';
 
 // Handlers deciding permissions for web content, and where they receive the decision
 const HANDLERS = {
   setPermissionRequestHandler: { callbackIndex: 2 },   // (webContents, permission, callback, details)
   setPermissionCheckHandler: { returns: true },        // (webContents, permission, requestingOrigin, details) => boolean
   setDevicePermissionHandler: { returns: true },       // (details) => boolean
+  setDisplayMediaRequestHandler: { displayMedia: true }, // (request, callback) => callback({ video, audio })
 };
 
 // References that show the handler looks at who is asking
@@ -22,7 +23,7 @@ export default class PermissionRequestHandlerJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#5-handle-session-permission-requests-from-remote-content";
   }
 
-  match(astNode, astHelper, scope) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (astNode.type !== 'CallExpression' && astNode.type !== 'OptionalCallExpression') return null;
     const method = memberName(astNode.callee);
     const spec = HANDLERS[method];
@@ -35,18 +36,30 @@ export default class PermissionRequestHandlerJSCheck {
     if (astNode.arguments.length === 0 || astNode.arguments[0].type === 'NullLiteral' || constantValue(astNode.arguments[0], scope) === null) {
       return report(severity.INFORMATIONAL, confidence.CERTAIN, 'resets the handler to the default', false);
     }
-    const fn = handlerFunction(astNode.arguments[0], scope);
+    const fn = handlerFunction(astNode.arguments[0], scope, context.ancestors);
     if (!fn) {
       properties.assessed = false;
       return report(severity.MEDIUM, confidence.TENTATIVE, 'uses a handler defined elsewhere; review it');
     }
 
+    if (spec.displayMedia) return displayMediaAnswer(fn, report);
     const grant = spec.returns ? returnAnswers(fn, scope) : callbackAnswers(fn, spec.callbackIndex, true, scope);
     if (grant.always) return report(severity.HIGH, confidence.CERTAIN, 'grants every permission to every origin', false);
     if (grant.never) return report(severity.INFORMATIONAL, confidence.CERTAIN, 'denies every permission', false);
     if (checksOrigin(fn)) return report(severity.LOW, confidence.FIRM, 'grants some permissions after checking the requesting origin; review the allowlist');
     return report(severity.MEDIUM, confidence.FIRM, 'grants permissions without checking the requesting origin');
   }
+}
+
+// callback({ video: source }) shares the screen; callback({}) denies
+function displayMediaAnswer(fn, report) {
+  const callbackName = paramNames(fn)[1];
+  const shares = callsIn(fn, (call) => call.callee.type === 'Identifier' && call.callee.name === callbackName)
+    .filter(({ call }) => call.arguments[0] && call.arguments[0].type === 'ObjectExpression' && call.arguments[0].properties.some(p => ['video', 'audio'].includes(p.key && (p.key.name || p.key.value))));
+  if (shares.length === 0) return report(severity.INFORMATIONAL, confidence.CERTAIN, 'never shares the screen', false);
+  const always = shares.some(({ call, ancestors }) => !isConditional(call, ancestors, fn)) && !callsIn(fn, (c, name) => /showOpenDialog|picker|dialog|select|choose|prompt/i.test(name || '')).length;
+  if (always) return report(severity.MEDIUM, confidence.FIRM, 'shares a screen or window without asking the user (use a picker or useSystemPicker)', false);
+  return report(severity.LOW, confidence.FIRM, 'shares a screen or window after a check or a user choice; review it');
 }
 
 function returnAnswers(fn, scope) {

@@ -10,7 +10,7 @@ export default class LimitNavigationGlobalCheck {
       WILL_NAVIGATE_MISSING: __('LIMIT_NAVIGATION_GLOBAL_CHECK_WILL_NAVIGATE_MISSING')
     };
     this.depends = ["LimitNavigationJSCheck"];
-    this.shortenedURL = "https://git.io/JeuMs";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/LIMIT_NAVIGATION_GLOBAL_CHECK";
   }
 
   async perform(issues) {

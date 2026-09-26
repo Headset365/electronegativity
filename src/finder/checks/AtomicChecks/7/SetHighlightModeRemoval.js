@@ -6,7 +6,7 @@ export default class SetHighlightModeRemoval {
     this.id = "SET_HIGHLIGHT_MODE_REMOVAL";
     this.description = __("SET_HIGHLIGHT_MODE_REMOVAL");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/Jva8j';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

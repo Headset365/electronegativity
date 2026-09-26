@@ -68,10 +68,11 @@ export class Parser {
     return data;
   }
 
-  parseTypeScript(content) {
+  // JSX is only valid in .tsx: in .ts files `<T>(x) => x` is a generic arrow function, not an element
+  parseTypeScript(content, jsx = true) {
     let data = babelParser.parse(content, {
       sourceType: "unambiguous",
-      plugins: this.tsPlugins
+      plugins: jsx ? this.tsPlugins : this.tsPlugins.filter(p => p !== 'jsx')
     });
 
     data.astParser = this.esLintBabelTreeAst;
@@ -81,13 +82,13 @@ export class Parser {
     return data;
   }
 
-  parseTypescriptEstree(content) {
+  parseTypescriptEstree(content, jsx = true) {
     let data = typescriptEstreeParser.parse(content, {
       loc: true,
       range: true,
       tokens: true,
       errorOnUnknownASTType: true,
-      jsx: true,
+      jsx,
     });
 
     data.astParser = this.esLintESTreeAst;
@@ -112,10 +113,11 @@ export class Parser {
 
         if (['ts', 'tsx', 'mts', 'cts'].includes(ext)) {
           try {
-            data = this.typescriptBabelFirst ? this.parseTypeScript(content) : this.parseTypescriptEstree(content);
+            const jsx = ext === 'tsx';
+            data = this.typescriptBabelFirst ? this.parseTypeScript(content, jsx) : this.parseTypescriptEstree(content, jsx);
           } catch (error1) {
             try {
-              data = this.typescriptBabelFirst ? this.parseTypescriptEstree(content) : this.parseTypeScript(content);
+              data = this.typescriptBabelFirst ? this.parseTypescriptEstree(content, ext === 'tsx') : this.parseTypeScript(content, ext === 'tsx');
             } catch (error2) {
               throw this.typescriptBabelFirst ? error1 : error2; // prefer babel as it contains line number
             }

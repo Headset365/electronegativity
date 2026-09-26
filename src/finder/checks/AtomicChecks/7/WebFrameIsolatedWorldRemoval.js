@@ -6,7 +6,7 @@ export default class WebFrameIsolatedWorldRemoval {
     this.id = "WEB_FRAME_ISOLATED_WORLD_REMOVAL";
     this.description = __("WEB_FRAME_ISOLATED_WORLD_REMOVAL");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/JvaCG';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

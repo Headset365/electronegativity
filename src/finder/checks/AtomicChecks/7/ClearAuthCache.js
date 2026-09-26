@@ -6,7 +6,7 @@ export default class ClearAuthCache {
     this.id = "CLEAR_AUTH_CACHE_DEPRECATION";
     this.description = __("CLEAR_AUTH_CACHE_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/Jvuxg';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

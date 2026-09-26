@@ -135,7 +135,8 @@ export function renderHtmlReport(issues, meta) {
     <span>Electron: <b>${escapeHtml(meta.electronVersion || 'not detected (oldest defaults assumed)')}</b></span>
     <span>Files scanned: <b>${escapeHtml(meta.filesScanned)}</b></span>
     <span>Checks: <b>${escapeHtml(meta.atomicChecks)}</b> atomic, <b>${escapeHtml(meta.globalChecks)}</b> global</span>
-    <span>Generated: <b>${escapeHtml(meta.generatedAt)}</b></span>
+    <span>Generated: <b>${escapeHtml(meta.generatedAt)}</b></span>${meta.suppressedByBaseline ? `
+    <span>Accepted in baseline: <b>${escapeHtml(meta.suppressedByBaseline)}</b></span>` : ''}
   </div>
 
   <div class="cards" role="group" aria-label="Filter by severity">

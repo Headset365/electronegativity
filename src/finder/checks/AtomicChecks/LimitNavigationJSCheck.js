@@ -2,7 +2,7 @@ import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { electronAtLeast, ELECTRON_CHANGES } from '../versions.js';
 import { memberName, findProperty, literalValue } from '../helpers.js';
-import { handlerFunction, callsIn, isConditional, hasUrlValidation, returnedValues } from '../analysis.js';
+import { handlerFunction, callsIn, isConditional, hasUrlValidation, returnedValues, paramNames } from '../analysis.js';
 
 const NAVIGATION_EVENTS = ['will-navigate', 'will-frame-navigate', 'new-window'];
 
@@ -15,7 +15,7 @@ export default class LimitNavigationJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#13-disable-or-limit-navigation";
   }
 
-  match(astNode, astHelper, scope, defaults, electronVersion) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (astNode.type !== 'CallExpression') return null;
     const method = memberName(astNode.callee);
     const report = (event, sev, conf, reason, manualReview = true) => [{
@@ -33,10 +33,16 @@ export default class LimitNavigationJSCheck {
         return [{ ...report('new-window-removed', severity.HIGH, confidence.CERTAIN, '', false)[0], description: __("LIMIT_NAVIGATION_JS_CHECK_NEW_WINDOW_REMOVED") }];
       }
 
-      const fn = handlerFunction(astNode.arguments[1], scope);
+      const fn = handlerFunction(astNode.arguments[1], scope, context.ancestors);
       if (!fn) return report(event, severity.MEDIUM, confidence.TENTATIVE, `the ${event} handler is defined elsewhere; review it`);
 
       const blocks = callsIn(fn, (call, name) => name === 'preventDefault');
+      if (blocks.length === 0) {
+        // the event may be handed to a helper that decides: onWindowOrNavigate(event, url)
+        const delegation = delegatesEvent(fn, scope, context.ancestors);
+        if (delegation === 'blocks') return report(event, severity.LOW, confidence.FIRM, `the ${event} handler delegates to a function that can block navigation; review it`);
+        if (delegation === 'unknown') return report(event, severity.MEDIUM, confidence.TENTATIVE, `the ${event} handler passes the event to a function defined elsewhere; review it`);
+      }
       if (blocks.length === 0)
         // doesn't count as a limit for LimitNavigationGlobalCheck
         return report(`${event}-noop`, severity.HIGH, confidence.CERTAIN, `the ${event} handler never calls event.preventDefault(), so it blocks nothing`, false);
@@ -48,7 +54,7 @@ export default class LimitNavigationJSCheck {
     }
 
     if (method === 'setWindowOpenHandler' && astNode.arguments.length > 0) {
-      const fn = handlerFunction(astNode.arguments[0], scope);
+      const fn = handlerFunction(astNode.arguments[0], scope, context.ancestors);
       if (!fn) return report('setWindowOpenHandler', severity.MEDIUM, confidence.TENTATIVE, 'the window open handler is defined elsewhere; review it');
       const actions = returnedValues(fn).map(({ value }) => {
         const action = findProperty(value, 'action');
@@ -61,4 +67,25 @@ export default class LimitNavigationJSCheck {
     }
     return null;
   }
+}
+
+// When a handler passes its event to other functions: 'blocks' if one of them (followed 3 levels deep) calls
+// preventDefault(), 'unknown' if one can't be resolved, undefined if the event isn't passed on
+function delegatesEvent(fn, scope, ancestors, depth = 0) {
+  const eventName = paramNames(fn)[0];
+  if (!eventName || depth > 3) return undefined;
+  let result;
+  for (const { call } of callsIn(fn, (call) => call.arguments.some(a => a.type === 'Identifier' && a.name === eventName))) {
+    const target = handlerFunction(call.callee, scope, ancestors);
+    if (!target) { result = result || 'unknown'; continue; }
+    const index = call.arguments.findIndex(a => a.type === 'Identifier' && a.name === eventName);
+    const received = paramNames(target)[index];
+    if (callsIn(target, (c, name) => name === 'preventDefault').length > 0) return 'blocks';
+    if (received) {
+      const nested = delegatesEvent({ ...target, params: [{ type: 'Identifier', name: received }] }, scope, ancestors, depth + 1);
+      if (nested === 'blocks') return 'blocks';
+      result = result || nested;
+    }
+  }
+  return result;
 }

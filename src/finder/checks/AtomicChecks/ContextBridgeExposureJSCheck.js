@@ -1,10 +1,24 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, isFunction, isProperty, resolveIdentifier, visit, finding } from '../helpers.js';
+import { isConditional, identifiersIn } from '../analysis.js';
+
+// is `name` tested by a condition of the function, e.g. `if (!CHANNELS.includes(channel)) return;`
+function mentions(fn, name) {
+  let found = false;
+  visit(fn.body, (n) => {
+    if (found) return false;
+    if ((n.type === 'IfStatement' || n.type === 'ConditionalExpression') && identifiersIn(n.test).has(name)) found = true;
+    return true;
+  });
+  return found;
+}
 
 // Values that must never reach the renderer through contextBridge
 const DANGEROUS_IDENTIFIERS = ['ipcRenderer', 'require', 'process', 'shell', 'fs', 'child_process', 'childProcess', 'remote', 'webFrame', 'Buffer', 'module', 'exec', 'execSync', 'spawn', 'spawnSync', 'eval'];
 const IPC_SEND_METHODS = ['send', 'sendSync', 'invoke', 'postMessage', 'sendToHost', 'on', 'once', 'addListener'];
+// plain data that is fine to hand to the page: process.platform, process.versions, ...
+const HARMLESS_MEMBERS = { process: ['platform', 'arch', 'versions', 'version', 'type', 'contextIsolated', 'sandboxed', 'pid'] };
 
 // Electron docs: "Do not expose Electron APIs to untrusted web content" (context isolation tutorial)
 export default class ContextBridgeExposureJSCheck {
@@ -64,7 +78,8 @@ export default class ContextBridgeExposureJSCheck {
           return false;
         }
         if ((value.type === 'MemberExpression' || value.type === 'OptionalMemberExpression') &&
-            value.object.type === 'Identifier' && DANGEROUS_IDENTIFIERS.includes(value.object.name)) {
+            value.object.type === 'Identifier' && DANGEROUS_IDENTIFIERS.includes(value.object.name) &&
+            !(HARMLESS_MEMBERS[value.object.name] || []).includes(memberName(value))) {
           report(n, severity.HIGH, confidence.FIRM, `exposes ${value.object.name}.${memberName(value)} without a wrapper`);
           return false;
         }
@@ -78,7 +93,11 @@ export default class ContextBridgeExposureJSCheck {
         // (channel, ...args) => ipcRenderer.invoke(channel, ...args): the renderer picks any channel
         if (calleeObject === 'ipcRenderer' && IPC_SEND_METHODS.includes(calleeMethod) &&
             first && first.type === 'Identifier' && isParam(first.name)) {
-          report(n, severity.HIGH, confidence.FIRM, `forwards an arbitrary channel to ipcRenderer.${calleeMethod}`);
+          const wrapper = [...ancestors].reverse().find(isFunction);
+          if (wrapper && isConditional(n, [...ancestors], wrapper) && mentions(wrapper, first.name))
+            report(n, severity.LOW, confidence.FIRM, `forwards a channel to ipcRenderer.${calleeMethod} after checking it; review the allowlist`);
+          else
+            report(n, severity.HIGH, confidence.FIRM, `forwards an arbitrary channel to ipcRenderer.${calleeMethod}`);
         }
 
         // ipcRenderer.on('x', callback): the callback receives the IpcRendererEvent, which exposes ipcRenderer itself

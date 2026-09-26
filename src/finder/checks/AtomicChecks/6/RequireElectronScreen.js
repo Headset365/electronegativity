@@ -6,7 +6,7 @@ export default class RequireElectronScreen {
     this.id = "REQUIRE_ELECTRON_SCREEN_DEPRECATION";
     this.description = __("REQUIRE_ELECTRON_SCREEN_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/JvalC';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){    

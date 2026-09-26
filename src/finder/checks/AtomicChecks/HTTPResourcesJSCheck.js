@@ -6,7 +6,7 @@ export default class HTTPResourcesJavascriptCheck {
     this.id = "HTTP_RESOURCES_JS_CHECK";
     this.description = __("HTTP_RESOURCES_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/JeuML";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/HTTP_RESOURCES_JS_CHECK";
   }
 
   match(astNode, astHelper){

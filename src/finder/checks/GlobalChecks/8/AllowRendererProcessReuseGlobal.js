@@ -6,7 +6,7 @@ export default class AllowRendererProcessReuseGlobal {
     this.id = 'ALLOW_RENDERER_PROCESS_REUSE_GLOBAL_DEPRECATION';
     this.description = __('ALLOW_RENDERER_PROCESS_REUSE_GLOBAL_DEPRECATION');
     this.depends = ["AllowRendererProcessReuse"];
-    this.shortenedURL = 'https://git.io/JvuxX';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   async perform(issues) {

@@ -6,7 +6,7 @@ export default class NodeIntegrationAttachEventJSCheck {
     this.id = "NODE_INTEGRATION_ATTACH_EVENT_JS_CHECK";
     this.description = __("NODE_INTEGRATION_ATTACH_EVENT_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/JeuMZ";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/NODE_INTEGRATION_ATTACH_EVENT_JS_CHECK";
   }
 
   match(astNode, astHelper){

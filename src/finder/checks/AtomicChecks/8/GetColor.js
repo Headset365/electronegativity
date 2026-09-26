@@ -6,7 +6,7 @@ export default class GetColor {
     this.id = "GET_COLOR_DEPRECATION";
     this.description = __("GET_COLOR_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/JvuxH';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

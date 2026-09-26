@@ -12,7 +12,7 @@ export default class CertificateVerifyProcJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/api/session#sessetcertificateverifyprocproc";
   }
 
-  match(astNode, astHelper, scope) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (astNode.type !== 'CallExpression') return null;
     const method = memberName(astNode.callee) || (astNode.callee.type === 'Identifier' ? astNode.callee.name : undefined);
     const report = (sev, conf, reason, manualReview = true, properties = {}) =>
@@ -23,7 +23,7 @@ export default class CertificateVerifyProcJSCheck {
       return report(severity.MEDIUM, confidence.FIRM, 'a certificate is imported into the platform certificate store');
     if (method !== 'setCertificateVerifyProc' || astNode.arguments.length === 0) return null;
 
-    const fn = handlerFunction(astNode.arguments[0], scope);
+    const fn = handlerFunction(astNode.arguments[0], scope, context.ancestors);
     if (!fn) return report(severity.MEDIUM, confidence.TENTATIVE, 'the verification procedure is defined elsewhere; review it');
 
     const accepts = callbackAnswers(fn, 1, (value) => value === 0, scope);

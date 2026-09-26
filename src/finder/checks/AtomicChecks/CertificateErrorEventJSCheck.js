@@ -12,14 +12,14 @@ export default class CertificateErrorEventJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/api/app#event-certificate-error";
   }
 
-  match(astNode, astHelper, scope) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (astNode.type !== 'CallExpression' || !['on', 'once'].includes(memberName(astNode.callee))) return null;
     if (literalValue(astNode.arguments[0]) !== 'certificate-error' || astNode.arguments.length < 2) return null;
 
     const report = (sev, conf, reason, manualReview = true) =>
       [finding(this, astNode, { severity: sev, confidence: conf, manualReview, description: `${this.description} (${reason})` })];
 
-    const fn = handlerFunction(astNode.arguments[1], scope);
+    const fn = handlerFunction(astNode.arguments[1], scope, context.ancestors);
     if (!fn) return report(severity.MEDIUM, confidence.TENTATIVE, 'the handler is defined elsewhere; review it');
 
     // app: (event, webContents, url, error, certificate, callback, isMainFrame), webContents: (event, url, error, certificate, callback, isMainFrame)

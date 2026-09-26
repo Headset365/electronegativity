@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
-import { memberName, isFunction, resolveIdentifier, findProperty, literalValue, visit, finding } from '../helpers.js';
-import { isConditional, hasUrlValidation } from '../analysis.js';
+import { memberName, resolveIdentifier, findProperty, literalValue, visit, finding } from '../helpers.js';
+import { isConditional, hasUrlValidation, handlerFunction } from '../analysis.js';
 
 // webPreferences that must not be relaxed for windows opened by web content
 const INSECURE_OVERRIDES = { nodeIntegration: true, nodeIntegrationInSubFrames: true, sandbox: false, contextIsolation: false, webSecurity: false, allowRunningInsecureContent: true, webviewTag: true };
@@ -15,12 +15,12 @@ export default class WindowOpenHandlerJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#14-disable-or-limit-creation-of-new-windows";
   }
 
-  match(astNode, astHelper, scope) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (astNode.type !== 'CallExpression' && astNode.type !== 'OptionalCallExpression') return null;
     if (memberName(astNode.callee) !== 'setWindowOpenHandler' || astNode.arguments.length === 0) return null;
 
-    const handler = resolveIdentifier(astNode.arguments[0], scope);
-    if (!isFunction(handler)) return null;
+    const handler = handlerFunction(astNode.arguments[0], scope, context.ancestors);
+    if (!handler) return null;
 
     const issues = [];
     // arrow functions returning the object directly: () => ({ action: 'allow' })

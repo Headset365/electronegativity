@@ -6,7 +6,7 @@ export default class PrivilegedSchemesRegistrationRemoval {
     this.id = "PRIVILEGED_SCHEMES_REGISTRATION_REMOVAL";
     this.description = __("PRIVILEGED_SCHEMES_REGISTRATION_REMOVAL");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/JvVew';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

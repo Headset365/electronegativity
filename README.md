@@ -53,11 +53,15 @@ To update a global install, run the `npm install -g` command again.
 * Checks account for the secure defaults of newer Electron releases: `contextIsolation` (Electron 12+), `sandbox` (Electron 20+, unless `nodeIntegration` is enabled) and the removal of the `remote` module (Electron 14+). When the Electron version can't be detected, the oldest (least secure) defaults are still assumed.
 * `AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK` now queries the [OSV](https://osv.dev) database of published Electron security advisories (GitHub Security Advisories), as Electron's former release feed stopped being updated in 2022. Findings list the matching advisory IDs.
 * Native ES modules with no build step, running on current versions of all dependencies (Babel 8, TypeScript ESTree 8, espree, eslint-scope, cheerio 1.x, commander, chalk).
-* 80 security checks (up from 42), covering the current [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security): IPC sender validation, APIs exposed through `contextBridge`, Electron Fuses, `setWindowOpenHandler`, `<webview>` hardening, custom scheme privileges, disabled TLS validation, `shell` APIs, deep link and file association handlers, DevTools, Secure Keyboard Entry, WebGL/WebSQL and certificate pinning.
+* 84 security checks (up from 42), covering the current [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security): IPC sender validation, APIs exposed through `contextBridge`, Electron Fuses, `setWindowOpenHandler`, `<webview>` hardening, custom scheme privileges, disabled TLS validation, `shell` APIs, deep link and file association handlers, downloads, update feeds, plaintext secrets, screen capture, DevTools, Secure Keyboard Entry, WebGL/WebSQL and certificate pinning.
 * Outdated software: end-of-life Electron majors, newer patch releases of pinned versions, and known vulnerabilities in every locked npm dependency.
 * Findings follow the Electron version in use, e.g. `affinity` is ignored from Electron 14 and the `new-window` event is reported as ineffective from Electron 22.
 * Upgrade checks (`-u`) for the breaking changes of Electron 12 to 32.
 * A self-contained, filterable HTML report (`-o report.html`) and JSON output, next to CSV and SARIF.
+* Cross-file analysis: handlers, helpers and constants imported from other files (ES modules, CommonJS, re-exports, `tsconfig.json` `baseUrl`/`paths` aliases) and handler factories are followed. Minified bundles (`new o.BrowserWindow(...)`, `!0`/`!1`) are understood.
+* Baselines (`--baseline`, `--write-baseline`) and a CI exit code (`--fail-on`), see [CI](#cicd).
+* Tests, fixtures, vendored code, tooling folders (`scripts`, `tools`, dot-folders) and minified files are skipped by default (`--all-files` to include them).
+* Validated on Signal Desktop, Element, VS Code, Mattermost, GitHub Desktop, Hyper and Electron Fiddle: no parse errors, and the remaining HIGH findings were confirmed by hand.
 
 ## Checks
 
@@ -73,7 +77,8 @@ Checks run on JavaScript/TypeScript, HTML, `package.json`/`electron-builder.json
 | Dangerous APIs | `DANGEROUS_FUNCTIONS_JS_CHECK`, `OPEN_EXTERNAL_JS_CHECK`, `OPEN_PATH_JS_CHECK`, `SHOWITEMINFOLDER_JS_CHECK`, `WRITE_SHORTCUT_JS_CHECK`, `COMMAND_INJECTION_JS_CHECK`, `DEVTOOLS_JS_CHECK` |
 | Protocols and external input | `PROTOCOL_HANDLER_JS_CHECK`, `PROTOCOL_PRIVILEGES_JS_CHECK`, `FILE_HANDLER_JS_CHECK`, `FILE_HANDLER_JSON_CHECK`, `PERMISSION_REQUEST_HANDLER_*` |
 | TLS | `CERTIFICATE_ERROR_EVENT_JS_CHECK`, `CERTIFICATE_VERIFY_PROC_JS_CHECK`, `CERTIFICATE_PINNING_GLOBAL_CHECK`, `NODE_TLS_REJECT_UNAUTHORIZED_*` |
-| Configuration | `CUSTOM_ARGUMENTS_*`, `SECURITY_WARNINGS_DISABLED_*`, `SECUREKEYBOARDENTRY_*` |
+| Configuration | `CUSTOM_ARGUMENTS_*`, `SECURITY_WARNINGS_DISABLED_*`, `SECUREKEYBOARDENTRY_*`, `PLAINTEXT_SECRETS_JS_CHECK` |
+| Downloads and updates | `DOWNLOAD_JS_CHECK` (auto-opened downloads, server-chosen file names), `UPDATE_SECURITY_*` (HTTP feeds, unverified signatures, downgrades) |
 | Outdated software | `ELECTRON_VERSION_JSON_CHECK`, `AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK`, `UNSUPPORTED_VERSION_GLOBAL_CHECK`, `DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK` |
 
 The outdated software checks need network access: they query [releases.electronjs.org](https://releases.electronjs.org) (cached for 12 hours) and the [OSV](https://osv.dev) vulnerability database. Offline, they print a warning and are skipped; `--offline` skips them without trying.
@@ -115,6 +120,10 @@ $ electronegativity -h
 | -e, --electron-version <version> | assume the set Electron version, overriding the detected one, eg -e 7.0.0 to treat as using Electron 7 |
 | -p, --parser-plugins <plugins> | specify additional parser plugins to use separated by commas, e.g. -p optionalChaining |
 | --offline | skip the checks that need network access (Electron releases and security advisories) |
+| --all-files | also scan tests, fixtures, vendored, tooling and minified files (skipped by default) |
+| --baseline <file> | don't report the findings accepted in this baseline file |
+| --write-baseline <file> | write the current findings to a baseline file (reasons already recorded are kept) |
+| --fail-on <severity> | exit with code 1 when a reported finding has this severity or higher (`high`, `medium`, `low`, `informational`); 2 for invalid arguments |
 | -h, --help   | output usage information                          |
 
 
@@ -162,9 +171,27 @@ Note that using annotations may not be applicable for some higher-level checks s
 
 ### CI/CD
 
-[Electronegativity Action](https://github.com/marketplace/actions/electronegativity) may run as part of your GitHub CI/CD pipeline to get "Code scanning alerts":
+Review the findings once and record the accepted ones, with a reason, in a baseline:
 
-![Code scanning alerts](https://github.com/doyensec/electronegativity/raw/master/docs/resources/img/codescanningalerts.png "Code scanning alerts")
+```
+$ electronegativity -i . --write-baseline .electronegativity-baseline.json
+# edit the "reason" of each accepted finding, commit the file
+```
+
+Findings are matched by check, file and code, not by line number, so unrelated edits don't invalidate the baseline. Rewriting it keeps the recorded reasons, and scans report baseline entries that no longer match anything.
+
+Then gate pull requests on new findings only:
+
+```yaml
+- run: npm install -g github:Headset365/electronegativity
+- run: electronegativity -i . --baseline .electronegativity-baseline.json --fail-on medium -o electronegativity.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: electronegativity.sarif
+```
+
+The SARIF upload shows the findings as GitHub code scanning alerts.
 
 ### Programmatically
 

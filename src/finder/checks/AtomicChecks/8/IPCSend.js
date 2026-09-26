@@ -6,7 +6,7 @@ export default class IPCSend {
     this.id = "IPC_SEND_STRUCTURED_CLONE_ALGORITHM";
     this.description = __("IPC_SEND_STRUCTURED_CLONE_ALGORITHM");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/Jvuxd';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

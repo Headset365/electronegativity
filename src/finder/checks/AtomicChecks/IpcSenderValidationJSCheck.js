@@ -1,6 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
-import { calleeObjectName, memberName, isFunction, resolveIdentifier, visit, finding } from '../helpers.js';
+import { calleeObjectName, memberName, visit, finding } from '../helpers.js';
+import { handlerFunction } from '../analysis.js';
 
 const LISTENER_METHODS = ['handle', 'handleOnce', 'on', 'once', 'addListener'];
 // Properties of the IPC event (event.senderFrame.url, event.sender.getURL(), ...) that identify the sender
@@ -24,14 +25,23 @@ export default class IpcSenderValidationJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#17-validate-the-sender-of-all-ipc-messages";
   }
 
-  match(astNode, astHelper, scope) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (astNode.type !== 'CallExpression' && astNode.type !== 'OptionalCallExpression') return null;
     if (!LISTENER_METHODS.includes(memberName(astNode.callee))) return null;
     if (!/^ipcMain$/.test(calleeObjectName(astNode.callee) || '')) return null;
     if (astNode.arguments.length < 2) return null;
 
-    const handler = resolveIdentifier(astNode.arguments[astNode.arguments.length - 1], scope);
-    if (!isFunction(handler)) {
+    let handlerArg = astNode.arguments[astNode.arguments.length - 1];
+    // wrappers like ipcValidate(handler, schema) or withSenderCheck(handler)
+    if ((handlerArg.type === 'CallExpression' || handlerArg.type === 'OptionalCallExpression') && memberName(handlerArg.callee) !== 'bind' && handlerArg.arguments.length > 0) {
+      const wrapper = handlerArg.callee.type === 'Identifier' ? handlerArg.callee.name : memberName(handlerArg.callee);
+      if (/sender|origin|trusted|secure|guard|auth/i.test(wrapper || ''))
+        return [finding(this, astNode, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true,
+          description: `${this.description} (wrapped by ${wrapper}(); verify that it validates the sender)` })];
+      handlerArg = handlerArg.arguments[0];
+    }
+    const handler = handlerFunction(handlerArg, scope, context.ancestors);
+    if (!handler) {
       // handler defined elsewhere, can't tell whether it validates the sender
       return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true })];
     }

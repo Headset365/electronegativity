@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, finding } from '../helpers.js';
-import { constantValue, constantPrefix, enclosingFunction, untrustedSource, dependsOnParams, hasUrlValidation, isConditional } from '../analysis.js';
+import { constantValue, constantPrefix, possibleValues, enclosingFunction, untrustedSource, dependsOnParams, hasUrlValidation, isConditional } from '../analysis.js';
 
 // Schemes that are fine to hand to the OS: web pages and mail
 const SAFE_URL = /^(https:\/\/[^/?#]+[/?#]|https:\/\/[^/?#]+$|mailto:)/i;
@@ -27,12 +27,21 @@ export default class OpenExternalJSCheck {
  * Rates a call that hands a URL/path to the operating system, based on where the value comes from.
  */
 export function assessUrlSink(check, call, arg, scope, ancestors, safePattern, { trustPrefix = true } = {}) {
-  const value = constantValue(arg, scope);
   const describe = (reason) => `${check.description} (${reason})`;
+  // every value the argument can take is a known constant: BETA ? 'https://a' : 'https://b'
+  const values = possibleValues(arg, scope);
+  if (values.length > 1 && values.every(v => typeof v === 'string')) {
+    const unsafe = values.filter(v => !safePattern.test(v));
+    if (unsafe.length === 0) return null;
+    return finding(check, call, { severity: severity.LOW, confidence: confidence.CERTAIN, manualReview: true,
+      description: describe(`opens the constant "${unsafe[0]}"`), properties: { value: unsafe[0] } });
+  }
+  const value = constantValue(arg, scope);
 
   if (typeof value === 'string') {
     if (safePattern.test(value)) return null;
-    return finding(check, call, { severity: /^http:/i.test(value) ? severity.LOW : severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: true,
+    // a constant is the developer's choice, never attacker-controlled: only worth a look
+    return finding(check, call, { severity: severity.LOW, confidence: confidence.CERTAIN, manualReview: true,
       description: describe(`opens the constant "${value}"`), properties: { value } });
   }
 

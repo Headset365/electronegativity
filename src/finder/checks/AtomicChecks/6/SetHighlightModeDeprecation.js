@@ -6,7 +6,7 @@ export default class SetHighlightModeDeprecation {
     this.id = "SET_HIGHLIGHT_MODE_DEPRECATION";
     this.description = __("SET_HIGHLIGHT_MODE_DEPRECATION");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = 'https://git.io/Jva8p';
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/breaking-changes';
   }
 
   match(astNode, astHelper, scope){

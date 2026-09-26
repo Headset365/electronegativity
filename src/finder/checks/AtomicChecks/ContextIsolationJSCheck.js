@@ -1,17 +1,18 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
+import { isWindowConstructor, literalValue } from '../helpers.js';
 
 export default class ContextIsolationJSCheck {
   constructor() {
     this.id = "CONTEXT_ISOLATION_JS_CHECK";
     this.description = __("CONTEXT_ISOLATION_JS_CHECK");
     this.type = sourceTypes.JAVASCRIPT;
-    this.shortenedURL = "https://git.io/Jeu1p";
+    this.shortenedURL = "https://github.com/doyensec/electronegativity/wiki/CONTEXT_ISOLATION_JS_CHECK";
   }
 
   match(astNode, astHelper, scope, defaults){
     if (astNode.type !== 'NewExpression') return null;
-    if (astNode.callee.name !== 'BrowserWindow' && astNode.callee.name !== 'BrowserView') return null;
+    if (!isWindowConstructor(astNode)) return null; // also new electron.BrowserWindow() and minified new o.BrowserWindow()
 
     let location = [];
     if (astNode.arguments.length > 0) {
@@ -40,7 +41,7 @@ export default class ContextIsolationJSCheck {
             if ((!target || target.defs.length == 0 || !target.defs[0].node.init || !target.defs[0].node.init.value) || // e.g. var variable; declared but not assigned or assigned later in an undefined way
                 (target && target.defs[0].node.init && target.defs[0].node.init.value !== true)) // e.g. var variable = true; declared and assigned on creation, the only case we can afford to detect atm
               location.push({ line: node.key.loc.start.line, column: node.key.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false });
-          } else if(node.value.value !== true) {
+          } else if(literalValue(node.value) !== true) {
           // in practice if there are two keys with the same name, the value of the last one wins
           // but technically it is an invalid json
           // just to be on the safe side show a warning if any value is insecure
