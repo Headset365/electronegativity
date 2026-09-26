@@ -143,6 +143,37 @@ describe('Watch mode', () => {
     });
   });
 
+  describe('API endpoints', () => {
+    const records = [
+      { kind: 'start' },
+      { kind: 'api', method: 'POST', url: 'https://api.example.com/documents/42', status: 200, bodyBytes: 120, htmlBody: true },
+      { kind: 'api', method: 'POST', url: 'https://api.example.com/documents/43', status: 201, bodyBytes: 90, htmlBody: false },
+      { kind: 'api', method: 'GET', url: 'https://api.example.com/documents/3f2b9c1e-8d4a-4c2b-9f1e-2a3b4c5d6e7f', status: 200 },
+      { kind: 'api', method: 'PUT', url: 'https://api.example.com/comments/7', status: 403, bodyBytes: 40, htmlBody: true },
+      { kind: 'entry', detail: 'paste-html' },
+      { kind: 'entry', detail: 'paste-html' },
+    ];
+    const { issues, summary } = analyzeWatchLog(records);
+
+    it('groups the calls by method and route, with identifiers generalized', () => {
+      summary.api.map(e => `${e.method} ${e.route}`).should.have.members(['POST https://api.example.com/documents/{id}', 'GET https://api.example.com/documents/{id}', 'PUT https://api.example.com/comments/{id}']);
+      const post = summary.api.find(e => e.method === 'POST');
+      post.should.include({ calls: 2, htmlBody: true, maxBodyBytes: 120 });
+      post.statuses.should.deep.equal([200, 201]);
+    });
+
+    it('points out endpoints that accepted HTML, for server-side testing', () => {
+      const html = issues.filter(i => i.id === 'RUNTIME_HTML_ENDPOINT');
+      html.should.have.length(1, 'a request the server refused (403) is not reported');
+      html[0].description.should.match(/^POST https:\/\/api\.example\.com\/documents\/\{id\} accepted a request body containing HTML/);
+      html[0].manualReview.should.equal(true);
+    });
+
+    it('counts the entry points used', () => {
+      summary.entryPoints.should.deep.equal({ 'paste-html': 2 });
+    });
+  });
+
   describe('launcher', () => {
     const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'eng-watch-'));
 
@@ -189,6 +220,16 @@ describe('Watch mode', () => {
     it('reports static windows that were never opened during the session', () => {
       const coverage = reconcileRuntime(build()).find(i => i.id === 'RUNTIME_WINDOW_COVERAGE');
       coverage.description.should.match(/1 of 2 window\(s\).*settings-preload\.js.*settings\.js:5/);
+    });
+
+    it('lists ways content comes in that the code handles but the session did not try', () => {
+      const issues = [...build(),
+        { id: 'XSS_SINK_JS_CHECK', file: 'editor.js', location: { line: 3 }, properties: { origin: 'pasted or dropped content' } },
+        { id: 'FILE_HANDLER_JS_CHECK', file: 'main.js', location: { line: 20 }, properties: {} }];
+      const coverage = reconcileRuntime(issues, { entryPoints: { 'paste-html': 2, 'second-instance': 1 } }).find(i => i.id === 'RUNTIME_ENTRY_COVERAGE');
+      coverage.properties.untried.should.deep.equal(['dragging and dropping content or files']);
+      // nothing handled by the code, nothing to list
+      reconcileRuntime(build(), { entryPoints: {} }).some(i => i.id === 'RUNTIME_ENTRY_COVERAGE').should.equal(false);
     });
 
     it('does nothing when watch mode observed no windows', () => {
@@ -302,6 +343,15 @@ describe('Watch mode', () => {
       report.issues.filter(i => i.id === 'RUNTIME_DOM_INJECTION' && /safe-view\.html/.test(i.file)).should.have.length(0, 'attributes merely starting with "on" are not event handlers');
       // the static scan of the same app ran too
       ids.should.include('NODE_INTEGRATION_JS_CHECK');
+      // the backend page's script was captured with the app's session, and its original source (from the source map)
+      // scanned: the finding points at the URL it was served from
+      const remote = report.issues.filter(i => i.id === 'XSS_SINK_JS_CHECK' && /static\/viewer\.js \(source: src\/viewer\.js\)/.test(i.file));
+      remote.should.have.length(1, 'the remote script was captured and scanned from its source map');
+      remote[0].severity.should.equal('HIGH');
+      // the endpoint that received HTML is listed for server-side testing, with the id in its path generalized
+      const endpoints = report.issues.filter(i => i.id === 'RUNTIME_HTML_ENDPOINT');
+      endpoints.should.have.length(1);
+      endpoints[0].description.should.match(/^POST http:\/\/127\.0\.0\.1:\d+\/api\/documents\/\{id\}/);
     });
   });
 });

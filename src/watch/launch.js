@@ -52,7 +52,7 @@ export function resolveApp(target, extraArgs = []) {
  * Starts the app with the hook and resolves with the path of the log once the app has exited.
  * The user drives the app; Ctrl+C in the terminal closes it too.
  */
-export function watchApp(target, { args = [], marker, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit' } = {}) {
+export function watchApp(target, { args = [], marker, capture = true, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit' } = {}) {
   const { command, args: commandArgs } = resolveApp(target, args);
   fs.writeFileSync(log, '');
   const quotedHook = HOOK.includes(' ') ? `"${HOOK}"` : HOOK;
@@ -62,6 +62,8 @@ export function watchApp(target, { args = [], marker, log = path.join(fs.mkdtemp
     ELECTRONEGATIVITY_WATCH_LOG: log,
   };
   if (marker) env.ELECTRONEGATIVITY_WATCH_MARKER = String(marker);
+  // download the front-end code pages run, for the static scan (capture/ next to the log)
+  if (capture) env.ELECTRONEGATIVITY_WATCH_CAPTURE = '1';
   return new Promise((resolve, reject) => {
     const child = spawn(command, commandArgs, { env, stdio });
     const stop = () => child.kill();

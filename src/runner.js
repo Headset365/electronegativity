@@ -5,7 +5,7 @@ import chalk from 'chalk';
 import logger from './util/logger.js';
 
 import _i18n from './locales/i18n.js';
-import { LoaderFile, LoaderAsar, LoaderDirectory } from './loader/index.js';
+import { LoaderFile, LoaderAsar, LoaderDirectory, LoaderCombined } from './loader/index.js';
 import { Parser } from './parser/index.js';
 import { Finder } from './finder/index.js';
 import { ProjectIndex } from './finder/project_index.js';
@@ -59,6 +59,20 @@ async function scan(options, forCli) {
     phaseStart = performance.now();
   };
   await loader.load(options.input, { allFiles: !!options.allFiles });
+  // front-end code captured from a server (--remote, or scripts pages loaded during --watch), scanned with the app.
+  // Findings in it point at the URL the file was served from.
+  const remoteLabels = new Map();
+  const extraInputs = (options.extraInputs || []).filter(extra => extra && extra.dir && is_directory(extra.dir));
+  if (extraInputs.length > 0) {
+    const extras = [];
+    for (const extra of extraInputs) {
+      const extraLoader = new LoaderDirectory();
+      await extraLoader.load(extra.dir, { allFiles: !!options.allFiles });
+      extras.push(extraLoader);
+      for (const [file, label] of extra.labels || []) remoteLabels.set(file, label);
+    }
+    loader = new LoaderCombined(loader, extras);
+  }
   endPhase('load');
   const electronVersion = options.electronVersionOverride || loader.electronVersion;
   if (!electronVersion)
@@ -197,13 +211,15 @@ async function scan(options, forCli) {
   errors.push(...globalChecker.checkErrors);
   if (forCli) for (const error of globalChecker.checkErrors) console.error(chalk.red(error.message));
 
+  for (const issue of issues) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
+
   // Adjust visibility
   issues = issues.filter(i => !Object.hasOwn(i, 'visibility') || (!i.visibility.inlineDisabled && !i.visibility.globalCheckDisabled));
 
   // findings observed while the app ran (--watch), reconciled with the static findings (linked windows, coverage)
   if (options.runtime) {
     issues.push(...options.runtime.issues);
-    reconcileRuntime(issues);
+    reconcileRuntime(issues, options.runtime.summary);
   }
 
   // A packaged app (its app.asar or resources/app): read the fuses written into its executable, which are what ships.
@@ -298,6 +314,7 @@ async function scan(options, forCli) {
         upgrade: options.electronUpgrade, watch: !!options.runtime,
       },
       watch: options.watchDiagnostics,
+      remote: options.remoteDiagnostics,
     }, { redact: options.redact || [], version: pkg.version });
     if (forCli) console.log(chalk.gray(__('diagnosticsWritten', { file: options.diagnostics })));
   }

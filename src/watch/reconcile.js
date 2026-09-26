@@ -21,9 +21,10 @@ const place = (issue) => `${issue.file}${issue.location && issue.location.line ?
  * Mutates `issues` in place: cross-references runtime and static findings, and appends a coverage finding for windows
  * the static scan found that were never opened during the session. @returns the same array.
  */
-export function reconcileRuntime(issues) {
+export function reconcileRuntime(issues, summary) {
   const runtimeWindows = issues.filter(i => i.id === 'RUNTIME_WINDOW_SUMMARY');
   if (runtimeWindows.length === 0) return issues; // nothing was observed: leave the static findings untouched
+  entryCoverage(issues, summary);
   const staticWindows = issues.filter(i => i.id === 'WINDOW_SUMMARY_JS_CHECK');
 
   // link windows by preload script: the same preload means the static definition and the observed window are the same
@@ -62,4 +63,34 @@ export function reconcileRuntime(issues) {
     });
   }
   return issues;
+}
+
+const STATIC_EDITOR = new Set(['RICH_TEXT_EDITOR_JS_CHECK', 'SANITIZER_CONFIG_JS_CHECK', 'ANGULAR_TRUST_HTML_JS_CHECK']);
+
+/**
+ * Ways content gets into the app that the code handles but the session never tried: pasting HTML, drag and drop,
+ * importing files, deep links and file associations. Each is a route for content someone else wrote, so a session
+ * that skipped them didn't test them.
+ */
+function entryCoverage(issues, summary) {
+  const used = (summary && summary.entryPoints) || {};
+  const tried = (...names) => Object.keys(used).some(key => names.some(name => key === name || key.startsWith(`${name}-`)));
+  const origins = new Set(issues.map(i => i.properties && i.properties.origin).filter(Boolean));
+  const editor = issues.some(i => STATIC_EDITOR.has(i.id)) || origins.has('pasted or dropped content') || origins.has('clipboard content');
+  const imports = origins.has('an imported document or file');
+  const deepLinks = issues.some(i => i.id === 'FILE_HANDLER_JS_CHECK');
+  const routes = [
+    { name: 'pasting formatted content (HTML from Word or a web page)', relevant: editor, done: tried('paste-html') },
+    { name: 'dragging and dropping content or files', relevant: editor || imports, done: tried('drop') },
+    { name: 'importing or opening a file', relevant: imports, done: tried('file-picker', 'open-dialog', 'drop-file', 'paste-file', 'open-file') },
+    { name: 'a deep link, file association or second instance', relevant: deepLinks, done: tried('open-url', 'open-file', 'second-instance') },
+  ];
+  const untried = routes.filter(route => route.relevant && !route.done).map(route => route.name);
+  if (untried.length === 0) return;
+  issues.push({
+    file: 'runtime', sample: '', location: { line: 0, column: 0 }, id: 'RUNTIME_ENTRY_COVERAGE',
+    description: `The code handles content arriving by ${untried.join('; ')}, but the session did not try ${untried.length === 1 ? 'it' : 'them'}: content another person wrote can come in this way`,
+    properties: { untried, entryPoints: used }, shortenedURL: DOCS, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
+    manualReview: false, visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: 'Runtime'
+  });
 }

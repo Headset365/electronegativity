@@ -11,6 +11,10 @@ import { OUTPUT_FORMATS } from './util/index.js';
 import { resolveApp, watchApp } from './watch/launch.js';
 import { readWatchLog, analyzeWatchLog } from './watch/analyze.js';
 import { analyzePackagedFuses } from './watch/fuses.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import { crawl } from './remote/fetch.js';
+import { prepareScanFolder } from './remote/sources.js';
 
 async function main() {
 
@@ -44,6 +48,9 @@ async function main() {
     .option('--watch-args <args>', __('watchArgsOptionDescription'))
     .option('--watch-log <file>', __('watchLogOptionDescription'))
     .option('--watch-marker <token>', __('watchMarkerOptionDescription'))
+    .option('--no-watch-capture', __('watchCaptureOptionDescription'))
+    .option('--remote <url>', __('remoteOptionDescription'), (value, previous) => [...(previous || []), value])
+    .option('--remote-header <header>', __('remoteHeaderOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--diagnostics <file>', __('diagnosticsOptionDescription'))
     .option('--redact <terms>', __('redactOptionDescription'))
     .parse(process.argv);
@@ -74,6 +81,7 @@ async function main() {
   // Watch mode: run the app with the observation hook while the user goes through it, then analyze what happened
   let runtime;
   let watchDiagnostics;
+  let watchLog;
   if (options.watch || options.watchLog) {
     let log = options.watchLog;
     let packagedApp;
@@ -83,9 +91,10 @@ async function main() {
         packagedApp = app.packaged ? app.command : undefined;
         if (!options.input && app.staticInput) options.input = app.staticInput;
         console.log(chalk.cyan(__('watchStarting')));
-        log = await watchApp(options.watch, { args: options.watchArgs ? options.watchArgs.split(/\s+/).filter(Boolean) : [], marker: options.watchMarker });
+        log = await watchApp(options.watch, { args: options.watchArgs ? options.watchArgs.split(/\s+/).filter(Boolean) : [], marker: options.watchMarker, capture: options.watchCapture !== false });
         console.log(chalk.gray(__('watchLogSaved', { file: log })));
       }
+      watchLog = log;
       const records = readWatchLog(log);
       runtime = analyzeWatchLog(records);
       // for --diagnostics: what the hook captured, by kind, and anything that went wrong inside it
@@ -111,6 +120,39 @@ async function main() {
       process.exit(2);
     }
     if (!runtime.summary.started) console.error(chalk.yellow(__('watchNoHook')));
+  }
+
+  // Front-end code served over the network: what watch mode captured, and --remote URLs. It is scanned with the app.
+  const extraInputs = [];
+  let remoteDiagnostics;
+  const captureDir = options.watchCapture !== false && watchLog ? path.join(path.dirname(watchLog), 'capture') : undefined;
+  if ((options.remote && options.remote.length > 0) || (captureDir && fs.existsSync(captureDir))) {
+    const dir = captureDir && fs.existsSync(captureDir) ? captureDir : fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-remote-'));
+    const headers = {};
+    for (const header of options.remoteHeader || []) {
+      const at = header.indexOf(':');
+      if (at > 0) headers[header.slice(0, at).trim()] = header.slice(at + 1).trim();
+    }
+    remoteDiagnostics = { seeds: (options.remote || []).length, fromWatch: !!captureDir, headers: Object.keys(headers) };
+    try {
+      if (!options.offline) {
+        console.log(chalk.cyan(__('remoteFetching')));
+        const stats = await crawl(dir, options.remote || [], { headers });
+        remoteDiagnostics.fetch = { fetched: stats.fetched, notFound: stats.notFound, skipped: stats.skipped, failed: stats.failed.slice(0, 20) };
+        for (const failure of stats.failed.slice(0, 10)) console.error(chalk.yellow(__('remoteFetchFailed', { url: failure.url, message: failure.message })));
+      }
+    } catch (error) {
+      remoteDiagnostics.error = String(error.message);
+      console.error(chalk.yellow(__('remoteFetchFailed', { url: (options.remote || [])[0] || 'capture', message: error.message })));
+    }
+    const prepared = prepareScanFolder(dir);
+    if (prepared) {
+      extraInputs.push(prepared);
+      remoteDiagnostics.scanned = prepared.counts;
+      console.log(chalk.gray(__('remoteScanning', { count: prepared.labels.size, dir })));
+      // --remote on its own: the downloaded front end is the input
+      if (!options.input) options.input = prepared.dir;
+    }
   }
 
   if(!options.input){
@@ -176,6 +218,8 @@ async function main() {
       baseline: options.baseline,
       writeBaseline: options.writeBaseline,
       runtime,
+      extraInputs,
+      remoteDiagnostics,
       diagnostics: options.diagnostics,
       redact: options.redact ? options.redact.split(',').map(term => term.trim()).filter(Boolean) : [],
       watchDiagnostics

@@ -139,6 +139,111 @@ function instrument(electron, late) {
     }
   });
 
+  // Front-end code the pages run, captured for the static scan (a remote web app is not in the package): documents,
+  // scripts and HTML templates, downloaded again with the page's own session (so a logged-in test account's cookies
+  // apply) into capture/ next to the log. Source maps are fetched too, to scan the original code.
+  const CAPTURE_DIR = process.env.ELECTRONEGATIVITY_WATCH_CAPTURE === '1' ? path.join(path.dirname(logFile), 'capture') : null;
+  const MAX_CAPTURES = 400;
+  const MAX_CAPTURE_BYTES = 30 * 1024 * 1024;
+  const captured = new Set();
+  let captureCount = 0;
+  const appendCapture = (entry) => {
+    try {
+      fs.mkdirSync(path.join(CAPTURE_DIR, 'files'), { recursive: true });
+      fs.appendFileSync(path.join(CAPTURE_DIR, 'manifest.jsonl'), JSON.stringify(entry) + '\n');
+    } catch {
+      // best effort
+    }
+  };
+  const saveCapture = (body, extension) => {
+    const file = `files/w${++captureCount}${extension}`;
+    fs.mkdirSync(path.join(CAPTURE_DIR, 'files'), { recursive: true });
+    fs.writeFileSync(path.join(CAPTURE_DIR, file), body);
+    return file;
+  };
+  const download = (ses, url) => ses.fetch(url, { method: 'GET' })
+    .then(response => response.ok ? response.arrayBuffer() : null)
+    .then(buffer => buffer && buffer.byteLength <= MAX_CAPTURE_BYTES ? Buffer.from(buffer) : null);
+  function capture(details, ses) {
+    if (!CAPTURE_DIR || details.webContentsId === undefined || details.method !== 'GET' || !/^https?:/i.test(details.url)) return;
+    if (details.statusCode >= 400) return;
+    let pathname;
+    try {
+      pathname = new URL(details.url).pathname;
+    } catch {
+      return;
+    }
+    const kind = details.resourceType === 'mainFrame' || details.resourceType === 'subFrame' ? 'page'
+      : details.resourceType === 'script' ? 'script'
+        : (details.resourceType === 'xhr' || details.resourceType === 'other') && /\.html?$/i.test(pathname) ? 'template' : undefined;
+    if (!kind) return;
+    const label = redact(details.url);
+    if (captured.has(label) || captured.size >= MAX_CAPTURES) return;
+    captured.add(label);
+    const entry = { kind, url: label };
+    // without session.fetch (Electron < 25) only the URL is recorded, and the CLI fetches it afterwards
+    if (typeof ses.fetch !== 'function') return appendCapture(entry);
+    download(ses, details.url).then(body => {
+      if (!body) return appendCapture(entry);
+      entry.file = saveCapture(body, kind === 'script' ? '.js' : '.html');
+      appendCapture(entry);
+      if (kind !== 'script') return;
+      const tail = body.subarray(Math.max(0, body.length - 4096)).toString('utf8');
+      const reference = [...tail.matchAll(/[#@]\s*sourceMappingURL=([^\s'"*]+)/g)].pop();
+      if (!reference || /^data:/i.test(reference[1])) return; // inline maps are read from the script itself
+      const mapUrl = new URL(reference[1], details.url).href;
+      if (!/^https?:/i.test(mapUrl)) return;
+      return download(ses, mapUrl).then(map => { if (map) appendCapture({ kind: 'map', url: redact(mapUrl), of: label, file: saveCapture(map, '.map') }); });
+    }).catch(() => appendCapture(entry));
+  }
+
+  // API requests pages make (fetch/XHR), for server-side testing: the endpoints the app talks to, and which of them were
+  // sent HTML in the request body. Only whether the body looks like markup and its size are kept, never the content.
+  const MARKUP = /<\s*[a-z][\w-]*[\s>/]|&lt;\s*[a-z][\w-]*|\\u003c\s*[a-z]/i;
+  const requestBodies = new Map();
+  const inspectBody = (details) => {
+    if (details.resourceType !== 'xhr' || !Array.isArray(details.uploadData) || details.uploadData.length === 0) return;
+    let bytes = 0;
+    let html = false;
+    for (const part of details.uploadData) {
+      if (!part || !part.bytes) continue;
+      bytes += part.bytes.length;
+      if (!html) html = MARKUP.test(part.bytes.subarray(0, 1024 * 1024).toString('utf8'));
+    }
+    requestBodies.set(details.id, { bytes, html });
+    if (requestBodies.size > 5000) requestBodies.delete(requestBodies.keys().next().value);
+  };
+  const recordApi = (details) => {
+    if (details.resourceType !== 'xhr' || details.webContentsId === undefined || !/^https?:/i.test(details.url)) return;
+    const body = requestBodies.get(details.id);
+    requestBodies.delete(details.id);
+    write('api', { method: details.method, url: redact(details.url), status: details.statusCode, webContents: details.webContentsId,
+      bodyBytes: body ? body.bytes : 0, htmlBody: !!(body && body.html) });
+  };
+
+  // webRequest allows one listener per event and session: ours observes, then hands over to the app's own listener,
+  // which it keeps receiving when the app sets it later
+  function chainListener(request, name, observe) {
+    const original = request[name].bind(request);
+    let appListener = null;
+    const combined = (details, callback) => {
+      try {
+        observe(details);
+      } catch {
+        // observing never breaks a request
+      }
+      if (appListener) appListener(details, callback);
+      else callback({});
+    };
+    original(combined);
+    request[name] = (filterOrListener, maybeListener) => {
+      const listener = typeof filterOrListener === 'function' || filterOrListener === null ? filterOrListener : maybeListener;
+      const filter = typeof filterOrListener === 'object' && filterOrListener !== null ? filterOrListener : undefined;
+      appListener = listener;
+      return filter ? original(filter, combined) : original(combined);
+    };
+  }
+
   const instrumentedSessions = new WeakSet();
   function instrumentSession(ses) {
     if (!ses || instrumentedSessions.has(ses)) return;
@@ -155,26 +260,11 @@ function instrument(electron, late) {
       if (isDocument || /^http:/i.test(details.url))
         write('response', { url: redact(details.url), resourceType: details.resourceType, status: details.statusCode, webContents: details.webContentsId,
           csp: isDocument ? header('content-security-policy') : undefined, frameOptions: isDocument ? header('x-frame-options') : undefined });
+      recordApi(details);
+      capture(details, ses);
     };
-    const originalOnHeaders = request.onHeadersReceived.bind(request);
-    let appListener = null;
-    originalOnHeaders((details, callback) => {
-      record(details);
-      if (appListener) appListener(details, callback);
-      else callback({});
-    });
-    // the app setting its own listener replaces ours: keep recording, then hand over to it
-    request.onHeadersReceived = (filterOrListener, maybeListener) => {
-      const listener = typeof filterOrListener === 'function' || filterOrListener === null ? filterOrListener : maybeListener;
-      const filter = typeof filterOrListener === 'object' && filterOrListener !== null ? filterOrListener : undefined;
-      appListener = listener;
-      const combined = (details, callback) => {
-        record(details);
-        if (appListener) appListener(details, callback);
-        else callback({});
-      };
-      return filter ? originalOnHeaders(filter, combined) : originalOnHeaders(combined);
-    };
+    chainListener(request, 'onBeforeRequest', inspectBody);
+    chainListener(request, 'onHeadersReceived', record);
 
     // permission requests and the answers; without a handler of the app's own, Electron grants everything
     const originalSetHandler = ses.setPermissionRequestHandler.bind(ses);
@@ -249,7 +339,12 @@ function instrument(electron, late) {
         if (contents.isDestroyed()) return;
         const url = redact(contents.getURL());
         contents.executeJavaScript(`(window[${JSON.stringify(OBSERVER_KEY)}] ? window[${JSON.stringify(OBSERVER_KEY)}].drain() : [])`, false)
-          .then(list => { for (const e of (list || [])) write('dom-observed', { id, url, event: e.type, detail: e.detail, live: e.live }); })
+          .then(list => {
+            for (const e of (list || [])) {
+              if (e.type === 'entry') write('entry', { id, url, detail: e.detail });
+              else write('dom-observed', { id, url, event: e.type, detail: e.detail, live: e.live });
+            }
+          })
           .catch(() => {});
       };
       contents.on('dom-ready', () => { install(); });
@@ -314,6 +409,11 @@ function instrument(electron, late) {
       };
       // a per-session name, hidden from enumeration and read-only, so pages don't trip over it or replace it
       Object.defineProperty(window, KEY, { value: Object.freeze({ drain: function () { checkMarker(); return events.splice(0); } }), enumerable: false, writable: false, configurable: false });
+      // entry points the user exercised (for coverage): paste, drag and drop, file pickers. Only the kind is kept.
+      var types = function (list) { try { return Array.prototype.slice.call(list || []); } catch (e) { return []; } };
+      window.addEventListener('paste', function (e) { var t = types(e.clipboardData && e.clipboardData.types); push({ type: 'entry', detail: t.indexOf('text/html') !== -1 ? 'paste-html' : t.indexOf('Files') !== -1 ? 'paste-file' : 'paste-text' }); }, true);
+      window.addEventListener('drop', function (e) { var t = types(e.dataTransfer && e.dataTransfer.types); push({ type: 'entry', detail: t.indexOf('Files') !== -1 ? 'drop-file' : t.indexOf('text/html') !== -1 ? 'drop-html' : 'drop-text' }); }, true);
+      document.addEventListener('change', function (e) { if (e.target && e.target.type === 'file') push({ type: 'entry', detail: 'file-picker' }); }, true);
       var start = function () { try { mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true }); } catch (e) {} scan(document.documentElement); checkMarker(); };
       if (document.documentElement) start(); else document.addEventListener('DOMContentLoaded', start);
       return 'installed';
@@ -325,6 +425,21 @@ function instrument(electron, late) {
   app.on('certificate-error', (event, contents, url, error) => write('certificate-error', { url: redact(url), error: String(error) }));
   app.whenReady().then(() => safely(() => instrumentSession(electron.session.defaultSession)));
   app.on('quit', () => write('quit', {}));
+  // files, deep links and command lines handed to the app (listening does not change how the app handles them)
+  app.on('open-file', () => write('entry', { detail: 'open-file' }));
+  app.on('open-url', () => write('entry', { detail: 'open-url' }));
+  app.on('second-instance', () => write('entry', { detail: 'second-instance' }));
+  safely(() => {
+    const { dialog } = electron;
+    for (const method of ['showOpenDialog', 'showOpenDialogSync']) {
+      const original = dialog[method];
+      if (typeof original !== 'function') continue;
+      dialog[method] = function (...args) {
+        write('entry', { detail: 'open-dialog' });
+        return original.apply(this, args);
+      };
+    }
+  });
 
   return wrappedModule;
 }

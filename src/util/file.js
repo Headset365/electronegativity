@@ -23,7 +23,8 @@ export function getSample(fileLines, index) {
 }
 
 export function getRelativePath(targetFolder, filePath) {
-  if (filePath === "N/A")
+  // "N/A", and files served remotely, which are reported by URL
+  if (filePath === "N/A" || /^[a-z][a-z0-9+.-]*:\/\//i.test(filePath))
     return filePath;
   if (is_directory(targetFolder))
     return path.relative(targetFolder, filePath);

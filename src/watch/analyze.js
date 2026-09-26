@@ -178,7 +178,50 @@ export function analyzeWatchLog(records) {
     add('RUNTIME_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
       `${unusedChannels.length} of ${registered.size} IPC channels registered by the app were not used during the session: ${unusedChannels.join(', ')}`, { unusedChannels });
 
-  return { issues, summary: { started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels } };
+  // entry points the user exercised: paste, drag and drop, file pickers and dialogs, files and deep links
+  const entryPoints = {};
+  for (const r of records.filter(r => r.kind === 'entry')) entryPoints[r.detail] = (entryPoints[r.detail] || 0) + 1;
+
+  // API endpoints the pages called, for server-side testing: grouped by method and path (ids replaced by {id}), with
+  // whether any request sent HTML in its body. Stored content that reaches other users goes through these endpoints,
+  // and the server is where it must be validated: an endpoint that accepted markup is where to start.
+  const endpoints = new Map();
+  for (const r of records.filter(r => r.kind === 'api')) {
+    const route = apiRoute(r.url);
+    if (!route) continue;
+    const key = `${r.method} ${route}`;
+    if (!endpoints.has(key)) endpoints.set(key, { method: r.method, route, calls: 0, statuses: new Set(), htmlBody: false, maxBodyBytes: 0 });
+    const endpoint = endpoints.get(key);
+    endpoint.calls++;
+    if (r.status) endpoint.statuses.add(r.status);
+    if (r.htmlBody) endpoint.htmlBody = true;
+    endpoint.maxBodyBytes = Math.max(endpoint.maxBodyBytes, r.bodyBytes || 0);
+  }
+  const api = [...endpoints.values()].map(e => ({ ...e, statuses: [...e.statuses].sort() })).sort((a, b) => Number(b.htmlBody) - Number(a.htmlBody) || b.calls - a.calls);
+  for (const endpoint of api.filter(e => e.htmlBody && e.statuses.some(status => status < 400))) {
+    add('RUNTIME_HTML_ENDPOINT', endpoint.route, severity.INFORMATIONAL, confidence.CERTAIN,
+      `${endpoint.method} ${endpoint.route} accepted a request body containing HTML markup (${endpoint.calls} call${endpoint.calls === 1 ? '' : 's'}, status ${endpoint.statuses.join('/')}): verify on the server that stored markup is sanitized before other users receive it`,
+      { method: endpoint.method, route: endpoint.route }, 'https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html');
+    issues[issues.length - 1].manualReview = true;
+  }
+
+  return { issues, summary: { started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api } };
+}
+
+// https://host/api/documents/42/comments?x=1 -> https://host/api/documents/{id}/comments: numbers, UUIDs and long hex or
+// base64-like segments are identifiers
+function apiRoute(url) {
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split('/').map(segment => {
+      if (/^\d+$/.test(segment) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment) ||
+        /^[0-9a-f]{16,}$/i.test(segment) || (/^[\w-]{20,}$/.test(segment) && /\d/.test(segment))) return '{id}';
+      return segment;
+    });
+    return `${parsed.origin}${segments.join('/')}`;
+  } catch {
+    return undefined;
+  }
 }
 
 // script-src, or default-src when there is none

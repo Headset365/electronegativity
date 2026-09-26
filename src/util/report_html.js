@@ -84,7 +84,33 @@ function runtimeSurface(runtimeWindows, ipc, coverage, summary, windowCoverage) 
     </tbody>
   </table></div>` : ''}${unused.length > 0 ? `
   <p class="note"><b>IPC channels not exercised during the session:</b> ${unused.map(c => `<code>${escapeHtml(c)}</code>`).join(' ')}. Go through the features that use these channels to cover them.</p>` : ''}${unopened.length > 0 ? `
-  <p class="note"><b>Windows never opened during the session:</b> ${unopened.map(w => escapeHtml(w)).join('; ')}. Open these screens to observe them at runtime.</p>` : ''}`;
+  <p class="note"><b>Windows never opened during the session:</b> ${unopened.map(w => escapeHtml(w)).join('; ')}. Open these screens to observe them at runtime.</p>` : ''}${apiEndpoints(summary)}${entryPoints(summary)}`;
+}
+
+const ENTRY_NAMES = { 'paste-html': 'paste (formatted)', 'paste-text': 'paste (plain text)', 'paste-file': 'paste (file)', 'drop-html': 'drop (formatted)',
+  'drop-text': 'drop (text)', 'drop-file': 'drop (file)', 'file-picker': 'file picker', 'open-dialog': 'open dialog', 'open-file': 'file association',
+  'open-url': 'deep link', 'second-instance': 'second instance' };
+
+function entryPoints(summary) {
+  const used = summary && summary.entryPoints ? Object.entries(summary.entryPoints) : [];
+  if (!summary) return '';
+  return `
+  <p class="note"><b>Ways content came in during the session:</b> ${used.length > 0 ? used.map(([kind, count]) => `${escapeHtml(ENTRY_NAMES[kind] || kind)} &times;${escapeHtml(count)}`).join(', ') : 'none (no paste, drag and drop, file import or deep link)'}.</p>`;
+}
+
+// the endpoints pages called: where stored content goes, to test on the server (e.g. with an intercepting proxy)
+function apiEndpoints(summary) {
+  const api = summary && Array.isArray(summary.api) ? summary.api : [];
+  if (api.length === 0) return '';
+  const shown = api.slice(0, 100);
+  return `
+  <div class="table-wrap"><table class="surface">
+    <thead><tr><th>API endpoint called</th><th>Calls</th><th>Status</th><th>Request body</th></tr></thead>
+    <tbody>${shown.map(e => `
+      <tr><td class="loc"><code>${escapeHtml(e.method)}</code> ${escapeHtml(e.route)}</td><td>${escapeHtml(e.calls)}</td><td>${escapeHtml(e.statuses.join(', '))}</td><td>${e.htmlBody ? '<span class="risk">contains HTML</span>' : e.maxBodyBytes ? `${escapeHtml(e.maxBodyBytes)} bytes` : ''}</td></tr>`).join('')}
+    </tbody>
+  </table></div>
+  <p class="note">Endpoints that accepted HTML are where stored content enters: check on the server that it is sanitized (or rejected) whatever the client sends.${api.length > shown.length ? ` ${escapeHtml(api.length - shown.length)} more endpoints are in the JSON report.` : ''}</p>`;
 }
 
 function attackSurface(windows, apis, runtime = '', hasRuntime = false) {

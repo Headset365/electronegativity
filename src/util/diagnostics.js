@@ -168,6 +168,7 @@ export function writeDiagnostics(file, scan, { redact = [], version } = {}) {
     findings: { total: (scan.issues || []).length, bySeverity, byCheck },
     events: collector ? collector.events : [],
     watch: scan.watch,
+    remote: scan.remote,
     redactedTerms: terms.length,
   };
   fs.writeFileSync(file, JSON.stringify(sanitize(report), null, 2));
