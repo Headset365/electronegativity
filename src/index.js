@@ -10,6 +10,7 @@ import { severity } from './finder/attributes.js';
 import { OUTPUT_FORMATS } from './util/index.js';
 import { resolveApp, watchApp } from './watch/launch.js';
 import { readWatchLog, analyzeWatchLog } from './watch/analyze.js';
+import { analyzePackagedFuses } from './watch/fuses.js';
 
 async function main() {
 
@@ -42,6 +43,7 @@ async function main() {
     .option('--watch <app>', __('watchOptionDescription'))
     .option('--watch-args <args>', __('watchArgsOptionDescription'))
     .option('--watch-log <file>', __('watchLogOptionDescription'))
+    .option('--watch-marker <token>', __('watchMarkerOptionDescription'))
     .parse(process.argv);
 
   const options = program.opts();
@@ -71,15 +73,25 @@ async function main() {
   let runtime;
   if (options.watch || options.watchLog) {
     let log = options.watchLog;
+    let packagedApp;
     try {
       if (options.watch) {
-        const { staticInput } = resolveApp(options.watch);
-        if (!options.input && staticInput) options.input = staticInput;
+        const app = resolveApp(options.watch);
+        packagedApp = app.packaged ? app.command : undefined;
+        if (!options.input && app.staticInput) options.input = app.staticInput;
         console.log(chalk.cyan(__('watchStarting')));
-        log = await watchApp(options.watch, { args: options.watchArgs ? options.watchArgs.split(/\s+/).filter(Boolean) : [] });
+        log = await watchApp(options.watch, { args: options.watchArgs ? options.watchArgs.split(/\s+/).filter(Boolean) : [], marker: options.watchMarker });
         console.log(chalk.gray(__('watchLogSaved', { file: log })));
       }
       runtime = analyzeWatchLog(readWatchLog(log));
+      // read the fuses actually written into the packaged binary, which the static FUSES_* checks can't see
+      if (packagedApp) {
+        const fuses = analyzePackagedFuses(packagedApp);
+        if (fuses.read) {
+          runtime.issues.push(...fuses.issues);
+          runtime.summary.fuses = fuses.states;
+        }
+      }
     } catch (error) {
       console.error(chalk.red(error.message));
       process.exit(2);

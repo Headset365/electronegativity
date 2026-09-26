@@ -51,15 +51,19 @@ export function analyzeWatchLog(records) {
   const started = records.some(r => r.kind === 'start');
   const pages = records.filter(r => r.kind === 'page' && !INTERNAL_PAGES.test(r.url));
   const prefsById = new Map(pages.map(p => [p.id, p.prefs || {}]));
+  // preload scripts captured where each window was constructed (getLastWebPreferences() omits them)
+  const preloadByContents = new Map();
+  for (const r of records.filter(r => r.kind === 'window')) if (r.id !== undefined && r.preload) preloadByContents.set(r.id, r.preload);
 
   // what each window really ran with
   for (const page of pages) {
     const prefs = page.prefs || {};
     const where = origin(page.url);
     const settings = Object.fromEntries(['nodeIntegration', 'contextIsolation', 'sandbox', 'webSecurity'].map(name => [name, { value: prefs[name], source: 'observed' }]));
+    const preload = prefs.preload || preloadByContents.get(page.id);
     if (first(`window:${page.id}:${where}`))
       add('RUNTIME_WINDOW_SUMMARY', page.url, severity.INFORMATIONAL, confidence.CERTAIN, `Window observed at runtime: ${page.type} showing ${page.url}`,
-        { window: page.type, settings, preload: prefs.preload, url: page.url, webContents: page.id });
+        { window: page.type, settings, preload, url: page.url, webContents: page.id });
     if (prefs.nodeIntegration === true && prefs.sandbox !== true && first(`node:${where}`))
       add('RUNTIME_NODE_INTEGRATION', page.url, severity.HIGH, confidence.CERTAIN, `A page ran with Node.js integration: ${page.url} (nodeIntegration on, not sandboxed)`, undefined, `${DOCS}#2-do-not-enable-nodejs-integration-for-remote-content`);
     if (prefs.contextIsolation === false && first(`isolation:${where}`))
@@ -132,6 +136,25 @@ export function analyzeWatchLog(records) {
     if (!first(`perm:${r.permission}:${origin(r.origin)}`)) continue;
     if (r.default) add('RUNTIME_PERMISSION', r.origin, severity.MEDIUM, confidence.CERTAIN, `The '${r.permission}' permission was granted to ${r.origin} automatically, as the app has no permission request handler`, undefined, `${DOCS}#5-handle-session-permission-requests-from-remote-content`);
     else add('RUNTIME_PERMISSION', r.origin, severity.INFORMATIONAL, confidence.CERTAIN, `The app's permission handler granted '${r.permission}' to ${r.origin}`);
+  }
+  // synchronous permission checks (setPermissionCheckHandler): without a handler of the app's own, Electron allows them
+  for (const r of records.filter(r => r.kind === 'permission-check' && r.granted)) {
+    if (!first(`permcheck:${r.permission}:${origin(r.origin)}`)) continue;
+    if (r.default) add('RUNTIME_PERMISSION_CHECK', r.origin, severity.MEDIUM, confidence.CERTAIN, `The '${r.permission}' permission check was allowed for ${r.origin} automatically, as the app has no setPermissionCheckHandler`, undefined, `${DOCS}#5-handle-session-permission-requests-from-remote-content`);
+    else add('RUNTIME_PERMISSION_CHECK', r.origin, severity.INFORMATIONAL, confidence.CERTAIN, `The app's permission check handler allowed '${r.permission}' for ${r.origin}`);
+  }
+  // what the renderer-side observer saw inside pages: script-bearing DOM changes, and planted-marker reflections
+  for (const r of records.filter(r => r.kind === 'dom-observed')) {
+    if (r.event === 'marker') {
+      if (!first(`marker:${origin(r.url)}:${r.live}`)) continue;
+      if (r.live) add('RUNTIME_MARKER', r.url, severity.HIGH, confidence.FIRM, `Planted marker content came back rendered as live HTML at ${r.url}: stored input reaches another view without being neutralized (the stored-content threat)`, { marker: r.detail, live: true }, `${DOCS}#7-define-a-content-security-policy`);
+      else add('RUNTIME_MARKER', r.url, severity.INFORMATIONAL, confidence.CERTAIN, `Planted marker appeared as text (escaped) at ${r.url}`, { marker: r.detail, live: false });
+      continue;
+    }
+    // script-bearing insertions: on* handlers and javascript: URLs are strong injection signals; plain <script> tags
+    // are too common in normal apps (code splitting) to report on their own
+    if ((r.event === 'event-handler' || r.event === 'javascript-url') && first(`dom:${origin(r.url)}:${r.event}:${r.detail}`))
+      add('RUNTIME_DOM_INJECTION', r.url, severity.LOW, confidence.FIRM, `Script was inserted into the page at runtime (${r.event}${r.detail ? ' ' + r.detail : ''}) at ${r.url}; check that untrusted input cannot reach this sink`, { event: r.event, detail: r.detail }, `${DOCS}#7-define-a-content-security-policy`);
   }
   for (const r of records.filter(r => r.kind === 'certificate-error')) {
     if (first(`cert:${origin(r.url)}`))

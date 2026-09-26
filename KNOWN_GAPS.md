@@ -1,56 +1,85 @@
 # Known gaps
 
-Features that were planned but not added, and known limits of what was built. Each item can be picked up separately.
+The features that were previously planned but not built have now been added. This file records what each one does and
+the limits that remain, so the boundaries of the analysis stay clear.
 
-## Not added
-
-These were started and rolled back. They need a separate approach (manual testing, a dedicated web application security assessment, or other tooling).
+## Now implemented
 
 ### 1. Planted test content in watch mode
 
-- **What it would do:** a second test account posts harmless marked content into shared parts of the app, and watch mode reports whether it comes back as live HTML when another user views it in the desktop app.
-- **Why it matters:** this is the stored-content threat model (content from one user rendered by another user's client), the root cause of most published Electron vulnerabilities.
-- **Covered today by:** manual testing. The "Renderer attack surface" table in the HTML report shows how much an injection in each window could reach.
+- **What it does:** `--watch-marker <token>` plants a marker into the session. Plant content that carries the token
+  (the recommended shape is `<span data-eng="TOKEN">TOKEN</span>`) into a shared part of the app from one account, then
+  open it as another user. The renderer-side observer reports `RUNTIME_MARKER` and says whether the token came back as
+  live HTML (HIGH: stored input reaches another view unneutralized) or only as escaped text (informational).
+- **Why it matters:** this is the stored-content threat model (content from one user rendered by another user's client),
+  the root cause of most published Electron vulnerabilities.
+- **Remaining limit:** detection is a heuristic — it distinguishes markup (the token in an element or attribute) from
+  escaped text (the token in visible text). Plant the token in the recommended shape so both cases are distinguishable.
 
 ### 2. HTML injection analysis for AngularJS and rich-text editors
 
-- **What it would do:**
-  - treat data from the server (`$http`, `fetch`, axios, WebSocket and `message` events) as untrusted;
-  - check AngularJS HTML trust and template compilation (`$sce.trustAs*`, `$compile`/`$interpolate`/`$eval` of server data, `ng-bind-html-unsafe`);
-  - recognize rich-text editor HTML-loading APIs (`execCommand('insertHTML')`, TinyMCE, CKEditor, Quill, Froala, Summernote);
-  - recognize HTML strings passed to `$()` / `angular.element()`;
-  - raise server-fed HTML sinks to HIGH when the window has Node.js access.
-- **Covered today by:** `XSS_SINK_JS_CHECK` covers the standard DOM sinks: `innerHTML`/`outerHTML`, `insertAdjacentHTML`, `document.write`, jQuery `.html()` and building strings for `.append()` and similar, and React `dangerouslySetInnerHTML`. `ANGULAR_SCE_DISABLED_JS_CHECK` covers `$sce` being switched off globally.
-- **Related finding from manual testing:** the document editor's HTML is filtered on the client but less strictly on the server. Server-side sanitization with an allowlist-based sanitizer should be verified independently of this tool.
+- **What it does:**
+  - treats data from the server (`fetch`, `$http`, axios and the bodies they resolve to, and `message`/WebSocket events)
+    as untrusted, and raises server-fed HTML sinks to HIGH (`XSS_SINK_JS_CHECK`);
+  - checks AngularJS HTML trust and template compilation — `$sce.trustAsHtml`, `$sce.trustAs(HTML, …)`, `$compile`,
+    `$interpolate`, `$parse` of dynamic data (`ANGULAR_TRUST_HTML_JS_CHECK`), and `ng-bind-html-unsafe` in templates
+    (`ANGULAR_BIND_HTML_UNSAFE_HTML_CHECK`);
+  - recognizes rich-text editor HTML-loading APIs — TinyMCE, CKEditor, Quill, Froala, Summernote
+    (`RICH_TEXT_EDITOR_JS_CHECK`) and `execCommand('insertHTML')`;
+  - recognizes HTML strings passed to `$()` / `angular.element()` (`XSS_SINK_JS_CHECK`).
+- **Also covered:** `XSS_SINK_JS_CHECK` continues to cover the standard DOM sinks (`innerHTML`/`outerHTML`,
+  `insertAdjacentHTML`, `document.write`, jQuery `.html()`/`.append()` and React `dangerouslySetInnerHTML`), and
+  `ANGULAR_SCE_DISABLED_JS_CHECK` covers `$sce` being switched off globally.
+- **Remaining limit:** server-side sanitization still has to be verified independently; static analysis sees only the
+  client. Rich-text editor method names (`setData`, `setContent`) are generic, so those findings are TENTATIVE unless
+  the value is clearly server-fed.
 
-## Limits of what was built
+### 3. Renderer-side observer in watch mode
 
-### 3. Watch mode only observes the main process
+- **What it does:** a small read-only script is installed in each page and polled from the main process. It reports DOM
+  changes that carry script — inserted inline event-handler attributes (`onerror=`, …) and `javascript:` URLs
+  (`RUNTIME_DOM_INJECTION`) — and the planted-marker reflections above. This is watch mode observing what happens inside
+  pages, not only the main process.
+- **Remaining limit:** the observer is injected with `executeJavaScript` and polled (world- and CSP-agnostic), rather
+  than through the Chrome DevTools Protocol, so it reports the security-relevant script-bearing insertions and marker
+  reflections rather than every DOM mutation. Plain `<script>` insertions are recorded but not reported (too common in
+  normal apps).
 
-- **What's missing:** it records windows, page loads, headers, IPC, `shell` calls, permissions and certificate errors, but not what happens inside pages (DOM changes, script behavior).
-- **Possible approach:** a renderer-side observer injected through the Chrome DevTools Protocol.
+### 4. Coverage beyond IPC channels
 
-### 4. Coverage is measured by IPC channels only
+- **What it does:** in addition to the registered IPC channels that were never used (`RUNTIME_COVERAGE`), the report now
+  lists windows the static scan found that were never opened during the session (`RUNTIME_WINDOW_COVERAGE`), by comparing
+  the windows found statically with the pages observed at runtime.
+- **Remaining limit:** windows are matched by their preload script, so a window with no preload cannot be told apart
+  from another; in-page routes inside a single window are not enumerated.
 
-- **What's missing:** the report lists registered IPC channels the session never used, but not screens, routes or windows that were never opened.
-- **Possible approach:** compare the windows and routes found by the static scan with the pages observed at runtime.
+### 5. Preload scripts in the runtime table
 
-### 5. Preload scripts are missing from the runtime table
+- **What it does:** `getLastWebPreferences()` does not report the preload path, so the hook captures it where each window
+  is constructed (the `BrowserWindow`/`BrowserView`/`WebContentsView` constructors are wrapped through a Proxy of the
+  electron module). The "Observed while the app ran" table now has a preload column.
+- **Remaining limit:** an ES-module app that imports the window constructors before the hook runs keeps its original
+  binding, so its preloads may not be captured.
 
-- **What's missing:** Electron's `getLastWebPreferences()` doesn't report the preload path, so the "Observed while the app ran" table has no preload column. The static table shows preloads where they can be resolved.
-- **Possible approach:** record `webPreferences.preload` when windows are constructed (wrap the `BrowserWindow` constructor in the hook).
+### 6. Fuses read from the packaged binary
 
-### 6. Fuses are read from build configuration only
+- **What it does:** the `FUSES_*` checks read `@electron/fuses` calls and packager configuration; watch mode of a
+  packaged app additionally reads the fuse wire embedded in the shipped executable (`PACKAGED_FUSES`), so states set by
+  the build pipeline — and not by code the scan can see — are caught.
+- **Remaining limit:** reads the V1 fuse wire format; the binary is scanned for the fuse sentinel, which is present in
+  standard Electron builds.
 
-- **What's missing:** `FUSES_*` checks read `@electron/fuses` calls and packager configuration. They don't read the fuse wire in the packaged executable, so changes made by the build pipeline aren't seen.
-- **Possible approach:** read the fuse sentinel from the packaged binary (the format `@electron/fuses` reads).
+### 7. Static and runtime findings are reconciled
 
-### 7. Static and runtime findings are not merged
+- **What it does:** runtime windows are linked to the static window findings by preload script (the report shows where
+  each observed window was defined, and which static windows were observed at runtime), and a problem seen both in the
+  code and at runtime — for example `NODE_INTEGRATION_JS_CHECK` and `RUNTIME_NODE_INTEGRATION` — is marked as confirmed
+  by the other source instead of standing alone.
+- **Remaining limit:** the confirmation link is drawn at the level of the finding type; it does not yet map each runtime
+  window one-to-one onto the exact static window it came from beyond the preload match.
 
-- **What's missing:** a problem seen both in the code and at runtime appears twice, for example `NODE_INTEGRATION_JS_CHECK` and `RUNTIME_NODE_INTEGRATION`.
-- **Possible approach:** link runtime windows to the static window findings (by preload script and loaded URL/file) and show one finding with both sources.
+### 8. Permission check handlers are observed
 
-### 8. Permission check handlers are not observed
-
-- **What's missing:** watch mode records permission requests and their answers (`setPermissionRequestHandler`), but not `setPermissionCheckHandler`, which answers synchronous permission queries.
-- **Possible approach:** wrap `setPermissionCheckHandler` in the hook the same way as the request handler.
+- **What it does:** watch mode records synchronous permission checks (`setPermissionCheckHandler`) the same way as
+  permission requests, reporting what the app's handler — or Electron's default, when the app sets none — allows
+  (`RUNTIME_PERMISSION_CHECK`).

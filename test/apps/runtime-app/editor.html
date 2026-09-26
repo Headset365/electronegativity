@@ -1,5 +1,14 @@
 <!doctype html>
 <html>
 <head><title>Editor</title></head>
-<body><div contenteditable="true">Document</div></body>
+<body><div contenteditable="true">Document</div>
+<div id="stored"></div>
+<script>
+  // stand-in for stored content rendered as HTML at runtime: carries an event handler and the planted marker,
+  // so the renderer-side observer reports the DOM injection and that the marker came back as live HTML
+  setTimeout(function () {
+    document.getElementById('stored').innerHTML = '<img src=x onerror="void 0"><span data-eng="ENGCANARY">note</span>';
+  }, 150);
+</script>
+</body>
 </html>

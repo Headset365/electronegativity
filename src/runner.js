@@ -9,6 +9,7 @@ import { Parser } from './parser/index.js';
 import { Finder } from './finder/index.js';
 import { ProjectIndex } from './finder/project_index.js';
 import { loadBaseline, applyBaseline, writeBaseline } from './util/baseline.js';
+import { reconcileRuntime } from './watch/reconcile.js';
 import { GlobalChecks, severity, confidence } from './finder/index.js';
 import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util/index.js';
 
@@ -177,8 +178,11 @@ async function scan(options, forCli) {
   // Adjust visibility
   issues = issues.filter(i => !Object.hasOwn(i, 'visibility') || (!i.visibility.inlineDisabled && !i.visibility.globalCheckDisabled));
 
-  // findings observed while the app ran (--watch)
-  if (options.runtime) issues.push(...options.runtime.issues);
+  // findings observed while the app ran (--watch), reconciled with the static findings (linked windows, coverage)
+  if (options.runtime) {
+    issues.push(...options.runtime.issues);
+    reconcileRuntime(issues);
+  }
 
   // Baseline: accepted findings are not reported again
   let suppressed = [];

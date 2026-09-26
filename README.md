@@ -53,7 +53,7 @@ To update a global install, run the `npm install -g` command again.
 * Checks account for the secure defaults of newer Electron releases: `contextIsolation` (Electron 12+), `sandbox` (Electron 20+, unless `nodeIntegration` is enabled) and the removal of the `remote` module (Electron 14+). When the Electron version can't be detected, the oldest (least secure) defaults are still assumed.
 * `AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK` now queries the [OSV](https://osv.dev) database of published Electron security advisories (GitHub Security Advisories), as Electron's former release feed stopped being updated in 2022. Findings list the matching advisory IDs.
 * Native ES modules with no build step, running on current versions of all dependencies (Babel 8, TypeScript ESTree 8, espree, eslint-scope, cheerio 1.x, commander, chalk).
-* 92 security checks (up from 42), covering the current [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security): IPC sender validation, APIs exposed through `contextBridge`, Electron Fuses, `setWindowOpenHandler`, `<webview>` hardening, custom scheme privileges, disabled TLS validation, `shell` APIs, deep link and file association handlers, downloads, update feeds, plaintext secrets, screen capture, DevTools, Secure Keyboard Entry, WebGL/WebSQL, unsandboxed iframes, AngularJS `$sce` configuration and certificate pinning.
+* 95 security checks (up from 42), covering the current [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security): IPC sender validation, APIs exposed through `contextBridge`, Electron Fuses, `setWindowOpenHandler`, `<webview>` hardening, custom scheme privileges, disabled TLS validation, `shell` APIs, deep link and file association handlers, downloads, update feeds, plaintext secrets, screen capture, DevTools, Secure Keyboard Entry, WebGL/WebSQL, unsandboxed iframes, HTML injection into AngularJS and rich-text editors, AngularJS `$sce` configuration and certificate pinning.
 * Outdated software: end-of-life Electron majors, newer patch releases of pinned versions, and known vulnerabilities in every locked npm dependency. Development-only packages are reported as LOW: npm lockfiles record them, and for Yarn and pnpm lockfiles they are worked out from the `dependencies` of the project's `package.json` files and workspaces.
 * Findings follow the Electron version in use, e.g. `affinity` is ignored from Electron 14 and the `new-window` event is reported as ineffective from Electron 22.
 * Upgrade checks (`-u`) for the breaking changes of Electron 12 to 32.
@@ -72,7 +72,7 @@ Checks run on JavaScript/TypeScript, HTML, `package.json`/`electron-builder.json
 | Renderer isolation | `NODE_INTEGRATION_*`, `CONTEXT_ISOLATION_JS_CHECK`, `SANDBOX_*` (incl. `app.enableSandbox()`), `PRELOAD_JS_CHECK`, `REMOTE_MODULE_JS_CHECK` (incl. `@electron/remote`), `AFFINITY_*` |
 | IPC and preload | `IPC_SENDER_VALIDATION_JS_CHECK`, `CONTEXT_BRIDGE_EXPOSURE_JS_CHECK` |
 | Binary hardening | `FUSES_JS_CHECK`, `FUSES_JSON_CHECK`, `FUSES_GLOBAL_CHECK` (RunAsNode, NODE_OPTIONS, `--inspect`, ASAR integrity, cookie encryption, ...) |
-| Web security | `WEB_SECURITY_*`, `INSECURE_CONTENT_*`, `HTTP_RESOURCES_*`, `CSP_*`, `EXPERIMENTAL_FEATURES_*`, `BLINK_FEATURES_*`, `WEBGL_*`, `WEBSQL_*`, `PLUGINS_*`, `NAVIGATE_ON_DRAG_DROP_*`, `XSS_SINK_JS_CHECK` (DOM, React and jQuery sinks), `IFRAME_SANDBOX_*`, `ANGULAR_SCE_DISABLED_JS_CHECK`, `ANGULAR_RESOURCE_URL_LIST_JS_CHECK` |
+| Web security | `WEB_SECURITY_*`, `INSECURE_CONTENT_*`, `HTTP_RESOURCES_*`, `CSP_*`, `EXPERIMENTAL_FEATURES_*`, `BLINK_FEATURES_*`, `WEBGL_*`, `WEBSQL_*`, `PLUGINS_*`, `NAVIGATE_ON_DRAG_DROP_*`, `XSS_SINK_JS_CHECK` (DOM, React and jQuery sinks; server-fed HTML raised to HIGH), `RICH_TEXT_EDITOR_JS_CHECK`, `ANGULAR_TRUST_HTML_JS_CHECK`, `ANGULAR_BIND_HTML_UNSAFE_HTML_CHECK`, `IFRAME_SANDBOX_*`, `ANGULAR_SCE_DISABLED_JS_CHECK`, `ANGULAR_RESOURCE_URL_LIST_JS_CHECK` |
 | Navigation and windows | `LIMIT_NAVIGATION_*`, `WINDOW_OPEN_HANDLER_JS_CHECK`, `UNTRUSTED_LOAD_URL_JS_CHECK`, `FILE_PROTOCOL_JS_CHECK`, `AUXCLICK_*`, `ALLOWPOPUPS_HTML_CHECK`, `WEBVIEW_TAG_JS_CHECK`, `WEBVIEW_GLOBAL_CHECK` |
 | Dangerous APIs | `DANGEROUS_FUNCTIONS_JS_CHECK`, `OPEN_EXTERNAL_JS_CHECK`, `OPEN_PATH_JS_CHECK`, `SHOWITEMINFOLDER_JS_CHECK`, `WRITE_SHORTCUT_JS_CHECK`, `COMMAND_INJECTION_JS_CHECK`, `DEVTOOLS_JS_CHECK` |
 | Protocols and external input | `PROTOCOL_HANDLER_JS_CHECK`, `PROTOCOL_PRIVILEGES_JS_CHECK`, `FILE_HANDLER_JS_CHECK`, `FILE_HANDLER_JSON_CHECK`, `PERMISSION_REQUEST_HANDLER_*` |
@@ -81,7 +81,7 @@ Checks run on JavaScript/TypeScript, HTML, `package.json`/`electron-builder.json
 | Downloads and updates | `DOWNLOAD_JS_CHECK` (auto-opened downloads, server-chosen file names), `UPDATE_SECURITY_*` (HTTP feeds, unverified signatures, downgrades) |
 | Outdated software | `ELECTRON_VERSION_JSON_CHECK`, `AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK`, `UNSUPPORTED_VERSION_GLOBAL_CHECK`, `DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK` (also for library copies bundled with the app), `END_OF_LIFE_LIBRARY_GLOBAL_CHECK` (AngularJS, jQuery 1.x/2.x, Bootstrap 2-4; works offline) |
 | Attack surface inventory | `WINDOW_SUMMARY_JS_CHECK`, `EXPOSED_API_JS_CHECK` (informational, shown as tables in the HTML report) |
-| Runtime (`--watch`) | `RUNTIME_NODE_INTEGRATION`, `RUNTIME_CONTEXT_ISOLATION`, `RUNTIME_SANDBOX`, `RUNTIME_WEB_SECURITY`, `RUNTIME_CSP`, `RUNTIME_INSECURE_LOAD`, `RUNTIME_NAVIGATION`, `RUNTIME_NEW_WINDOW`, `RUNTIME_WEBVIEW`, `RUNTIME_OPEN_EXTERNAL`, `RUNTIME_OPEN_PATH`, `RUNTIME_PERMISSION`, `RUNTIME_CERTIFICATE_ERROR`, `RUNTIME_IPC`, `RUNTIME_COVERAGE` |
+| Runtime (`--watch`) | `RUNTIME_NODE_INTEGRATION`, `RUNTIME_CONTEXT_ISOLATION`, `RUNTIME_SANDBOX`, `RUNTIME_WEB_SECURITY`, `RUNTIME_CSP`, `RUNTIME_INSECURE_LOAD`, `RUNTIME_NAVIGATION`, `RUNTIME_NEW_WINDOW`, `RUNTIME_WEBVIEW`, `RUNTIME_OPEN_EXTERNAL`, `RUNTIME_OPEN_PATH`, `RUNTIME_PERMISSION`, `RUNTIME_PERMISSION_CHECK`, `RUNTIME_CERTIFICATE_ERROR`, `RUNTIME_DOM_INJECTION`, `RUNTIME_MARKER`, `RUNTIME_IPC`, `RUNTIME_COVERAGE`, `RUNTIME_WINDOW_COVERAGE`, `PACKAGED_FUSES` |
 
 The outdated software checks need network access: they query [releases.electronjs.org](https://releases.electronjs.org) (cached for 12 hours) and the [OSV](https://osv.dev) vulnerability database. Offline, they print a warning and are skipped; `--offline` skips them without trying.
 
@@ -180,17 +180,22 @@ Static analysis reads all the code, including the parts behind a login. Watch mo
 ```
 $ electronegativity --watch ./my-app -o report.html          # app folder with Electron installed
 $ electronegativity --watch ./dist/linux-unpacked/my-app -o report.html   # packaged executable
+$ electronegativity --watch ./my-app --watch-marker ENG42 -o report.html  # detect stored-content injection
 $ electronegativity --watch-log session.jsonl -i ./my-app -o report.html  # re-analyze an earlier session
 ```
 
-The app starts with a small observer loaded into its main process. Log in and go through the features you want covered, then close the app. The report then includes:
+The app starts with a small observer loaded into its main process, and a read-only script installed in each page. Log in and go through the features you want covered, then close the app. The report then includes:
 
-* every page each window showed, with the `nodeIntegration`, `contextIsolation`, `sandbox` and `webSecurity` values it ran with;
+* every page each window showed, with the `nodeIntegration`, `contextIsolation`, `sandbox`, `webSecurity` values and the preload script it ran with, linked to where the window is defined in the code;
 * pages shown without a Content Security Policy (header or `<meta>`), or with one allowing inline scripts or `eval`;
 * content loaded over plain http, navigation to other origins, new windows and `<webview>`s created for web content;
 * `shell.openExternal` calls with non-web URLs and `shell.openPath` on executable file types;
-* permissions granted automatically because the app has no permission request handler, and certificate errors;
-* the IPC channels pages used and, as coverage, the channels the app registered that the session never exercised.
+* permissions granted automatically because the app has no permission request or check handler, and certificate errors;
+* what the renderer-side observer saw inside pages: script inserted into the DOM at runtime (`on*` handlers, `javascript:` URLs) and, with `--watch-marker`, whether a planted marker came back as live HTML (the stored-content threat);
+* for a packaged app, the Electron Fuses read from the shipped binary, not only from the build configuration;
+* coverage: the IPC channels and the windows the app has that the session never exercised, and findings confirmed both in the code and at runtime.
+
+To detect stored-content injection with `--watch-marker <token>`, plant content carrying the token (for example `<span data-eng="TOKEN">TOKEN</span>`) from one account and open it as another user; the observer reports whether it renders as live HTML or stays escaped text.
 
 The observer only records: it doesn't change what the app does. URLs are stored without their query strings, and IPC arguments only by type. It is loaded through `NODE_OPTIONS`, which packaged apps ignore when the `EnableNodeOptionsEnvironmentVariable` fuse is off (as recommended for production): run watch mode on a development or test build. With an app folder, the folder is also scanned statically; with a packaged executable, its `resources/app.asar`.
 

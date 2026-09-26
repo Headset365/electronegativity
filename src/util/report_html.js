@@ -41,7 +41,7 @@ function findingRow(issue, index) {
  * @param {Array} issues findings, as returned by run()
  * @param {Object} meta { version, input, electronVersion, filesScanned, globalChecks, atomicChecks, errors, generatedAt }
  */
-const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'RUNTIME_WINDOW_SUMMARY', 'RUNTIME_IPC', 'RUNTIME_COVERAGE'];
+const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'RUNTIME_WINDOW_SUMMARY', 'RUNTIME_IPC', 'RUNTIME_COVERAGE', 'RUNTIME_WINDOW_COVERAGE'];
 const place = (issue) => `${issue.file}${issue.location && issue.location.line ? ':' + issue.location.line : ''}`;
 
 // What page script could reach in each window, if content it renders were ever to run as code
@@ -64,16 +64,17 @@ function settingCell(settings, name, risky) {
 }
 
 // What watch mode saw: the pages each window really showed with its settings, IPC use and what was never exercised
-function runtimeSurface(runtimeWindows, ipc, coverage, summary) {
+function runtimeSurface(runtimeWindows, ipc, coverage, summary, windowCoverage) {
   if (!summary && runtimeWindows.length === 0) return '';
   const unused = coverage[0] && coverage[0].properties ? coverage[0].properties.unusedChannels : [];
+  const unopened = windowCoverage[0] && windowCoverage[0].properties ? windowCoverage[0].properties.unopened : [];
   return `
   <h3>Observed while the app ran</h3>${summary ? `
   <p class="note">${escapeHtml(summary.windows)} window(s) and ${escapeHtml(summary.pages)} page load(s) observed; ${escapeHtml(summary.usedChannels)} of ${escapeHtml(summary.channels)} registered IPC channels used.${summary.started ? '' : ' <span class="risk">The app did not load the watch hook: nothing was observed.</span>'}</p>` : ''}${runtimeWindows.length > 0 ? `
   <div class="table-wrap"><table class="surface">
-    <thead><tr><th>Page</th><th>nodeIntegration</th><th>contextIsolation</th><th>sandbox</th><th>webSecurity</th><th>Page script reaches</th></tr></thead>
+    <thead><tr><th>Page</th><th>nodeIntegration</th><th>contextIsolation</th><th>sandbox</th><th>webSecurity</th><th>Preload</th><th>Defined at</th><th>Page script reaches</th></tr></thead>
     <tbody>${runtimeWindows.map(w => { const p = w.properties || {}; return `
-      <tr><td class="loc">${escapeHtml(p.url)}</td>${settingCell(p.settings, 'nodeIntegration', true)}${settingCell(p.settings, 'contextIsolation', false)}${settingCell(p.settings, 'sandbox', false)}${settingCell(p.settings, 'webSecurity', false)}<td>${reach(p.settings)}</td></tr>`; }).join('')}
+      <tr><td class="loc">${escapeHtml(p.url)}</td>${settingCell(p.settings, 'nodeIntegration', true)}${settingCell(p.settings, 'contextIsolation', false)}${settingCell(p.settings, 'sandbox', false)}${settingCell(p.settings, 'webSecurity', false)}<td>${escapeHtml(p.preload || '')}</td><td class="loc">${escapeHtml(p.staticWindow || '')}</td><td>${reach(p.settings)}</td></tr>`; }).join('')}
     </tbody>
   </table></div>` : ''}${ipc.length > 0 ? `
   <div class="table-wrap"><table class="surface">
@@ -82,18 +83,19 @@ function runtimeSurface(runtimeWindows, ipc, coverage, summary) {
       <tr><td><code>${escapeHtml(p.channel)}</code></td><td>${escapeHtml((p.senders || []).join(', '))}</td></tr>`; }).join('')}
     </tbody>
   </table></div>` : ''}${unused.length > 0 ? `
-  <p class="note"><b>Not exercised during the session:</b> ${unused.map(c => `<code>${escapeHtml(c)}</code>`).join(' ')}. Go through the features that use these channels to cover them.</p>` : ''}`;
+  <p class="note"><b>IPC channels not exercised during the session:</b> ${unused.map(c => `<code>${escapeHtml(c)}</code>`).join(' ')}. Go through the features that use these channels to cover them.</p>` : ''}${unopened.length > 0 ? `
+  <p class="note"><b>Windows never opened during the session:</b> ${unopened.map(w => escapeHtml(w)).join('; ')}. Open these screens to observe them at runtime.</p>` : ''}`;
 }
 
-function attackSurface(windows, apis, runtime = '') {
+function attackSurface(windows, apis, runtime = '', hasRuntime = false) {
   if (windows.length === 0 && apis.length === 0 && !runtime) return '';
   return `
   <h2>Renderer attack surface</h2>
   <p class="note">What script running in each window could reach if content the window renders were ever interpreted as code. Values come from the code, or from the defaults of the Electron version in use.</p>${windows.length > 0 ? `
   <div class="table-wrap"><table class="surface">
-    <thead><tr><th>Window</th><th>Created at</th><th>nodeIntegration</th><th>contextIsolation</th><th>sandbox</th><th>webSecurity</th><th>Preload</th><th>Page script reaches</th></tr></thead>
+    <thead><tr><th>Window</th><th>Created at</th><th>nodeIntegration</th><th>contextIsolation</th><th>sandbox</th><th>webSecurity</th><th>Preload</th>${hasRuntime ? '<th>Observed at runtime</th>' : ''}<th>Page script reaches</th></tr></thead>
     <tbody>${windows.map(w => { const p = w.properties || {}; return `
-      <tr><td>${escapeHtml(p.window)}</td><td class="loc">${escapeHtml(place(w))}</td>${settingCell(p.settings, 'nodeIntegration', true)}${settingCell(p.settings, 'contextIsolation', false)}${settingCell(p.settings, 'sandbox', false)}${settingCell(p.settings, 'webSecurity', false)}<td>${escapeHtml(p.preload || '')}</td><td>${reach(p.settings)}</td></tr>`; }).join('')}
+      <tr><td>${escapeHtml(p.window)}</td><td class="loc">${escapeHtml(place(w))}</td>${settingCell(p.settings, 'nodeIntegration', true)}${settingCell(p.settings, 'contextIsolation', false)}${settingCell(p.settings, 'sandbox', false)}${settingCell(p.settings, 'webSecurity', false)}<td>${escapeHtml(p.preload || '')}</td>${hasRuntime ? `<td class="loc">${p.observedAt ? escapeHtml(p.observedAt) : '<small>not opened</small>'}</td>` : ''}<td>${reach(p.settings)}</td></tr>`; }).join('')}
     </tbody>
   </table></div>` : ''}${apis.length > 0 ? `
   <div class="table-wrap"><table class="surface">
@@ -108,7 +110,7 @@ export function renderHtmlReport(allIssues, meta) {
   const windows = allIssues.filter(i => i.id === 'WINDOW_SUMMARY_JS_CHECK');
   const apis = allIssues.filter(i => i.id === 'EXPOSED_API_JS_CHECK');
   const runtime = runtimeSurface(allIssues.filter(i => i.id === 'RUNTIME_WINDOW_SUMMARY'), allIssues.filter(i => i.id === 'RUNTIME_IPC'),
-    allIssues.filter(i => i.id === 'RUNTIME_COVERAGE'), meta.runtime);
+    allIssues.filter(i => i.id === 'RUNTIME_COVERAGE'), meta.runtime, allIssues.filter(i => i.id === 'RUNTIME_WINDOW_COVERAGE'));
   const issues = allIssues.filter(i => !INVENTORY.includes(i.id));
   const sorted = [...issues].sort((a, b) =>
     b.severity.value - a.severity.value || b.confidence.value - a.confidence.value ||
@@ -217,7 +219,7 @@ ${SEVERITIES.map(s => `    <button type="button" class="card sev-${s.toLowerCase
     <div class="card"><div class="n">${manual}</div><div class="l">Need manual review</div></div>
   </div>
 
-${attackSurface(windows, apis, runtime)}
+${attackSurface(windows, apis, runtime, !!meta.runtime)}
   <h2>Findings by check</h2>
   <div class="checks">
 ${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check="${escapeHtml(id)}"><span class="badge sev-${e.severity.name.toLowerCase()}" style="min-width:0">${e.count}</span> ${escapeHtml(id)}</button>`).join('\n')}

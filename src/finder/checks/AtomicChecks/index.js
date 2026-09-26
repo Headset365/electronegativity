@@ -54,6 +54,7 @@ import { WebGLJSCheck, WebGLHTMLCheck, WebSQLJSCheck, WebSQLHTMLCheck, PluginsJS
 import { FileProtocolJSCheck, UntrustedLoadUrlJSCheck } from './LoadContentJSChecks.js';
 import XssSinkJSCheck from './XssSinkJSCheck.js';
 import { AngularSceDisabledJSCheck, AngularResourceUrlListJSCheck } from './AngularJSChecks.js';
+import { AngularTrustHtmlJSCheck, RichTextEditorHtmlJSCheck, AngularBindHtmlUnsafeHTMLCheck } from './HtmlInjectionChecks.js';
 import { WindowSummaryJSCheck, ExposedApiJSCheck } from './AttackSurfaceChecks.js';
 import { IframeSandboxHTMLCheck, IframeSandboxJSCheck } from './IframeSandboxChecks.js';
 import CommandInjectionJSCheck from './CommandInjectionJSCheck.js';
@@ -129,6 +130,9 @@ const CHECKS = [
   XssSinkJSCheck,
   AngularSceDisabledJSCheck,
   AngularResourceUrlListJSCheck,
+  AngularTrustHtmlJSCheck,
+  RichTextEditorHtmlJSCheck,
+  AngularBindHtmlUnsafeHTMLCheck,
   WindowSummaryJSCheck,
   ExposedApiJSCheck,
   IframeSandboxHTMLCheck,
