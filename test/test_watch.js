@@ -235,7 +235,8 @@ describe('Watch mode', () => {
       fs.writeFileSync(path.join(source, 'main.js'), 'const { app } = require("electron");');
       fs.mkdirSync(path.join(dir, 'app', 'resources'), { recursive: true });
       await asar.createPackage(source, path.join(dir, 'app', 'resources', 'app.asar'));
-      fs.writeFileSync(path.join(dir, 'app', 'myapp'), wire('11001100'), { mode: 0o755 });
+      // named as the platform names it: an .exe on Windows, where files have no executable bit
+      fs.writeFileSync(path.join(dir, 'app', process.platform === 'win32' ? 'myapp.exe' : 'myapp'), wire('11001100'), { mode: 0o755 });
       fs.writeFileSync(path.join(dir, 'app', 'chrome-sandbox'), 'helper', { mode: 0o755 });
       const result = await run({ input: path.join(dir, 'app', 'resources', 'app.asar'), offline: true, isRelative: true });
       const ids = result.issues.map(i => i.id);
