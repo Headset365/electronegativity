@@ -62,27 +62,39 @@ const NON_APP_DIRECTORIES = new Set(['test', 'tests', '__tests__', '__mocks__', 
 // tests, stories, minified files and vendored package manager releases (yarn-4.10.3.cjs, yarn-standalone.js)
 const NON_APP_FILES = /\.(test|spec|stories|e2e)\.[cm]?[jt]sx?$|[.-]min\.js$|^(yarn|pnpm|npm)-[\w.-]+\.c?js$|-standalone\.c?js$/i;
 
+// What ships in a packaged app (app.asar, resources/app) or is served to it is all app code: its scripts/ folder and
+// .min.js bundles included (the usual AngularJS build output). Only tests are left out there.
+const PACKAGED_NON_APP_DIRECTORIES = new Set(['test', 'tests', '__tests__', '__mocks__', 'spec', 'specs', 'e2e', '.git']);
+const PACKAGED_NON_APP_FILES = /\.(test|spec|stories|e2e)\.[cm]?[jt]sx?$/i;
+
 // relativePath is relative to the scanned folder, so scanning a folder inside a `test` directory still works
-export function isNonAppFile(relativePath) {
+export function isNonAppFile(relativePath, { packaged = false } = {}) {
   const parts = relativePath.split(/[\\/]/);
+  if (packaged) return parts.slice(0, -1).some(part => PACKAGED_NON_APP_DIRECTORIES.has(part.toLowerCase())) || PACKAGED_NON_APP_FILES.test(parts[parts.length - 1]);
   // dot-directories hold tooling: .yarn/releases, .husky, .vscode, ...
   return parts.slice(0, -1).some(part => NON_APP_DIRECTORIES.has(part.toLowerCase()) || (part.startsWith('.') && part !== '.' && part !== '..')) ||
     NON_APP_FILES.test(parts[parts.length - 1]);
 }
 
-export async function list_files(input, { allFiles = false } = {}) {
+export async function list_files(input, { allFiles = false, packaged = false } = {}) {
   const entries = await fs.promises.readdir(input, { recursive: true, withFileTypes: true });
   const files = entries
     .filter(entry => entry.isFile())
     .map(entry => path.join(entry.parentPath, entry.name))
     .filter(file => !file.split(path.sep).includes('node_modules') && isScannableFile(file));
-  if (allFiles) return files;
+  // a packaged app has no lockfile: the packages it ships are listed from node_modules/<name>/package.json
+  const installed = packaged ? installedPackages(entries.filter(e => e.isFile() && e.name === 'package.json').map(e => path.join(e.parentPath, e.name)),
+    (file) => fs.readFileSync(file, 'utf8')) : [];
+  if (allFiles) {
+    files.installedPackages = installed;
+    return files;
+  }
   const vendoredDirs = vendoredDirectories(input, entries);
   // skipped copies of libraries are still listed, so their versions can be checked for advisories
   const libraries = [];
   const skipped = { nonAppFiles: 0, vendoredDirectories: 0, vendoredLibraries: 0 };
   const kept = files.filter(file => {
-    if (isNonAppFile(path.relative(input, file))) {
+    if (isNonAppFile(path.relative(input, file), { packaged })) {
       skipped.nonAppFiles++;
       return false;
     }
@@ -105,7 +117,35 @@ export async function list_files(input, { allFiles = false } = {}) {
     }
   }
   kept.vendoredLibraries = libraries;
+  kept.installedPackages = installed;
   return kept;
+}
+
+/**
+ * Packages installed in a packaged app: { name, version, file } for each node_modules/<name>/package.json and
+ * node_modules/@scope/<name>/package.json (nested installs included). `read` returns a file's text.
+ */
+export function installedPackages(manifests, read) {
+  const found = [];
+  const seen = new Set();
+  for (const file of manifests) {
+    const parts = file.split(/[\\/]/);
+    const at = parts.lastIndexOf('node_modules');
+    // node_modules/<name>/package.json or node_modules/@scope/<name>/package.json, not files deeper in a package
+    const depth = parts.length - 1 - at;
+    if (at === -1 || !(depth === 2 || (depth === 3 && parts[at + 1].startsWith('@')))) continue;
+    try {
+      const manifest = JSON.parse(read(file));
+      if (typeof manifest.name !== 'string' || typeof manifest.version !== 'string') continue;
+      const key = `${manifest.name}@${manifest.version}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push({ name: manifest.name, version: manifest.version, file });
+    } catch {
+      // unreadable manifest
+    }
+  }
+  return found;
 }
 
 // Folders package managers other than npm install into: bower (.bowerrc "directory", bower_components, and any package
@@ -123,6 +163,10 @@ function vendoredDirectories(input, entries) {
 }
 
 const normalize = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
+// file names of bundles that hold third-party libraries rather than app code
+const BUNDLE_NAMES = new Set(['vendor', 'vendors', 'lib', 'libs', 'libraries', 'thirdparty', 'polyfills', 'chunkvendors', 'vendorbundle', 'externals', 'deps', 'dependencies']);
+// banner names that differ from the npm package name
+const LIBRARY_ALIASES = { angularjs: 'angular', 'jquery ui': 'jquery-ui' };
 
 /**
  * A copy of a third-party library, e.g. js/jquery.js starting with "jQuery JavaScript Library v2.1.1 ... MIT license":
@@ -141,7 +185,15 @@ export function vendoredLibrary(file, head) {
     return undefined;
   }
   const header = (head.match(/^[\s;]*((?:\/\*[\s\S]*?\*\/|\/\/[^\n]*)\s*)+/) || [''])[0];
-  if (!/\bv?\d+\.\d+/.test(header) || !/(copyright|\(c\)|©|licen[cs]e)/i.test(header) || !normalize(header).includes(name)) return undefined;
+  if (!/\bv?\d+\.\d+/.test(header) || !/(copyright|\(c\)|©|licen[cs]e)/i.test(header)) return undefined;
+  // a bundle of third-party libraries (vendor.min.js, chunk-vendors.js) starting with a library's banner: named after it
+  if (BUNDLE_NAMES.has(name)) {
+    const banner = header.match(/(?:\/\*!?|\/\/!?)[\s*]*(?:@license\s+)?(@?[A-Za-z][\w.@/-]*)\s+(?:JavaScript Library\s+)?v?(\d+\.\d+\.\d+(?:-[\w.]+)?)/);
+    if (!banner) return undefined;
+    const library = banner[1].toLowerCase();
+    return { name: LIBRARY_ALIASES[library] || library, version: banner[2], bundle: true };
+  }
+  if (!normalize(header).includes(name)) return undefined;
   const version = (header.match(/\bv?(\d+\.\d+\.\d+(?:-[\w.]+)?)\b/) || header.match(/\bv?(\d+\.\d+)\b/) || [])[1];
   return { name: stem.toLowerCase(), version };
 }

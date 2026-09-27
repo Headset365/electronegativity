@@ -58,7 +58,10 @@ async function scan(options, forCli) {
     if (collector) collector.phase(name, performance.now() - phaseStart);
     phaseStart = performance.now();
   };
-  await loader.load(options.input, { allFiles: !!options.allFiles });
+  // a packaged app's resources/app folder, or front-end code downloaded from a server: all of it ships (see isNonAppFile)
+  const packagedInput = /[\\/]resources[\\/]app[\\/]?$/i.test(path.resolve(options.input)) ||
+    (options.extraInputs || []).some(extra => extra && extra.dir && path.resolve(extra.dir) === path.resolve(options.input));
+  await loader.load(options.input, { allFiles: !!options.allFiles, packaged: packagedInput });
   // front-end code captured from a server (--remote, or scripts pages loaded during --watch), scanned with the app.
   // Findings in it point at the URL the file was served from.
   const remoteLabels = new Map();
@@ -67,7 +70,7 @@ async function scan(options, forCli) {
     const extras = [];
     for (const extra of extraInputs) {
       const extraLoader = new LoaderDirectory();
-      await extraLoader.load(extra.dir, { allFiles: !!options.allFiles });
+      await extraLoader.load(extra.dir, { allFiles: !!options.allFiles, packaged: true });
       extras.push(extraLoader);
       for (const [file, label] of extra.labels || []) remoteLabels.set(file, label);
     }
@@ -188,6 +191,16 @@ async function scan(options, forCli) {
 
     // copies of libraries skipped by the scan still count for the dependency advisory checks
     if (finder._enabled_checks.some(check => check.name === 'DependencyInventoryLockCheck')) {
+      // a packaged app has no lockfile: the packages in its node_modules stand in for it
+      const lockfileInventory = issues.some(i => i.id === 'DEPENDENCY_INVENTORY_LOCK_CHECK');
+      const installed = lockfileInventory ? [] : (loader.installedPackages || []);
+      if (installed.length > 0) {
+        issues.push({ file: 'node_modules', sample: '', location: { line: 1, column: 0 }, id: 'DEPENDENCY_INVENTORY_LOCK_CHECK',
+          description: `${__('DEPENDENCY_INVENTORY_LOCK_CHECK')} (${installed.length} packages shipped in node_modules)`,
+          properties: { packages: installed.map(({ name, version }) => ({ name, version, dev: false, line: 1, installed: true })) }, severity: severity.INFORMATIONAL,
+          confidence: confidence.CERTAIN, manualReview: false, shortenedURL: 'https://osv.dev', visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false },
+          constructorName: 'DependencyInventoryLockCheck' });
+      }
       for (const { name, version, file } of loader.vendoredLibraries || []) {
         if (!version) continue;
         issues.push({ file, sample: '', location: { line: 1, column: 0 }, id: 'DEPENDENCY_INVENTORY_LOCK_CHECK', description: `${__('DEPENDENCY_INVENTORY_LOCK_CHECK')} (${name}@${version})`,
@@ -313,7 +326,7 @@ async function scan(options, forCli) {
       inputType: is_directory(options.input) ? 'directory' : extension(options.input) === 'asar' ? 'asar' : 'file',
       electronVersion,
       electronVersionSource,
-      files: { scanned: filenames.length, byExtension, skipped: loader.skipped, bundledLibraries: (loader.vendoredLibraries || []).map(l => `${l.name}@${l.version || '?'}`) },
+      files: { scanned: filenames.length, byExtension, skipped: loader.skipped, installedPackages: (loader.installedPackages || []).length, bundledLibraries: (loader.vendoredLibraries || []).map(l => `${l.name}@${l.version || '?'}`) },
       errors,
       issues: [...issues, ...suppressed],
       options: {

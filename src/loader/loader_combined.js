@@ -15,6 +15,7 @@ export class LoaderCombined extends Loader {
     }
     this._electronVersion = primary.electronVersion;
     this._vendoredLibraries = [primary, ...extras].flatMap(loader => loader.vendoredLibraries || []);
+    this._installedPackages = [primary, ...extras].flatMap(loader => loader.installedPackages || []);
     for (const loader of [primary, ...extras]) {
       for (const [reason, count] of Object.entries(loader.skipped || {})) this._skipped[reason] = (this._skipped[reason] || 0) + count;
     }

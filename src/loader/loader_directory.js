@@ -26,6 +26,7 @@ export class LoaderDirectory extends Loader {
     }
     this._vendoredLibraries = files.vendoredLibraries || [];
     this._skipped = files.skipped || {};
+    this._installedPackages = files.installedPackages || [];
 
     // Prefer the manifest closest to the root of the scanned directory
     const byDepth = [...files].sort((a, b) => a.split(path.sep).length - b.split(path.sep).length);

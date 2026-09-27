@@ -2,7 +2,7 @@ import path from 'node:path';
 import * as asar from '@electron/asar';
 
 import logger from '../util/logger.js';
-import { isScannableFile, isNonAppFile, vendoredLibrary } from '../util/index.js';
+import { isScannableFile, isNonAppFile, vendoredLibrary, installedPackages } from '../util/index.js';
 import { Loader } from './loader_interface.js';
 import { findOldestElectronVersion } from "../util/electron_version.js";
 
@@ -19,10 +19,14 @@ export class LoaderAsar extends Loader {
       .map(file => file.startsWith(path.sep) ? file.substring(1) : file);
     logger.debug(`Files in ASAR archive: ${archived_files}`);
 
+    // an app.asar is what ships: all of it is app code (see isNonAppFile), and the packages in its node_modules are
+    // the app's dependencies, as there is no lockfile
+    this._installedPackages = installedPackages(archived_files.filter(f => path.basename(f) === 'package.json' && f.split(/[\\/]/).includes('node_modules')),
+      (file) => this.load_buffer(file).toString());
     for (const f of archived_files) {
       if (f.split(path.sep).includes('node_modules')) continue;
       if (!isScannableFile(f)) continue;
-      if (!allFiles && isNonAppFile(f)) {
+      if (!allFiles && isNonAppFile(f, { packaged: true })) {
         this._skipped.nonAppFiles = (this._skipped.nonAppFiles || 0) + 1;
         continue;
       }
