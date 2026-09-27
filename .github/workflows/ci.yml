@@ -28,8 +28,12 @@ jobs:
       - run: npm test
 
   watch-mode:
-    name: Watch mode end to end (Electron under Xvfb)
-    runs-on: ubuntu-latest
+    name: Watch mode end to end (Electron on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
