@@ -10,6 +10,7 @@ import { analyzeWatchLog } from '../src/watch/analyze.js';
 import { resolveApp } from '../src/watch/launch.js';
 import { readFuseWire, analyzePackagedFuses, fuseBinaryFor } from '../src/watch/fuses.js';
 import { reconcileRuntime } from '../src/watch/reconcile.js';
+import { locateApp } from '../src/watch/locate.js';
 
 chaiShould();
 
@@ -238,6 +239,57 @@ describe('Watch mode', () => {
     });
   });
 
+  describe('locating the app', () => {
+    const SENTINEL_WIRE = Buffer.concat([Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX'), Buffer.from([1, 2]), Buffer.from('01')]);
+    // an installed app: <folder>/<exe> with its fuse wire, and resources/app.asar
+    const install = (folder, exe = 'MyApp.exe') => {
+      fs.mkdirSync(path.join(folder, 'resources'), { recursive: true });
+      fs.writeFileSync(path.join(folder, 'resources', 'app.asar'), 'asar');
+      fs.writeFileSync(path.join(folder, exe), SENTINEL_WIRE, { mode: 0o755 });
+      fs.writeFileSync(path.join(folder, 'Uninstall MyApp.exe'), 'uninstaller', { mode: 0o755 });
+      return folder;
+    };
+    const root = () => fs.mkdtempSync(path.join(os.tmpdir(), 'eng-locate-'));
+
+    it('finds the executable and app.asar from the install folder, the executable, app.asar or the resources folder', () => {
+      const folder = install(path.join(root(), 'MyApp'));
+      for (const target of [folder, path.join(folder, 'MyApp.exe'), path.join(folder, 'resources', 'app.asar'), path.join(folder, 'resources')]) {
+        const found = locateApp(target);
+        found.kind.should.equal('packaged');
+        found.executable.should.equal(path.join(folder, 'MyApp.exe'));
+        found.code.should.equal(path.join(folder, 'resources', 'app.asar'));
+      }
+    });
+
+    it('picks the newest app-<version> folder of a Squirrel install, not the launcher', () => {
+      const squirrel = path.join(root(), 'MyApp');
+      fs.mkdirSync(squirrel, { recursive: true });
+      fs.writeFileSync(path.join(squirrel, 'MyApp.exe'), 'launcher stub');
+      fs.writeFileSync(path.join(squirrel, 'Update.exe'), 'squirrel');
+      install(path.join(squirrel, 'app-1.9.0'));
+      install(path.join(squirrel, 'app-1.10.2'));
+      const found = locateApp(squirrel);
+      found.executable.should.equal(path.join(squirrel, 'app-1.10.2', 'MyApp.exe'));
+      found.name.should.equal('MyApp');
+    });
+
+    it('looks one folder down (C:\\Program Files\\<Company>), and explains what it expected otherwise', () => {
+      const company = root();
+      install(path.join(company, 'MyApp'));
+      fs.mkdirSync(path.join(company, 'Docs'));
+      locateApp(company).executable.should.equal(path.join(company, 'MyApp', 'MyApp.exe'));
+      install(path.join(company, 'OtherApp'));
+      (() => locateApp(company)).should.throw(/several Electron apps: .*MyApp.*OtherApp|several Electron apps: .*OtherApp.*MyApp/);
+      (() => locateApp(root())).should.throw(/No Electron app found .*app\.asar/);
+    });
+
+    it('treats a folder with a package.json as a project to run with its own Electron', () => {
+      const project = root();
+      fs.writeFileSync(path.join(project, 'package.json'), '{"name":"x","main":"main.js"}');
+      locateApp(project).should.include({ kind: 'project', code: project });
+    });
+  });
+
   describe('packaged fuses', () => {
     const SENTINEL = 'dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX';
     // version 1, 8 fuses; RunAsNode enabled ('1') is insecure, the rest set to their safe values
@@ -347,6 +399,15 @@ describe('Watch mode', () => {
       report.issues.filter(i => i.id === 'RUNTIME_DOM_INJECTION' && /safe-view\.html/.test(i.file)).should.have.length(0, 'attributes merely starting with "on" are not event handlers');
       // the static scan of the same app ran too
       ids.should.include('NODE_INTEGRATION_JS_CHECK');
+
+      // guided mode: pointed at the app, it scans it and runs one watch session, writing everything to one folder
+      const out = path.join(dir, 'results');
+      const guided = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--app', dir, '--sessions', '1', '--watch-args', '--no-sandbox', '--offline', '--out', out];
+      const guidedRun = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...guided], { encoding: 'utf8' }) : spawnSync(process.execPath, guided, { encoding: 'utf8' });
+      guidedRun.status.should.equal(0, guidedRun.stderr);
+      fs.readdirSync(out).sort().should.deep.equal(['session-1-diag.json', 'session-1.html', 'static-diag.json', 'static.html']);
+      JSON.parse(fs.readFileSync(path.join(out, 'session-1-diag.json'), 'utf8')).watch.hookStarted.should.equal(true);
+      guidedRun.stdout.should.match(/marker for this run: ENG[A-Z0-9]{6}/);
       // the backend page's script was captured with the app's session, and its original source (from the source map)
       // scanned: the finding points at the URL it was served from
       const remote = report.issues.filter(i => i.id === 'XSS_SINK_JS_CHECK' && /static\/viewer\.js \(source: src\/viewer\.js\)/.test(i.file));

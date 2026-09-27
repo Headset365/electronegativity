@@ -35,130 +35,92 @@ Run everything against a **test environment** with **test accounts**, never prod
    With no internet access at all, add `--offline` to every command below (the Electron end-of-life and advisory checks
    are then skipped).
 
-## 2. Prepare
+## 2. Before you start
 
-1. Find the app's real executable and check that `resources\app.asar` (or a `resources\app` folder) is next to it:
+- Use a **test build** of the app: watch mode loads through `NODE_OPTIONS`, which production builds usually switch off
+  with the `EnableNodeOptionsEnvironmentVariable` fuse. If it can't load, the tool says "The app did not load the watch
+  mode hook" (the static scan works on any build).
+- Close the app completely, including any tray icon: a second copy usually hands over to the running one and exits.
 
-   | Installer | Typical location |
-   |---|---|
-   | NSIS, per user | `$env:LOCALAPPDATA\Programs\<App>\<App>.exe` |
-   | NSIS / MSI, per machine | `C:\Program Files\<App>\<App>.exe` |
-   | Squirrel | `$env:LOCALAPPDATA\<App>\app-<version>\<App>.exe` (not the `<App>.exe` one folder up, which is only a launcher) |
+  ```powershell
+  Get-Process MyApp -ErrorAction SilentlyContinue | Stop-Process
+  ```
 
-   ```powershell
-   Test-Path "C:\Program Files\MyApp\resources\app.asar"     # must be True (or resources\app for an unpacked app)
-   ```
+## 3. Run it
 
-2. Use a **test build**: watch mode loads through `NODE_OPTIONS`, which production builds usually switch off with the
-   `EnableNodeOptionsEnvironmentVariable` fuse. If the hook can't load, the tool says "The app did not load the watch mode hook"
-   and the diagnostics file shows `"hookStarted": false`. The static scan (step 3.1) works on any build.
-
-3. Close the app completely, including any tray icon, before each watch session: a second instance usually hands over to
-   the running one and exits, and nothing gets observed.
-
-   ```powershell
-   Get-Process MyApp -ErrorAction SilentlyContinue | Stop-Process
-   ```
-
-4. Set these once per PowerShell window (adjust the values):
-
-   ```powershell
-   $App    = "C:\Program Files\MyApp\MyApp.exe"
-   $Asar   = "C:\Program Files\MyApp\resources\app.asar"
-   $Redact = "CompanyName,ProductName,internal.host.name"   # extra words to remove from diagnostics files
-   $Marker = "ENG42X"                                       # a unique token for planted content
-   mkdir C:\eng-results -Force; cd C:\eng-results
-   ```
-
-## 3. Runs
-
-### 3.1 Static scan of the app package
-
-Reads all of the app's code, including screens behind the login.
+Point the tool at where the app is installed. It finds the executable and the app's code itself (install folder, the
+`.exe`, Squirrel's `app-<version>` folders, or the folder above the install folder such as `C:\Program Files\<Company>`):
 
 ```powershell
-electronegativity -i $Asar -r -o 01-static.html --diagnostics 01-static-diag.json --redact $Redact
+cd C:\
+electronegativity --app "C:\Program Files\MyApp" --redact "CompanyName,internal.host.name"
 ```
 
-Optional extra formats of the same scan: `-o 01-static.json`, `-o 01-static.sarif` or `-o 01-static.csv`.
+`--redact` is optional: the app's name, your user name, the machine name and your home folder are always removed from the
+diagnostics files; list any other words to remove (company name, internal host names).
 
-### 3.2 Watch session 1: author account
+What happens:
 
-```powershell
-electronegativity --watch $App --watch-marker $Marker -r -o 02-watch-author.html --diagnostics 02-watch-author-diag.json --redact $Redact
-```
+1. It prints what it found and the results folder (`C:\electronegativity-results-<date>`), then scans all of the app's
+   code, including screens behind the login.
+2. It prints a **marker** for this run (e.g. `ENGK7Q2XM`) and asks: **Start watch session 1?** Press Enter. The app
+   opens. As **account A**:
+   - log in, then open every main screen, menu, dialog and settings page;
+   - in the editor: create a document containing the marker (e.g. `Test ENGK7Q2XM`), paste formatted content from Word,
+     drag and drop text and a file, import a `.docx`, use any file picker or "open" dialog;
+   - share the document with account B (or put it where other users see it: comments, notes, previews);
+   - try a `myapp://` link or a file association if the app has them;
+   - close the app completely (File > Exit or the tray's Quit).
+3. **Optional, tests the server:** before the next session, in Burp, take account A's request that saves a document and
+   put this harmless markup in the body: `<span data-ENGK7Q2XM="1">ENGK7Q2XM</span>` (with your marker). The endpoint is
+   in `session-1.html` under "API endpoint called", flagged "contains HTML".
+4. It asks: **Start watch session 2?** Press Enter. As **account B**: log in, open everything that shows account A's
+   content (the document, previews, search results, notifications, comments, exports or print preview), then close the
+   app completely.
+5. Press `s` when asked about session 3 to finish. The results folder then holds `static.html`, `session-1.html`,
+   `session-2.html` and a `-diag.json` file for each.
 
-The app opens. As **account A**:
-
-- log in, then open every main screen, menu, dialog and settings page;
-- in the editor: create a document containing the marker as plain text (e.g. `Test ENG42X`), paste formatted content
-  from Word, drag and drop text and a file, import a `.docx`, use any file picker or "open" dialog;
-- share the document with account B (or put it wherever other users see it: comments, notes, previews);
-- if the app handles links or file types from outside (`myapp://` links, double-clicking a file), try one;
-- close the app completely (File > Exit or the tray icon's Quit). The report is written when the app exits; Ctrl+C in
-  the terminal also closes it.
-
-The code the pages loaded from the server is downloaded with your logged-in session and scanned too: findings in it
-point at the URL it came from.
-
-### 3.3 Plant marker markup through the API (optional, tests the server)
-
-The editor's client-side filter may strip markup, so this checks what the **server** accepts. In Burp, take account A's
-request that saves a document, and put this harmless markup in the body field:
-
-```html
-<span data-ENG42X="1">ENG42X</span>
-```
-
-Send it and check the response is a success. The endpoint to use is in 02-watch-author.html under "API endpoint
-called", flagged "contains HTML".
-
-### 3.4 Watch session 2: viewer account
-
-```powershell
-electronegativity --watch $App --watch-marker $Marker -r -o 03-watch-viewer.html --diagnostics 03-watch-viewer-diag.json --redact $Redact
-```
-
-As **account B**: log in and open everything that shows account A's content (the document, previews, search results,
-notifications, comments, exports or print preview), then close the app completely.
-
-In 03-watch-viewer.html, `RUNTIME_MARKER` HIGH means the marker came back as live markup (stored content reaches another
+In `session-2.html`, `RUNTIME_MARKER` HIGH means the marker came back as live markup (stored content reaches another
 user's view unneutralized); INFORMATIONAL means it was shown safely as text.
 
-### 3.5 Templates and screens you didn't open (optional)
-
-Downloads the front end from the test server again, including the templates and code chunks the code names but the
-sessions never loaded. Copy account A's session cookie from Burp (`name=value`) and paste it at the prompt, which keeps it
-out of the PowerShell history:
-
-```powershell
-$Cookie = Read-Host "Cookie (name=value)"
-electronegativity -i $Asar --remote https://test-server.example/ --remote-header "Cookie: $Cookie" -r -o 04-remote.html --diagnostics 04-remote-diag.json --redact $Redact
-```
+The code the app's pages loaded from the server is downloaded during each session with your logged-in session and
+scanned too: findings in it point at the URL it came from.
 
 ## 4. Useful variations
 
 ```powershell
-# the app needs command-line arguments (or shows a blank window on a VM: try --disable-gpu)
-electronegativity --watch $App --watch-args "--disable-gpu" ...
+# point at the .exe directly, or choose the results folder
+electronegativity --app "$env:LOCALAPPDATA\MyApp\app-2.4.1\MyApp.exe" --out C:\eng-results
+
+# static scan only (no sessions), or two sessions without being asked
+electronegativity --app "C:\Program Files\MyApp" --sessions 0
+electronegativity --app "C:\Program Files\MyApp" --sessions 2
+
+# the app needs command-line arguments, or shows a blank window on a VM
+electronegativity --app "C:\Program Files\MyApp" --watch-args "--disable-gpu"
+
+# also fetch templates and screens the sessions never opened, from the test server, with account A's cookie from Burp
+# (typed at a prompt, which keeps it out of the PowerShell history)
+$Cookie = Read-Host "Cookie (name=value)"
+electronegativity --app "C:\Program Files\MyApp" --remote https://test-server.example/ --remote-header "Cookie: $Cookie"
+
+# the Electron version couldn't be detected (the output says "Couldn't detect Electron version")
+electronegativity --app "C:\Program Files\MyApp" -e 38.2.0
+
+# only HIGH and MEDIUM findings with firm or certain confidence in the reports
+electronegativity --app "C:\Program Files\MyApp" -s medium -c firm
 
 # re-analyze a session without running the app again (the log path is printed at the end of each session)
-electronegativity --watch-log "$env:TEMP\electronegativity-watch-XXXXXX\session.jsonl" -i $Asar -r -o 02b.html
-
-# only HIGH and MEDIUM findings, with firm or certain confidence
-electronegativity -i $Asar -s medium -c firm -r -o 01-high-medium.html
-
-# the Electron version couldn't be detected: set it (the report says "Couldn't detect Electron version")
-electronegativity -i $Asar -e 38.2.0 -r -o 01-static.html
-
-# don't download the pages' code during a watch session
-electronegativity --watch $App --no-watch-capture ...
+electronegativity --watch-log "$env:TEMP\electronegativity-watch-XXXXXX\session.jsonl" -i "C:\Program Files\MyApp" -r -o session-1b.html
 ```
+
+The individual options still work on their own: `-i "C:\Program Files\MyApp" -o static.html` for a static scan, and
+`--watch "C:\Program Files\MyApp" -o session.html` for one watch session.
 
 ## 5. What to send back
 
 Only the `*-diag.json` files. Open each one first and check it contains nothing identifying: the app name, user name,
-machine name, home folder and the `$Redact` words are replaced, and hosts are pseudonymized. Keep the `.html` reports
+machine name, home folder and the `--redact` words are replaced, and hosts are pseudonymized. Keep the `.html` reports
 yourself: they contain code locations and URLs.
 
 ## 6. Clean up

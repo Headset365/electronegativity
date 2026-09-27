@@ -136,7 +136,10 @@ $ electronegativity -h
 |    Option    |                 Description                       |
 |:------------:|:-------------------------------------------------:|
 | -V           | output the version number                         |
-| -i, --input  | input (directory, .js, .html, .asar)               |
+| -i, --input  | input (directory, .js, .html, .asar, or an installed app's folder or executable) |
+| --app <location> | guided run: find the app in this install folder (or its executable), scan it, then walk through watch sessions, writing every report to one results folder |
+| --out <dir> | results folder for `--app` (default `electronegativity-results-<date>`) |
+| --sessions <count> | number of watch sessions `--app` runs without asking (`0` for the static scan only) |
 | -l, --checks | only run the specified checks, passed in csv format |
 | -x, --exclude-checks <excludedCheckNames> | skip the specified checks list, passed in csv format |
 | -s, --severity | only return findings with the specified level of severity or above |
@@ -177,6 +180,16 @@ $ electronegativity -i /path/to/electron/app -v -u 22..32
 ```
 
 Note: if you're running into the Fatal Error "JavaScript heap out of memory", you can run node using ```node --max-old-space-size=4096 electronegativity -i /path/to/asar/archive -o result.csv```
+
+### Guided run of an installed app
+
+Point `--app` at where the app is installed and it does the rest:
+
+```
+$ electronegativity --app "C:\Program Files\MyApp"
+```
+
+It finds the executable and `resources\app.asar` (install folders, the executable itself, Squirrel's `app-<version>` folders, or the folder holding the install folder), scans the app's code, then offers watch sessions one at a time: the app opens, you log in and use it, close it, and it asks whether to run another (for example as a second account). A planted-content marker is generated for the run (or give one with `--watch-marker`). Each step writes its report and a diagnostics file into one results folder (`--out`). `--remote`, `--remote-header`, `--offline`, `--redact`, `--watch-args` and the filtering options apply as usual. `-i` and `--watch` also accept an install folder or executable.
 
 ### Front end served remotely
 
