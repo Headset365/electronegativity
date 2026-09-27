@@ -135,6 +135,7 @@ async function main() {
     }
     remoteDiagnostics = { seeds: (options.remote || []).length, fromWatch: !!captureDir, headers: Object.keys(headers) };
     try {
+      if (options.offline && options.remote && options.remote.length > 0) console.error(chalk.yellow(__('remoteOffline')));
       if (!options.offline) {
         console.log(chalk.cyan(__('remoteFetching')));
         const stats = await crawl(dir, options.remote || [], { headers });

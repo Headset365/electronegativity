@@ -186,7 +186,7 @@ Many Electron apps load their interface from a server (`win.loadURL('https://app
 $ electronegativity -i ./my-app --remote https://test.example.com/ --remote-header "Cookie: session=..." -o report.html
 ```
 
-The page, its scripts and the HTML templates and chunks the code names (AngularJS `templateUrl`, `ng-include`, lazy `import()`s) are fetched from the same site. When a script has a source map with the original sources, those are scanned instead of the minified bundle, which the checks follow far better. Findings point at the URL the file was served from, e.g. `https://test.example.com/static/app.js (source: src/editor/paste.js)`. Headers are only sent to the site given, never to third-party script hosts. Watch mode does the same automatically for the pages you open (see below).
+The page, its scripts and the HTML templates and chunks the code names (AngularJS `templateUrl`, `ng-include`, lazy `import()`s) are fetched from the same site. When a script has a source map with the original sources, those are scanned instead of the minified bundle, which the checks follow far better. Findings point at the URL the file was served from, e.g. `https://test.example.com/static/app.js (source: src/editor/paste.js)`. Headers are only sent to the site given, never to third-party script hosts. Watch mode does the same automatically for the pages you open (see below). A test server whose certificate comes from an internal CA needs `NODE_EXTRA_CA_CERTS=/path/to/ca.pem` for `--remote` (watch mode downloads through the app, which already trusts it).
 
 ### Watch mode (runtime observation)
 

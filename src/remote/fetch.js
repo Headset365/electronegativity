@@ -115,7 +115,10 @@ export async function crawl(captureDir, seeds = [], { headers = {}, maxFiles = 3
       const sameOrigin = origins.has(new URL(url).origin);
       response = await fetch(url, { headers: sameOrigin ? headers : {}, redirect: 'follow', signal: AbortSignal.timeout(20000) });
     } catch (error) {
-      stats.failed.push({ url, message: String(error && (error.cause && error.cause.code || error.message)) });
+      const code = String(error && (error.cause && error.cause.code || error.message));
+      // test servers often use an internal CA the app trusts through the OS, but Node doesn't
+      const hint = /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER/i.test(code) ? ' (the server certificate is not trusted by Node.js: set NODE_EXTRA_CA_CERTS to your CA certificate file, or use watch mode, which downloads with the app\'s own session)' : '';
+      stats.failed.push({ url, message: code + hint });
       return;
     }
     if (!response.ok) {
