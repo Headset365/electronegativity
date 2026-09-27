@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, keyName, calleeObjectName, finding } from '../helpers.js';
-import { constantValue, identifiersIn, isCall } from '../analysis.js';
+import { constantValue, identifiersIn, isCall, resolveLocal, onlyConstantParts } from '../analysis.js';
 import { htmlOrigin, looksLikeHtml, ORIGINS } from '../html.js';
 
 const HTML_PROPERTIES = ['innerHTML', 'outerHTML'];
@@ -53,8 +53,8 @@ export default class XssSinkJSCheck {
     }
     if (!sink || !value) return null;
 
-    const constant = constantValue(value, scope);
-    if (constant !== undefined) return null;
+    // a constant, or markup assembled only from constants (cond ? '<b>a</b>' : '<i>b</i>'): nothing from data
+    if (onlyConstantParts(value, scope)) return null;
     if (isSanitized(value, scope)) return null;
     // server-controlled HTML rendered by another user's client is the stored-content threat, and pasted, dropped or
     // imported content can be written by someone else too: raise them to HIGH
@@ -71,7 +71,9 @@ function isHtmlArgument(node, scope, context) {
   const constant = constantValue(node, scope);
   if (typeof constant === 'string') return /<[a-z!]/i.test(constant);
   if (constant !== undefined) return false;
-  return looksLikeHtml(node) || !!htmlOrigin(node, scope, context && context.ancestors);
+  // a markup string built in a variable: let html = '<div>'; html += x; $(html)
+  const resolved = node.type === 'Identifier' ? resolveLocal(node, scope) : node;
+  return looksLikeHtml(node) || (resolved !== node && looksLikeHtml(resolved)) || !!htmlOrigin(node, scope, context && context.ancestors);
 }
 
 // Strings assembled from pieces: `<b>${x}</b>`, '<b>' + x

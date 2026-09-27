@@ -1,7 +1,7 @@
 // Static analysis helpers that let checks reason about what code does, not only which APIs it calls.
 // They are deliberately conservative: when a question can't be answered statically they return `undefined`,
 // and checks then fall back to a lower confidence.
-import { isFunction, memberName, keyName, literalValue, resolveIdentifier, visit, isWindowConstructor } from './helpers.js';
+import { isFunction, memberName, keyName, literalValue, resolveIdentifier, visit, isWindowConstructor, combineAssignments, isScalarInit } from './helpers.js';
 
 // The file being analyzed and the project index, set by the Finder before each file
 let analysisContext = { file: undefined, program: undefined, index: undefined };
@@ -30,10 +30,32 @@ export function resolveLocal(node, scope) {
   if (resolved !== node || !node || node.type !== 'Identifier') return resolved;
   const declaration = lexicalDeclaration(node.name);
   if (!declaration) return node;
-  return declaration.type === 'VariableDeclarator' ? declaration.init : declaration;
+  if (declaration.type !== 'VariableDeclarator') return declaration;
+  // a let/var assigned again in the block that declares it: combine the assignments (see combineAssignments)
+  const writes = declaration.kind !== 'const' && declaration.block && isScalarInit(declaration.init) ? assignmentsTo(declaration.block, node.name) : [];
+  return writes.length > 0 ? combineAssignments(declaration.init, writes) : declaration.init;
 }
 
-// `const name = ...` (with an initializer) or `function name` declared in a block enclosing the current node
+const assignmentCache = new WeakMap();
+
+// `name = ...` and `name += ...` inside `block`, in source order (nested functions included: they run later, but may run)
+function assignmentsTo(block, name) {
+  if (!assignmentCache.has(block)) {
+    const byName = new Map();
+    visit(block, (n) => {
+      if (n.type === 'AssignmentExpression' && n.left && n.left.type === 'Identifier') {
+        if (!byName.has(n.left.name)) byName.set(n.left.name, []);
+        byName.get(n.left.name).push({ operator: n.operator, right: n.right });
+      }
+      return true;
+    });
+    assignmentCache.set(block, byName);
+  }
+  return assignmentCache.get(block).get(name) || [];
+}
+
+// `const name = ...` (with an initializer) or `function name` declared in a block enclosing the current node. Variable
+// declarators are returned with the declaration's kind and the block, to find later assignments of a let/var.
 function lexicalDeclaration(name) {
   const ancestors = analysisContext.ancestors || [];
   for (let i = ancestors.length - 1; i >= 0; i--) {
@@ -46,7 +68,7 @@ function lexicalDeclaration(name) {
       if (declaration.type === 'FunctionDeclaration' && declaration.id && declaration.id.name === name) return declaration;
       if (declaration.type === 'VariableDeclaration') {
         const d = declaration.declarations.find(d => d.id.type === 'Identifier' && d.id.name === name && d.init);
-        if (d) return d;
+        if (d) return Object.assign(Object.create(d), { kind: declaration.kind, block, init: d.init, type: d.type, id: d.id });
       }
     }
   }
@@ -63,7 +85,11 @@ export class LexicalScope {
   getVarInScope(name) {
     const declaration = lexicalDeclaration(name);
     if (!declaration) return null;
-    return { defs: [declaration.type === 'VariableDeclarator' ? { type: 'Variable', node: declaration } : { type: 'FunctionName', node: declaration }] };
+    if (declaration.type !== 'VariableDeclarator') return { defs: [{ type: 'FunctionName', node: declaration }] };
+    // a let/var assigned again later: its value combines the assignments
+    const writes = declaration.kind !== 'const' && isScalarInit(declaration.init) ? assignmentsTo(declaration.block, name) : [];
+    const node = writes.length > 0 ? { type: 'VariableDeclarator', id: declaration.id, init: combineAssignments(declaration.init, writes) } : declaration;
+    return { defs: [{ type: 'Variable', node }] };
   }
 
   resolveVarValue(astNode) {
@@ -161,7 +187,43 @@ export function constantValue(node, scope, depth = 0) {
     const right = constantValue(node.right, scope, depth + 1);
     return left === undefined || right === undefined ? undefined : left + right;
   }
+  // a variable assigned several constants (see combineAssignments) is developer-controlled: its last value stands in
+  if (node.type === 'ConditionalExpression' && node.assignments) {
+    const first = constantValue(node.consequent, scope, depth + 1);
+    const second = constantValue(node.alternate, scope, depth + 1);
+    return first === undefined || second === undefined ? undefined : second;
+  }
   return undefined;
+}
+
+/**
+ * Whether every piece an expression is assembled from is a constant: `cond ? '<b>a</b>' : '<i>b</i>'`,
+ * '<div class="' + (open ? 'open' : '') + '">'. Such a value is chosen by the developer, not taken from data, even though
+ * it has no single constant value.
+ */
+export function onlyConstantParts(node, scope, depth = 0) {
+  if (!node || depth > 8) return false;
+  if (constantValue(node, scope) !== undefined) return true;
+  switch (node.type) {
+    case 'ConditionalExpression':
+      return onlyConstantParts(node.consequent, scope, depth + 1) && onlyConstantParts(node.alternate, scope, depth + 1);
+    case 'LogicalExpression':
+      return onlyConstantParts(node.left, scope, depth + 1) && onlyConstantParts(node.right, scope, depth + 1);
+    case 'BinaryExpression':
+      return node.operator === '+' && onlyConstantParts(node.left, scope, depth + 1) && onlyConstantParts(node.right, scope, depth + 1);
+    case 'TemplateLiteral':
+      return node.expressions.every(expression => onlyConstantParts(expression, scope, depth + 1));
+    case 'ParenthesizedExpression':
+    case 'TSAsExpression':
+    case 'TSNonNullExpression':
+      return onlyConstantParts(node.expression, scope, depth + 1);
+    case 'Identifier': {
+      const resolved = resolveLocal(node, scope);
+      return resolved !== node && onlyConstantParts(resolved, scope, depth + 1);
+    }
+    default:
+      return false;
+  }
 }
 
 // Values an expression can take: both branches of `a ? b : c`, or its constant value (undefined when unknown)

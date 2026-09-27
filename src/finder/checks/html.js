@@ -109,6 +109,7 @@ export function looksLikeHtml(node) {
   if (['Literal', 'StringLiteral'].includes(node.type)) return typeof node.value === 'string' && /<[a-z!/]/i.test(node.value);
   if (node.type === 'TemplateLiteral') return node.quasis.some(q => /</.test((q.value && (q.value.cooked || q.value.raw)) || ''));
   if (node.type === 'BinaryExpression' && node.operator === '+') return looksLikeHtml(node.left) || looksLikeHtml(node.right);
+  if (node.type === 'ConditionalExpression') return looksLikeHtml(node.consequent) || looksLikeHtml(node.alternate);
   return false;
 }
 

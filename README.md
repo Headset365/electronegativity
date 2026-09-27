@@ -53,7 +53,7 @@ To update a global install, run the `npm install -g` command again.
 * Checks account for the secure defaults of newer Electron releases: `contextIsolation` (Electron 12+), `sandbox` (Electron 20+, unless `nodeIntegration` is enabled) and the removal of the `remote` module (Electron 14+). When the Electron version can't be detected, the oldest (least secure) defaults are still assumed.
 * `AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK` now queries the [OSV](https://osv.dev) database of published Electron security advisories (GitHub Security Advisories), as Electron's former release feed stopped being updated in 2022. Findings list the matching advisory IDs.
 * Native ES modules with no build step, running on current versions of all dependencies (Babel 8, TypeScript ESTree 8, espree, eslint-scope, cheerio 1.x, commander, chalk).
-* 95 security checks (up from 42), covering the current [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security): IPC sender validation, APIs exposed through `contextBridge`, Electron Fuses, `setWindowOpenHandler`, `<webview>` hardening, custom scheme privileges, disabled TLS validation, `shell` APIs, deep link and file association handlers, downloads, update feeds, plaintext secrets, screen capture, DevTools, Secure Keyboard Entry, WebGL/WebSQL, unsandboxed iframes, HTML injection into AngularJS and rich-text editors, AngularJS `$sce` configuration and certificate pinning.
+* 96 security checks (up from 42), covering the current [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security): IPC sender validation, APIs exposed through `contextBridge`, Electron Fuses, `setWindowOpenHandler`, `<webview>` hardening, custom scheme privileges, disabled TLS validation, `shell` APIs, deep link and file association handlers, downloads, update feeds, plaintext secrets, screen capture, DevTools, Secure Keyboard Entry, WebGL/WebSQL, unsandboxed iframes, HTML injection into AngularJS and rich-text editors (including AngularJS compiling markup built from data, the template injection behind Grafana's CVE-2020-12052), sanitizer and editor configuration that lets script through (DOMPurify, AngularJS `$sanitize`, TinyMCE, CKEditor, Froala, Summernote), AngularJS `$sce` configuration and certificate pinning. HTML sinks are raised to HIGH when their content comes from the server, a paste or drop, the clipboard or an imported document (`.docx` converted with mammoth, files read with `FileReader`).
 * Outdated software: end-of-life Electron majors, newer patch releases of pinned versions, and known vulnerabilities in every locked npm dependency. Development-only packages are reported as LOW: npm lockfiles record them, and for Yarn and pnpm lockfiles they are worked out from the `dependencies` of the project's `package.json` files and workspaces.
 * Findings follow the Electron version in use, e.g. `affinity` is ignored from Electron 14 and the `new-window` event is reported as ineffective from Electron 22.
 * Upgrade checks (`-u`) for the breaking changes of Electron 12 to 32.
@@ -111,6 +111,7 @@ The root cause of each published vulnerability below is reported when scanning t
 | MarkText 0.16.3 | CVE-2021-29996, CVE-2023-2318: XSS to RCE (paste handling, `nodeIntegration`) | `NODE_INTEGRATION_JS_CHECK` and `CONTEXT_ISOLATION_JS_CHECK` HIGH/CERTAIN (options merged from `config.js`), `WEB_SECURITY_JS_CHECK`, `XSS_SINK_JS_CHECK` at `pasteCtrl.js:54` |
 | Joplin 2.8.8 | CVE-2022-35131 and later note-viewer XSS to RCE | `NODE_INTEGRATION_JS_CHECK` and `CONTEXT_ISOLATION_JS_CHECK` HIGH/CERTAIN, `XSS_SINK_JS_CHECK` in the note viewer's inline script, `IFRAME_SANDBOX_JS_CHECK` for the unsandboxed viewer frame, raised to MEDIUM because the window enables `nodeIntegration` |
 | Element Desktop 1.9.6 | CVE-2022-23597: deep links loaded into the main window | `UNTRUSTED_LOAD_URL_JS_CHECK` HIGH/FIRM at `protocol.ts:32`, no longer reported on the fixed 1.9.7 |
+| Grafana 6.7.1 (AngularJS front end) | CVE-2020-12052: stored XSS in annotation popups, sanitized text compiled as an AngularJS template | `ANGULAR_TRUST_HTML_JS_CHECK` at `annotation_tooltip.ts:92` (`$compile` of an element holding markup built from data), no longer reported on the fixed 6.7.4 (`ng-non-bindable`) |
 
 With network access, the same releases are also reported as end-of-life, with the Electron advisories that affect them (the list matches a direct OSV query, e.g. all 48 advisories for Electron 1.8.4, including CVE-2018-15685):
 
@@ -151,6 +152,10 @@ $ electronegativity -h
 | --baseline <file> | don't report the findings accepted in this baseline file |
 | --write-baseline <file> | write the current findings to a baseline file (reasons already recorded are kept) |
 | --fail-on <severity> | exit with code 1 when a reported finding has this severity or higher (`high`, `medium`, `low`, `informational`); 2 for invalid arguments |
+| --remote <url> | also scan the front end served at this URL: its page, scripts, source maps and the templates and chunks the code names (can be repeated) |
+| --remote-header <header> | header sent with `--remote` and watch-mode downloads to the same site, e.g. `"Cookie: session=..."` for a test account (can be repeated) |
+| --diagnostics <file> | write a sanitized troubleshooting report, see [Diagnostics](#diagnostics) |
+| --redact <terms> | extra terms to remove from the diagnostics report, comma separated |
 | -h, --help   | output usage information                          |
 
 
@@ -173,6 +178,16 @@ $ electronegativity -i /path/to/electron/app -v -u 22..32
 
 Note: if you're running into the Fatal Error "JavaScript heap out of memory", you can run node using ```node --max-old-space-size=4096 electronegativity -i /path/to/asar/archive -o result.csv```
 
+### Front end served remotely
+
+Many Electron apps load their interface from a server (`win.loadURL('https://app.example.com')`), so the code that renders other people's content isn't in the app package. `--remote` downloads it and scans it with the app:
+
+```
+$ electronegativity -i ./my-app --remote https://test.example.com/ --remote-header "Cookie: session=..." -o report.html
+```
+
+The page, its scripts and the HTML templates and chunks the code names (AngularJS `templateUrl`, `ng-include`, lazy `import()`s) are fetched from the same site. When a script has a source map with the original sources, those are scanned instead of the minified bundle, which the checks follow far better. Findings point at the URL the file was served from, e.g. `https://test.example.com/static/app.js (source: src/editor/paste.js)`. Headers are only sent to the site given, never to third-party script hosts. Watch mode does the same automatically for the pages you open (see below).
+
 ### Watch mode (runtime observation)
 
 Static analysis reads all the code, including the parts behind a login. Watch mode adds what actually happens when the app runs: settings computed at runtime, the Content Security Policy each page really gets, and which IPC channels your session exercised.
@@ -193,7 +208,10 @@ The app starts with a small observer loaded into its main process, and a read-on
 * permissions granted automatically because the app has no permission request or check handler, and certificate errors;
 * what the renderer-side observer saw inside pages: script inserted into the DOM at runtime (`on*` handlers, `javascript:` URLs) and, with `--watch-marker`, whether a planted marker came back as live HTML (the stored-content threat);
 * for a packaged app, the Electron Fuses read from the shipped binary, not only from the build configuration;
-* coverage: the IPC channels and the windows the app has that the session never exercised, and findings confirmed both in the code and at runtime.
+* coverage: the IPC channels and the windows the app has that the session never exercised, and findings confirmed both in the code and at runtime;
+* the front-end code pages ran, downloaded with the page's own session (so a logged-in test account works) and scanned statically, original sources included when there are source maps (`--no-watch-capture` to skip);
+* the API endpoints pages called, grouped by route (`POST https://api.example.com/documents/{id}`), and which of them accepted HTML in the request body: where stored content enters, and where to start server-side testing (only whether a body looked like markup is recorded, never its content);
+* the ways content came in during the session (paste, drag and drop, file pickers, deep links), and those the code handles that you never tried.
 
 To detect stored-content injection with `--watch-marker <token>`, put content carrying the token into the app from one account and open it as another user. The observer reports the token as live HTML when it became part of the page's markup (a tag or attribute name, or an event handler), and as shown safely when it only appears as text or in an ordinary attribute value such as a form field's value.
 

@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
-import { memberName, calleeObjectName, finding } from '../helpers.js';
-import { constantValue, isCall, resolveLocal } from '../analysis.js';
+import { memberName, calleeObjectName, finding, visit } from '../helpers.js';
+import { constantValue, isCall, resolveLocal, enclosingFunction, onlyConstantParts } from '../analysis.js';
 import { htmlOrigin, looksLikeHtml, ORIGINS } from '../html.js';
 
 const ANGULAR_URL = "https://docs.angularjs.org/api/ng/service/$sce";
@@ -10,7 +10,7 @@ const ANGULAR_URL = "https://docs.angularjs.org/api/ng/service/$sce";
 // comes from somewhere untrusted (see ORIGINS). Returns undefined for a constant (nothing to flag) or
 // { origin, serverFed } otherwise.
 function assess(value, scope, context) {
-  if (!value || constantValue(value, scope) !== undefined) return undefined;
+  if (!value || onlyConstantParts(value, scope)) return undefined;
   const origin = htmlOrigin(value, scope, context && context.ancestors);
   return { origin, serverFed: origin === ORIGINS.SERVER };
 }
@@ -49,8 +49,15 @@ export class AngularTrustHtmlJSCheck {
     }
     if (!api) return null;
     // $compile(element.contents())(scope) compiles DOM the app already has, the usual directive idiom: only markup
-    // strings are a concern
-    if (api === '$compile' && !isMarkupString(value, scope, context)) return null;
+    // strings are a concern, or markup built from data that was just put into that element
+    if (api === '$compile' && !isMarkupString(value, scope, context)) {
+      const inserted = insertedMarkup(value, scope, context);
+      if (!inserted) return null;
+      const origin = htmlOrigin(inserted, scope, context && context.ancestors);
+      return [finding(this, astNode, { severity: origin ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
+        description: `${this.description} ($compile of an element holding markup built from ${origin || 'dynamic data'}: AngularJS expressions ({{ }}) in the data run even after sanitizing, unless the data is marked ng-non-bindable)`,
+        properties: { api, compiledInsertion: true, origin, serverFed: origin === ORIGINS.SERVER } })];
+    }
     const verdict = assess(value, scope, context);
     if (!verdict) return null;
     return [finding(this, astNode, { severity: verdict.origin ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
@@ -59,6 +66,79 @@ export class AngularTrustHtmlJSCheck {
 }
 
 const MARKUP_NAME = /(html|template|markup|content|body|snippet|source)$/i;
+
+// the variable at the root of an expression: element in element.contents(), element[0], $(element)
+function rootName(node) {
+  let current = node;
+  for (let depth = 0; current && depth < 8; depth++) {
+    if (current.type === 'Identifier') return current.name;
+    if (current.type === 'MemberExpression' || current.type === 'OptionalMemberExpression') current = current.object;
+    else if ((current.type === 'CallExpression' || current.type === 'OptionalCallExpression') && current.callee.type === 'MemberExpression') current = current.callee.object;
+    else if ((current.type === 'CallExpression' || current.type === 'OptionalCallExpression') && current.arguments.length === 1) current = current.arguments[0]; // $(element), angular.element(el)
+    else return undefined;
+  }
+  return undefined;
+}
+
+// the string wrapped by $(x) / angular.element(x), also through a variable: const $tip = $(tooltip). `declared` holds
+// the variables declared in the function being searched, including in callbacks the resolver can't see into
+function wrappedMarkup(node, scope, declared = new Map()) {
+  let call = node && node.type === 'Identifier' ? resolveLocal(node, scope) : node;
+  if (call && call === node && node.type === 'Identifier' && declared.has(node.name)) call = declared.get(node.name);
+  if (!call || (call.type !== 'CallExpression' && call.type !== 'OptionalCallExpression') || call.arguments.length === 0) return undefined;
+  const isWrapper = (call.callee.type === 'Identifier' && ['$', 'jQuery'].includes(call.callee.name)) || (memberName(call.callee) === 'element' && calleeObjectName(call.callee) === 'angular');
+  return isWrapper ? call.arguments[0] : undefined;
+}
+
+const mentionsNonBindable = (node) => {
+  let found = false;
+  visit(node, (n) => {
+    if (found) return false;
+    if (typeof n.value === 'string' && /ng-non-bindable/i.test(n.value)) found = true;
+    if (n.type === 'TemplateElement' && /ng-non-bindable/i.test(n.value && (n.value.cooked || n.value.raw) || '')) found = true;
+    return true;
+  });
+  return found;
+};
+
+// markup built from data (not a constant), without ng-non-bindable around it
+function dynamicMarkup(node, scope) {
+  if (!node) return false;
+  const resolved = node.type === 'Identifier' ? resolveLocal(node, scope) : node;
+  return !onlyConstantParts(node, scope) && looksLikeHtml(resolved) && !mentionsNonBindable(resolved);
+}
+
+const INSERT_INTO = ['append', 'prepend', 'html', 'after', 'before', 'replaceWith'];
+const INSERT_TO = ['appendTo', 'prependTo', 'insertAfter', 'insertBefore', 'replaceAll'];
+
+/**
+ * For $compile(element.contents()) / $compile(element): markup built from data that the enclosing function put into
+ * that element ($(html).appendTo(element), element.append(html), element.html(html), element[0].innerHTML = html).
+ * Compiling it runs any AngularJS expression in the data: sanitizers leave {{ }} alone. Returns the markup or undefined.
+ */
+function insertedMarkup(value, scope, context) {
+  const target = rootName(value);
+  const fn = context && enclosingFunction(context.ancestors || []);
+  if (!target || !fn) return undefined;
+  let found;
+  const declared = new Map();
+  visit(fn.body, (n) => {
+    if (found) return false;
+    if (n.type === 'VariableDeclarator' && n.id && n.id.type === 'Identifier' && n.init) declared.set(n.id.name, n.init);
+    if (n.type === 'AssignmentExpression' && /^(innerHTML|outerHTML)$/.test(memberName(n.left) || '') && rootName(n.left) === target && dynamicMarkup(n.right, scope)) found = n.right;
+    if (!isCall(n) || n.type === 'NewExpression' || n.callee.type !== 'MemberExpression') return true;
+    const method = memberName(n.callee);
+    if (INSERT_TO.includes(method) && rootName(n.arguments[0]) === target) {
+      const markup = wrappedMarkup(n.callee.object, scope, declared);
+      if (dynamicMarkup(markup, scope)) found = markup;
+    } else if (INSERT_INTO.includes(method) && rootName(n.callee.object) === target && n.arguments.length > 0) {
+      const markup = wrappedMarkup(n.arguments[0], scope, declared) || n.arguments[0];
+      if (dynamicMarkup(markup, scope)) found = markup;
+    }
+    return true;
+  });
+  return found;
+}
 
 // A string of markup rather than a DOM node: a built HTML string, server data, or a local holding a string expression
 function isMarkupString(value, scope, context) {

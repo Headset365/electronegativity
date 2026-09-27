@@ -90,3 +90,19 @@ the limits that remain, so the boundaries of the analysis stay clear.
 - **What it does:** watch mode records synchronous permission checks (`setPermissionCheckHandler`) the same way as
   permission requests, reporting what the app's handler — or Electron's default, when the app sets none — allows
   (`RUNTIME_PERMISSION_CHECK`). Checks Chromium makes without a page origin (e.g. media device enumeration) are ignored.
+
+## Remaining gaps
+
+- **The server.** Static and runtime analysis see the client. Watch mode lists the API endpoints pages called and those
+  that accepted HTML (`RUNTIME_HTML_ENDPOINT`), as starting points, but whether the server sanitizes stored content has
+  to be tested against the server itself (for example with an intercepting proxy and a second account).
+- **Sanitizer bypasses.** The configuration of DOMPurify, AngularJS `$sanitize` and the rich-text editors is checked,
+  and `--watch-marker` shows whether planted content comes back as live HTML, but the tool does not try to get markup
+  past a sanitizer.
+- **Links built from data in React.** `href={value}` with a `javascript:` URL (Grafana's CVE-2020-11110) is not
+  reported: every dynamic link in a React app would be, and AngularJS links go through `$compileProvider`, whose
+  allowlists are checked.
+- **Remote code that needs a login to download.** `--remote` sends the headers given with `--remote-header` to the site;
+  watch mode downloads with the app's own session. Templates or chunks guessed from the code are fetched without the
+  session after a watch session unless `--remote-header` is given.
+- **Minified code without source maps.** Scanned as is; the data-flow checks follow it less well than original sources.

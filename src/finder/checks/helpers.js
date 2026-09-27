@@ -94,12 +94,39 @@ export function resolveIdentifier(node, scope) {
     const def = variable && variable.defs && variable.defs[0];
     if (!def) return node;
     // only plain `const x = ...`, destructuring (`const { x } = require(...)`) doesn't give x's value
-    if (def.node && def.node.init && def.node.id && def.node.id.type === 'Identifier') return def.node.init;
+    if (def.node && def.node.init && def.node.id && def.node.id.type === 'Identifier') {
+      // a let/var assigned again later: its value is the declaration combined with the later assignments
+      const writes = Array.isArray(variable.references) ? variable.references.filter(r => r.isWrite() && !r.init && r.writeExpr) : [];
+      if (writes.length === 0 || (def.parent && def.parent.kind === 'const') || !isScalarInit(def.node.init)) return def.node.init;
+      return combineAssignments(def.node.init, writes.map(r => ({ operator: r.isReadWrite() ? '+=' : '=', right: r.writeExpr })));
+    }
     if (def.type === 'FunctionName') return def.node;
   } catch {
     // scope information is best effort
   }
   return node;
+}
+
+/**
+ * The value of a variable assigned more than once, as one expression: `let html = '<div>'; html += x;` is
+ * '<div>' + x, and `let v = a; v = b;` is either a or b (a ConditionalExpression marked `assignments`, whose test is
+ * unknown). Keeps the value checks sound: a variable that starts as a constant but is built from data later is dynamic.
+ */
+// Values that are built up or replaced as a whole (strings, markup, URLs). Objects and arrays keep their declaration as
+// their value: configuration objects are declared once and read, and a later reassignment is usually elsewhere
+const COMPOUND_INITS = new Set(['ObjectExpression', 'ArrayExpression', 'FunctionExpression', 'ArrowFunctionExpression', 'ClassExpression', 'NewExpression']);
+export const isScalarInit = (init) => !!init && !COMPOUND_INITS.has(init.type);
+
+export function combineAssignments(init, writes) {
+  const alternatives = [];
+  let value = init;
+  for (const { operator, right } of writes) {
+    if (operator === '+=') value = { type: 'BinaryExpression', operator: '+', left: value, right, loc: right.loc, synthetic: true };
+    else if (operator === '=') { alternatives.push(value); value = right; }
+    else value = { type: 'Unknown', loc: right.loc, synthetic: true }; // -=, *=, ...: numbers, not markup or URLs
+  }
+  alternatives.push(value);
+  return alternatives.reduce((a, b) => ({ type: 'ConditionalExpression', test: { type: 'Unknown', synthetic: true }, consequent: a, alternate: b, loc: b.loc, assignments: true }));
 }
 
 // The webPreferences object of a `new BrowserWindow(...)` / `new BrowserView(...)` / `new WebContentsView(...)`, if static
