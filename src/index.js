@@ -213,6 +213,7 @@ async function main() {
       isVerbose: options.verbose,
       electronUpgrade: options.upgrade,
       electronVersionOverride: options.electronVersion,
+      runtimeElectronVersion: watchDiagnostics && watchDiagnostics.electron,
       parserPlugins: options.parserPlugins,
       offline: options.offline,
       allFiles: options.allFiles,

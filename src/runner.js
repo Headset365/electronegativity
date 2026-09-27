@@ -11,7 +11,7 @@ import { Finder } from './finder/index.js';
 import { ProjectIndex } from './finder/project_index.js';
 import { loadBaseline, applyBaseline, writeBaseline } from './util/baseline.js';
 import { reconcileRuntime } from './watch/reconcile.js';
-import { analyzePackagedFuses, packagedBinaryFor } from './watch/fuses.js';
+import { analyzePackagedFuses, packagedBinaryFor, readElectronVersion, fuseBinaryFor } from './watch/fuses.js';
 import { GlobalChecks, severity, confidence } from './finder/index.js';
 import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util/index.js';
 import { startDiagnostics, stopDiagnostics, diagnostics, writeDiagnostics } from './util/diagnostics.js';
@@ -74,7 +74,16 @@ async function scan(options, forCli) {
     loader = new LoaderCombined(loader, extras);
   }
   endPhase('load');
-  const electronVersion = options.electronVersionOverride || loader.electronVersion;
+  // a packaged app's app.asar rarely names its Electron version: read it from the executable next to it, or use the
+  // version watch mode saw the app run with
+  let binaryVersion;
+  if (!options.electronVersionOverride && !loader.electronVersion) {
+    const binary = packagedBinaryFor(options.input);
+    binaryVersion = binary ? readElectronVersion(fuseBinaryFor(binary)) : undefined;
+  }
+  const electronVersion = options.electronVersionOverride || loader.electronVersion || binaryVersion || options.runtimeElectronVersion;
+  const electronVersionSource = options.electronVersionOverride ? 'override' : loader.electronVersion ? 'detected'
+    : binaryVersion ? 'packaged executable' : options.runtimeElectronVersion ? 'observed at runtime' : 'not found (oldest defaults assumed)';
   if (!electronVersion)
     logger.warn(__('electronVersionError'));
 
@@ -303,7 +312,7 @@ async function scan(options, forCli) {
       input: options.input,
       inputType: is_directory(options.input) ? 'directory' : extension(options.input) === 'asar' ? 'asar' : 'file',
       electronVersion,
-      electronVersionSource: options.electronVersionOverride ? 'override' : loader.electronVersion ? 'detected' : 'not found (oldest defaults assumed)',
+      electronVersionSource,
       files: { scanned: filenames.length, byExtension, skipped: loader.skipped, bundledLibraries: (loader.vendoredLibraries || []).map(l => `${l.name}@${l.version || '?'}`) },
       errors,
       issues: [...issues, ...suppressed],
@@ -320,6 +329,8 @@ async function scan(options, forCli) {
   }
 
   return {
+    electronVersion: electronVersion || null,
+    electronVersionSource,
     globalChecks: globalChecker._enabled_checks.length,
     atomicChecks: finder._enabled_checks.length,
     errors,

@@ -56,6 +56,43 @@ export function readFuseWire(binaryPath) {
   }
 }
 
+/**
+ * The Electron version built into a binary (its user agent carries "Electron/<version>"): for packaged apps, whose
+ * app.asar usually no longer names the Electron version. @returns the version, or undefined.
+ */
+export function readElectronVersion(binaryPath) {
+  let fd;
+  try {
+    fd = fs.openSync(binaryPath, 'r');
+  } catch {
+    return undefined;
+  }
+  try {
+    const CHUNK = 1 << 20;
+    const NEEDLE = Buffer.from('Electron/');
+    const buffer = Buffer.alloc(CHUNK);
+    let carry = Buffer.alloc(0);
+    let position = 0;
+    for (;;) {
+      const bytes = fs.readSync(fd, buffer, 0, CHUNK, position);
+      if (bytes <= 0) break;
+      const hay = carry.length ? Buffer.concat([carry, buffer.subarray(0, bytes)]) : buffer.subarray(0, bytes);
+      let index = hay.indexOf(NEEDLE);
+      while (index !== -1) {
+        const match = /^(\d{1,3}\.\d{1,3}\.\d{1,3})(?![\d.])/.exec(hay.subarray(index + NEEDLE.length, index + NEEDLE.length + 16).toString('latin1'));
+        if (match) return match[1];
+        index = hay.indexOf(NEEDLE, index + 1);
+      }
+      carry = Buffer.from(hay.subarray(Math.max(0, hay.length - 32)));
+      position += bytes;
+      if (bytes < CHUNK) break;
+    }
+    return undefined;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function parseWire(hay, start, count) {
   const version = hay[start];
   const states = {};

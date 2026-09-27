@@ -277,12 +277,16 @@ describe('Watch mode', () => {
       fs.mkdirSync(path.join(dir, 'app', 'resources'), { recursive: true });
       await asar.createPackage(source, path.join(dir, 'app', 'resources', 'app.asar'));
       // named as the platform names it: an .exe on Windows, where files have no executable bit
-      fs.writeFileSync(path.join(dir, 'app', process.platform === 'win32' ? 'myapp.exe' : 'myapp'), wire('11001100'), { mode: 0o755 });
+      fs.writeFileSync(path.join(dir, 'app', process.platform === 'win32' ? 'myapp.exe' : 'myapp'),
+        Buffer.concat([Buffer.from('Mozilla/5.0 Chrome/140.0 Electron/37.4.1 Safari\0'), wire('11001100')]), { mode: 0o755 });
       fs.writeFileSync(path.join(dir, 'app', 'chrome-sandbox'), 'helper', { mode: 0o755 });
       const result = await run({ input: path.join(dir, 'app', 'resources', 'app.asar'), offline: true, isRelative: true });
       const ids = result.issues.map(i => i.id);
       ids.should.include('PACKAGED_FUSES');
       ids.should.not.include('FUSES_GLOBAL_CHECK'); // the binary is the ground truth
+      // app.asar doesn't name the Electron version: it is read from the executable
+      result.electronVersion.should.equal('37.4.1');
+      result.electronVersionSource.should.equal('packaged executable');
       result.issues.filter(i => i.id === 'PACKAGED_FUSES' && /RunAsNode/.test(i.description))[0].severity.name.should.equal('HIGH');
     });
 
