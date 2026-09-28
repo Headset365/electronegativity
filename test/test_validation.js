@@ -301,6 +301,20 @@ describe('Marker request body', () => {
     JSON.parse(out.body).doc.blocks.map(b => b.text).should.deep.equal([M, M]);
   });
 
+  it('keeps large integer ids and number formatting byte-for-byte (no JSON round-trip)', () => {
+    const original = '{"id":1234567890123456789,"count":10,"active":true,"ratio":1.50,"body":"<p>x</p>"}';
+    const out = fillMarkerBody(original, M, [{ name: 'body', html: true }]);
+    out.contentType.should.equal('application/json');
+    // only body changed; the 19-digit id, the boolean and the 1.50 formatting are untouched (JSON.parse would break them)
+    out.body.should.equal(`{"id":1234567890123456789,"count":10,"active":true,"ratio":1.50,"body":${JSON.stringify(markerForms(M).html)}}`);
+  });
+
+  it('preserves surrounding whitespace and only rewrites the target string', () => {
+    const original = '{\n  "title": "hi",\n  "body": "old"\n}';
+    const out = fillMarkerBody(original, M, [{ name: 'body', html: false }]);
+    out.body.should.equal(`{\n  "title": "hi",\n  "body": ${JSON.stringify(M)}\n}`);
+  });
+
   it('fills urlencoded fields', () => {
     const out = fillMarkerBody('title=hi&body=x', M, [{ name: 'body', html: false }]);
     out.contentType.should.equal('application/x-www-form-urlencoded');

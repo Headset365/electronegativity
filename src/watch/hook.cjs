@@ -62,6 +62,76 @@ function markerFormValue(html, marker) {
   return html ? '<span data-' + marker + '="1">' + marker + '</span>' : marker;
 }
 
+// Rewrites a JSON document, copying it verbatim except that string leaves whose field path `replace(path)` returns a
+// value for are replaced by that value's JSON encoding. Numbers, booleans, null and whitespace are copied byte for
+// byte, so a large integer id keeps its exact digits (JSON.parse/stringify would round it to a float and change it).
+// Field paths match bodyFields: dotted keys and `[]` for array elements. Throws on malformed JSON.
+function rewriteJsonStrings(text, replace) {
+  let i = 0;
+  const n = text.length;
+  const isWs = (c) => c === ' ' || c === '\t' || c === '\n' || c === '\r';
+  const ws = () => { const start = i; while (i < n && isWs(text[i])) i++; return text.slice(start, i); };
+  const readString = () => {
+    const start = i;
+    i++; // opening quote
+    while (i < n) {
+      const c = text[i++];
+      if (c === '\\') i++;
+      else if (c === '"') break;
+    }
+    return text.slice(start, i);
+  };
+  function value(path) {
+    let out = ws();
+    const c = text[i];
+    if (c === '{') out += object(path);
+    else if (c === '[') out += array(path);
+    else if (c === '"') {
+      const raw = readString();
+      const replacement = replace(path);
+      out += replacement === undefined ? raw : JSON.stringify(replacement);
+    } else {
+      const start = i; // number, true, false, null: copied verbatim
+      while (i < n && !isWs(text[i]) && '}],'.indexOf(text[i]) === -1) i++;
+      if (i === start) throw new Error('unexpected token');
+      out += text.slice(start, i);
+    }
+    return out + ws();
+  }
+  function object(path) {
+    let out = text[i++]; // '{'
+    out += ws();
+    if (text[i] === '}') return out + text[i++];
+    for (;;) {
+      out += ws();
+      if (text[i] !== '"') throw new Error('expected key');
+      const keyRaw = readString();
+      const key = JSON.parse(keyRaw);
+      out += keyRaw + ws();
+      if (text[i] !== ':') throw new Error('expected colon');
+      out += text[i++];
+      out += value(path ? `${path}.${key}` : key);
+      if (text[i] === ',') { out += text[i++]; continue; }
+      if (text[i] === '}') return out + text[i++];
+      throw new Error('expected , or }');
+    }
+  }
+  function array(path) {
+    let out = text[i++]; // '['
+    out += ws();
+    if (text[i] === ']') return out + text[i++];
+    for (;;) {
+      out += value(`${path}[]`);
+      if (text[i] === ',') { out += text[i++]; continue; }
+      if (text[i] === ']') return out + text[i++];
+      throw new Error('expected , or ]');
+    }
+  }
+  const result = value('');
+  if (i < n) throw new Error('trailing content');
+  return result;
+}
+
 // Whether a captured request body is one we can rebuild with the marker put in: JSON and urlencoded bodies only. A
 // multipart or otherwise-shaped body is left for the tester to resend through the app.
 function canReplayBody(text) {
@@ -93,30 +163,19 @@ function fillMarkerBody(text, marker, fields) {
   if (want.size === 0) return null;
   const trimmed = String(text == null ? '' : text).trim();
   if (/^[[{]/.test(trimmed)) {
-    let root;
+    let matched = false;
+    let body;
     try {
-      root = JSON.parse(trimmed);
+      body = rewriteJsonStrings(trimmed, (path) => {
+        const leaf = path || '(body)';
+        if (!want.has(leaf)) return undefined;
+        matched = true;
+        return markerFormValue(want.get(leaf), marker);
+      });
     } catch {
       return null;
     }
-    let matched = false;
-    const walk = (value, name, depth) => {
-      if (depth > 6) return value;
-      if (Array.isArray(value)) return value.map(item => walk(item, `${name}[]`, depth + 1));
-      if (value && typeof value === 'object') {
-        const out = {};
-        for (const key of Object.keys(value)) out[key] = walk(value[key], name ? `${name}.${key}` : key, depth + 1);
-        return out;
-      }
-      const leaf = name || '(body)';
-      if (want.has(leaf) && typeof value === 'string') {
-        matched = true;
-        return markerFormValue(want.get(leaf), marker);
-      }
-      return value;
-    };
-    const rebuilt = walk(root, '', 0);
-    return matched ? { body: JSON.stringify(rebuilt), contentType: 'application/json' } : null;
+    return matched ? { body, contentType: 'application/json' } : null;
   }
   if (/^[\w.%[\]-]+=/.test(trimmed) && !/\s/.test(trimmed.slice(0, 200))) {
     const out = new URLSearchParams();
@@ -326,12 +385,37 @@ function instrument(electron, late) {
   const MARKUP = /<\s*[a-z][\w-]*[\s>/]|&lt;\s*[a-z][\w-]*|\\u003c\s*[a-z]/i;
   const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH']);
   const requestBodies = new Map();
-  // requests the validation assistant can offer to re-send with the marker in them. The full URL and the raw body are
-  // kept in memory only (never written to the log or diagnostics), keyed by a replay id the api record carries, and are
-  // re-sent through the request's own session so a logged-in account's cookies apply. Bounded, oldest evicted.
+  // the file the CLI writes send-marker commands to. Nothing can be re-sent without it, so requests are only kept for
+  // replay when it is set: an ordinary watch run (no channel) stores none of this.
+  const COMMANDS = process.env.ELECTRONEGATIVITY_WATCH_COMMANDS;
+  // requests the validation assistant can offer to re-send with the marker in them. The full URL, the raw body and the
+  // request headers are kept in memory only (never written to the log or diagnostics), keyed by a replay id the api
+  // record carries, and are re-sent through the request's own session so a logged-in account's cookies apply. Bounded,
+  // oldest evicted.
   const replayable = new Map();
+  const replayIdByRequest = new Map(); // details.id -> replay id, so headers seen later can be attached to the entry
   const MAX_REPLAYS = 200;
   let replayCounter = 0;
+  // headers to leave off a re-send: hop-by-hop or ones fetch/the session set themselves. Cookies come from the session,
+  // and we always set our own content-type for the rebuilt body, so both are dropped here to avoid duplicating them.
+  const SKIP_REPLAY_HEADERS = new Set(['host', 'content-length', 'connection', 'accept-encoding', 'cookie', 'content-type']);
+  const replayHeaders = (headers) => {
+    const out = {};
+    if (headers && typeof headers === 'object') for (const key of Object.keys(headers)) {
+      if (SKIP_REPLAY_HEADERS.has(key.toLowerCase())) continue;
+      const value = headers[key];
+      out[key] = Array.isArray(value) ? value.join(', ') : String(value);
+    }
+    return out;
+  };
+  // Authorization, User-Agent, X-Client-Id and the like the app sent: kept on the replay entry so the re-send carries
+  // token-in-header auth, not only session cookies. onBeforeSendHeaders fires after onBeforeRequest, so the entry exists.
+  const captureHeaders = (details) => {
+    const replay = replayIdByRequest.get(details.id);
+    if (replay === undefined) return;
+    const entry = replayable.get(replay);
+    if (entry) entry.headers = replayHeaders(details.requestHeaders);
+  };
   // the names of the fields a request body carries (JSON paths, form fields), each with whether its value looks like
   // markup and whether it holds the marker: the validation assistant asks for the marker in them. Values are not kept.
   const bodyFields = (text) => {
@@ -376,20 +460,29 @@ function instrument(electron, late) {
     } catch {
       // unreadable body
     }
-    // a write request with named fields and a body we can rebuild: keep what it takes to re-send with the marker
+    // a write request carrying HTML with a body we can rebuild: keep what it takes to re-send it with the marker, but
+    // only when the command channel is open (otherwise it could never be sent) and only for HTML — a plain-text save is
+    // left for the tester, so we don't hold requests we'd never offer to send
+    const html = MARKUP.test(text);
     let replay;
-    if (WRITE_METHODS.has(String(details.method).toUpperCase()) && fields.length > 0 && /^https?:/i.test(details.url) && canReplayBody(text)) {
+    if (COMMANDS && html && WRITE_METHODS.has(String(details.method).toUpperCase()) && fields.length > 0 && /^https?:/i.test(details.url) && canReplayBody(text)) {
       replay = ++replayCounter;
       replayable.set(replay, { method: String(details.method).toUpperCase(), url: details.url, text, ses });
-      if (replayable.size > MAX_REPLAYS) replayable.delete(replayable.keys().next().value);
+      replayIdByRequest.set(details.id, replay);
+      if (replayable.size > MAX_REPLAYS) {
+        const oldest = replayable.keys().next().value;
+        replayable.delete(oldest);
+      }
+      if (replayIdByRequest.size > MAX_REPLAYS) replayIdByRequest.delete(replayIdByRequest.keys().next().value);
     }
-    requestBodies.set(details.id, { bytes, html: MARKUP.test(text), fields, marker: hasMarker(text), replay });
+    requestBodies.set(details.id, { bytes, html, fields, marker: hasMarker(text), replay });
     if (requestBodies.size > 5000) requestBodies.delete(requestBodies.keys().next().value);
   };
   const recordApi = (details) => {
     if (details.resourceType !== 'xhr' || details.webContentsId === undefined || !/^https?:/i.test(details.url)) return;
     const body = requestBodies.get(details.id);
     requestBodies.delete(details.id);
+    replayIdByRequest.delete(details.id);
     write('api', { method: details.method, url: redact(details.url), status: details.statusCode, webContents: details.webContentsId,
       bodyBytes: body ? body.bytes : 0, htmlBody: !!(body && body.html), fields: body && body.fields.length ? body.fields : undefined,
       marker: !!(body && body.marker), replay: body && body.replay });
@@ -438,6 +531,8 @@ function instrument(electron, late) {
       capture(details, ses);
     };
     chainListener(request, 'onBeforeRequest', (details) => inspectBody(details, ses));
+    // request headers, only when the command channel is open: kept in memory to reproduce header auth on a re-send
+    if (COMMANDS) chainListener(request, 'onBeforeSendHeaders', captureHeaders);
     chainListener(request, 'onHeadersReceived', record);
 
     // permission requests and the answers; without a handler of the app's own, Electron grants everything
@@ -700,7 +795,6 @@ function instrument(electron, late) {
   // We rebuild the request the app already made with the marker put into the named fields and re-send it through that
   // request's own session (so a logged-in account's cookies apply), then report the outcome. Nothing else is sent, and
   // only the harmless marker goes into the body. The channel is polled like the log is followed, one line at a time.
-  const COMMANDS = process.env.ELECTRONEGATIVITY_WATCH_COMMANDS;
   if (COMMANDS) safely(() => {
     const runCommand = (cmd) => {
       if (!cmd || cmd.kind !== 'send-marker') return;
@@ -714,7 +808,10 @@ function instrument(electron, late) {
       const names = (cmd.fields || []).map(f => f.name);
       const htmlNames = (cmd.fields || []).filter(f => f.html).map(f => f.name);
       replayable.delete(cmd.replay); // re-sent once
-      ses.fetch(entry.url, { method: entry.method, headers: { 'content-type': built.contentType }, body: built.body })
+      // the request's own headers (Authorization, User-Agent, ...) so header auth is reproduced, with our content-type
+      // for the rebuilt body last so it wins
+      const headers = { ...(entry.headers || {}), 'content-type': built.contentType };
+      ses.fetch(entry.url, { method: entry.method, headers, body: built.body })
         .then(response => done({ ok: !!response.ok, status: response.status, method: entry.method, fields: names, html: htmlNames }))
         .catch(error => done({ ok: false, method: entry.method, fields: names, error: String(error && error.message) }));
     };

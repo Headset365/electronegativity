@@ -116,13 +116,16 @@ the limits that remain, so the boundaries of the analysis stay clear.
   open when the app closes is cancelled (counted as no) so it can't be answered by accident at the next prompt.
 - **Why it matters:** it closes the loop the assistant used to leave to the tester — planting the stored content — so
   confirming stored-content injection needs one keypress instead of switching to the app or a proxy to resend.
+- **How it stays faithful:** the re-send reuses the request's own headers (`Authorization`, `User-Agent`, custom client
+  ids and the like), so header-token auth works, not only session cookies; the body is rebuilt without going through
+  `JSON.parse`, so a large integer id keeps its exact digits and numbers aren't reformatted; and a request is only kept
+  in memory for re-sending while the command channel is open, so an ordinary watch run holds none of it.
 - **Remaining limit:** the marker is put only into the fields that carried markup, so a plain-text save is left for the
   tester (naming a title, an id or a status would overwrite unrelated data); only JSON and urlencoded bodies are rebuilt
-  (a multipart upload is left for the tester); the request goes through the app's own session, so token-in-header auth
-  that the session doesn't carry isn't reproduced; it needs an interactive terminal (`--watch` or `--app`, not
-  `--watch-log` replay) and Electron 25+ (`session.fetch`); and it is offered once per endpoint. Only the harmless marker
-  is ever put into the body — nothing else is sent, and no request content is written to the log or the diagnostics
-  report.
+  (a multipart upload is left for the tester); it needs an interactive terminal (`--watch` or `--app`, not `--watch-log`
+  replay) and Electron 25+ (`session.fetch`); and it is offered once per endpoint. Only the harmless marker is ever put
+  into the body — nothing else is sent, the kept headers and body stay in memory, and no request content is written to
+  the log or the diagnostics report.
 
 ## Remaining gaps
 
