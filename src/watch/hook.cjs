@@ -250,6 +250,65 @@ function instrument(electron, late) {
   const OBSERVER_KEY = `__eng_${require('crypto').randomBytes(6).toString('hex')}`;
   write('start', { electron: process.versions.electron, platform: process.platform, late: !!late });
 
+  // the app's network traffic, checked inside the app by the passive traffic checks: only their findings (with redacted
+  // evidence) are written to the log. Off with --no-watch-traffic.
+  let traffic;
+  if (process.env.ELECTRONEGATIVITY_WATCH_TRAFFIC !== '0') safely(() => {
+    const { createTrafficObserver } = require(path.join(__dirname, 'traffic_hook.cjs'));
+    traffic = createTrafficObserver({ write, scope: (process.env.ELECTRONEGATIVITY_WATCH_SCOPE || '').split(',').map(s => s.trim()).filter(Boolean) });
+    if (traffic) traffic.instrumentNodeHttp();
+  });
+
+  // What the app writes to its consoles and the errors it doesn't handle: secrets in log output (only the kind and a
+  // redacted prefix are kept), uncaught exceptions (first line, secrets redacted) and CSP violations Chromium reports.
+  let secrets;
+  safely(() => { secrets = require(path.join(__dirname, '..', 'traffic', 'secrets.cjs')); });
+  const consoleSecrets = (text, where, url) => {
+    if (!secrets || !text) return;
+    const found = secrets.findSecrets(String(text).slice(0, 20000), { maxHits: 5 }).filter(s => !s.kind.startsWith('Hard-coded'));
+    if (found.length > 0) write('console-secret', { where, url, kinds: [...new Set(found.map(s => s.kind))], evidence: found.slice(0, 3).map(s => `${s.kind}=${secrets.redact(s.value)}`) });
+  };
+  const firstLine = (text) => {
+    const line = String(text || '').split('\n')[0].slice(0, 200);
+    return secrets ? secrets.redactText(line) : line;
+  };
+  safely(() => {
+    const util = require('util');
+    for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
+      const original = console[level];
+      if (typeof original !== 'function') continue;
+      console[level] = function (...args) {
+        try {
+          consoleSecrets(util.format(...args), 'main');
+        } catch {
+          // observing never breaks logging
+        }
+        return original.apply(this, args);
+      };
+    }
+  });
+  // a monitor only observes: the app's own handling (or Electron's crash dialog) is unchanged
+  safely(() => process.on('uncaughtExceptionMonitor', (error) => write('main-exception', { message: firstLine(error && (error.stack || error.message || error)) })));
+  // one declared parameter, so Electron 35+ doesn't warn about the deprecated positional arguments
+  const onConsoleMessage = (id) => function (event) {
+    const [, levelArg, messageArg, lineArg, sourceArg] = arguments;
+    safely(() => {
+    // Electron 35+ passes one event object; older releases pass (event, level, message, line, sourceId)
+      const detail = event && typeof event.message === 'string' ? event : { level: levelArg, message: messageArg, lineNumber: lineArg, sourceId: sourceArg };
+      const message = String(detail.message || '');
+      const url = redact(detail.sourceId || '');
+      consoleSecrets(message, 'renderer', url);
+      const level = typeof detail.level === 'number' ? detail.level : ({ error: 3, warning: 2 })[detail.level];
+      if (/Content Security Policy/i.test(message) && /Refused to/i.test(message)) {
+        const directive = (message.match(/directive:?\s*"([^"]+)"/i) || [])[1];
+        const blocked = (message.match(/Refused to (?:load|execute|apply|connect to|frame|create a worker from)?\s*(?:the )?(?:\w+ )?'?([^' ]+)'?/i) || [])[1];
+        write('csp-violation', { id, url, directive: directive && directive.split(' ')[0], blocked: blocked && redact(blocked) });
+      } else if (level === 3 && /^Uncaught\b/.test(message)) {
+        write('page-exception', { id, url, line: detail.lineNumber, message: firstLine(message) });
+      }
+    });
+  };
+
   // preload scripts, by webContents id: getLastWebPreferences() does not report them, so capture them where the window
   // is constructed. The electron exports are getter-only and can't be reassigned, so the app is handed a Proxy of the
   // module (returned from the require hook) that wraps the window constructors. This fills the preload column.
@@ -511,6 +570,28 @@ function instrument(electron, late) {
     };
   }
 
+  // the same for events that only observe (no callback): the app's own listener keeps receiving them
+  function chainObserver(request, name, observe) {
+    if (typeof request[name] !== 'function') return;
+    const original = request[name].bind(request);
+    let appListener = null;
+    const combined = (details) => {
+      try {
+        observe(details);
+      } catch {
+        // observing never breaks a request
+      }
+      if (appListener) appListener(details);
+    };
+    original(combined);
+    request[name] = (filterOrListener, maybeListener) => {
+      const listener = typeof filterOrListener === 'function' || filterOrListener === null ? filterOrListener : maybeListener;
+      const filter = typeof filterOrListener === 'object' && filterOrListener !== null ? filterOrListener : undefined;
+      appListener = listener;
+      return filter ? original(filter, combined) : original(combined);
+    };
+  }
+
   const instrumentedSessions = new WeakSet();
   function instrumentSession(ses) {
     if (!ses || instrumentedSessions.has(ses)) return;
@@ -530,10 +611,20 @@ function instrument(electron, late) {
       recordApi(details);
       capture(details, ses);
     };
-    chainListener(request, 'onBeforeRequest', (details) => inspectBody(details, ses));
+    chainListener(request, 'onBeforeRequest', (details) => {
+      inspectBody(details, ses);
+      if (traffic) traffic.onBeforeRequest(details);
+    });
     // request headers, only when the command channel is open: kept in memory to reproduce header auth on a re-send
     if (COMMANDS) chainListener(request, 'onBeforeSendHeaders', captureHeaders);
-    chainListener(request, 'onHeadersReceived', record);
+    chainListener(request, 'onHeadersReceived', (details) => {
+      record(details);
+      if (traffic) traffic.onHeadersReceived(details);
+    });
+    if (traffic) {
+      chainObserver(request, 'onSendHeaders', traffic.onSendHeaders);
+      chainObserver(request, 'onErrorOccurred', traffic.onErrorOccurred);
+    }
 
     // permission requests and the answers; without a handler of the app's own, Electron grants everything
     const originalSetHandler = ses.setPermissionRequestHandler.bind(ses);
@@ -571,6 +662,8 @@ function instrument(electron, late) {
     safely(() => { type = contents.getType(); });
     safely(() => instrumentSession(contents.session));
     write('webcontents', { id, type });
+    if (traffic && (type === 'window' || type === 'webview' || type === 'browserView')) safely(() => traffic.attach(contents));
+    contents.on('console-message', onConsoleMessage(id));
 
     const prefs = () => {
       try {
@@ -774,7 +867,10 @@ function instrument(electron, late) {
   app.on('session-created', (ses) => safely(() => instrumentSession(ses)));
   app.on('certificate-error', (event, contents, url, error) => write('certificate-error', { url: redact(url), error: String(error) }));
   app.whenReady().then(() => safely(() => instrumentSession(electron.session.defaultSession)));
-  app.on('quit', () => write('quit', {}));
+  app.on('quit', () => {
+    if (traffic) safely(() => traffic.flush());
+    write('quit', {});
+  });
   // files, deep links and command lines handed to the app (listening does not change how the app handles them)
   app.on('open-file', () => write('entry', { detail: 'open-file' }));
   app.on('open-url', () => write('entry', { detail: 'open-url' }));

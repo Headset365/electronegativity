@@ -211,5 +211,9 @@
 	"appDone": "Terminado. Los informes están en {{{dir}}}. Envíe solo los archivos *-diag.json, después de leerlos; conserve los informes .html:",
 	"diagnosticsOptionDescription": "escribir un informe de diagnóstico saneado para compartir al solucionar problemas: qué se analizó u omitió, errores, tiempos de las comprobaciones y estado del modo de observación; sin código ni texto de los hallazgos",
 	"redactOptionDescription": "términos adicionales separados por comas que se sustituirán en el informe de diagnóstico (nombres de empresa, producto o servidores); el nombre de la aplicación, del usuario y del equipo siempre se sustituyen",
-	"diagnosticsWritten": "Diagnóstico escrito en {{{file}}}: revíselo antes de compartirlo"
+	"diagnosticsWritten": "Diagnóstico escrito en {{{file}}}: revíselo antes de compartirlo",
+	"ingestOptionDescription": "ejecutar también las comprobaciones de tráfico sobre una captura guardada del tráfico de la aplicación: un archivo HAR (exportado de DevTools o de un proxy) o el XML \"Save items\" de Burp Suite; se puede repetir y funciona sin -i",
+	"scopeOptionDescription": "un dominio que usa la propia aplicación (p. ej. example.com), para que las comprobaciones de tráfico distingan sus hosts de los de terceros; si no se indica, se deduce del tráfico; se puede repetir",
+	"watchTrafficOptionDescription": "en el modo de observación, no ejecutar las comprobaciones de tráfico dentro de la aplicación (peticiones, respuestas y mensajes WebSocket observados mediante la conexión del protocolo DevTools de cada ventana)",
+	"trafficSummary": "Tráfico: {{http}} peticiones HTTP y {{ws}} mensajes WebSocket a {{hosts}} hosts de {{files}} archivo(s) de captura"
 }

@@ -211,5 +211,9 @@
 	"appDone": "Done. Reports are in {{{dir}}}. Send back only the *-diag.json files, after reading them; keep the .html reports:",
 	"diagnosticsOptionDescription": "write a sanitized diagnostics report to share for troubleshooting: what was scanned or skipped, errors, check timings, watch mode status; no code or findings text",
 	"redactOptionDescription": "extra comma-separated terms to replace in the diagnostics report (company, product or host names); the app name, user name and machine name are always replaced",
-	"diagnosticsWritten": "Diagnostics written to {{{file}}}: review it before sharing"
+	"diagnosticsWritten": "Diagnostics written to {{{file}}}: review it before sharing",
+	"ingestOptionDescription": "also run the traffic checks on a saved capture of the app's traffic: a HAR file (DevTools or proxy export) or Burp Suite \"Save items\" XML; can be repeated, and works without -i",
+	"scopeOptionDescription": "a domain the app itself uses (e.g. example.com), for the traffic checks to tell its own hosts from third parties; learned from the traffic when not given; can be repeated",
+	"watchTrafficOptionDescription": "in watch mode, don't run the traffic checks inside the app (requests, responses and WebSocket messages observed through each window's DevTools protocol connection)",
+	"trafficSummary": "Traffic: {{http}} HTTP requests and {{ws}} WebSocket messages to {{hosts}} hosts from {{files}} capture file(s)"
 }

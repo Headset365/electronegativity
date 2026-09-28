@@ -19,6 +19,8 @@ import { validationHint } from './finder/consequences.js';
 import { startDiagnostics, stopDiagnostics, diagnostics, writeDiagnostics } from './util/diagnostics.js';
 import pkg from '../package.json' with { type: 'json' };
 import { detectLibraries } from './util/libraries.js';
+import { analyzeCaptures } from './traffic/ingest.js';
+import { reconcileTraffic } from './traffic/reconcile.js';
 
 export default async function run(options, forCli = false) {
   // --offline only applies to this scan
@@ -264,6 +266,16 @@ async function scan(options, forCli) {
     issues.push(...options.runtime.issues);
     reconcileRuntime(issues, options.runtime.summary);
   }
+  // saved captures of the app's traffic (--ingest: HAR or Burp XML), checked by the same traffic checks as watch mode
+  let traffic;
+  if (options.captures && options.captures.length > 0) {
+    traffic = analyzeCaptures(options.captures, { scope: options.scope || [] });
+    issues.push(...traffic.issues);
+    for (const message of traffic.summary.errors) errors.push({ file: 'capture', message, tolerable: false });
+    if (forCli) console.log(chalk.green(__('trafficSummary', { files: traffic.summary.files, http: traffic.summary.http, ws: traffic.summary.ws, hosts: traffic.summary.hosts })));
+  }
+  if (traffic || (options.runtime && options.runtime.summary && options.runtime.summary.traffic))
+    reconcileTraffic(issues, { interceptedHttps: traffic ? traffic.summary.interceptedHttps : 0 });
 
   // A packaged app (its app.asar or resources/app): read the fuses written into its executable, which are what ships.
   // Watch mode of a packaged app has already done so.
@@ -325,6 +337,7 @@ async function scan(options, forCli) {
       atomicChecks: finder._enabled_checks.length,
       errors,
       runtime: options.runtime && options.runtime.summary,
+      traffic: traffic && traffic.summary,
       dependencies
     });
   }
@@ -372,6 +385,8 @@ async function scan(options, forCli) {
         lookupErrors: dependencies.errors.map(e => `${e.source}: ${e.message}`).filter((m, i, all) => all.indexOf(m) === i).slice(0, 10) },
       watch: options.watchDiagnostics,
       remote: options.remoteDiagnostics,
+      // how much traffic the captures held (hosts are left out: they identify the app)
+      traffic: traffic && { files: traffic.summary.files, http: traffic.summary.http, ws: traffic.summary.ws, hosts: traffic.summary.hosts, errors: traffic.summary.errors.length },
     }, { redact: options.redact || [], version: pkg.version });
     if (forCli) console.log(chalk.gray(__('diagnosticsWritten', { file: options.diagnostics })));
   }
@@ -386,7 +401,8 @@ async function scan(options, forCli) {
     reported,
     dependencies,
     suppressed,
-    staleBaselineEntries: stale
+    staleBaselineEntries: stale,
+    traffic: traffic && traffic.summary
   };
 }
 

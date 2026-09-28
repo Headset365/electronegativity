@@ -26,7 +26,7 @@ export function parseHeaders(list = []) {
  * session log `watchLog`, and analyzes it. Returns { runtime, watchDiagnostics, watchLog, staticInput }.
  * @throws when the app can't be started or the log can't be read
  */
-export async function observeSession({ watch, watchLog, args = [], marker, capture = true, assistant, staticIssues = [], confirm }) {
+export async function observeSession({ watch, watchLog, args = [], marker, capture = true, traffic = true, scope = [], assistant, staticIssues = [], confirm }) {
   let log = watchLog;
   let packagedApp;
   let injection;
@@ -62,7 +62,7 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     }
     const stopFollowing = followLog(logFile, record => assistant.handle(record));
     try {
-      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture, log: logFile, commands: commandsFile,
+      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture, traffic, scope, log: logFile, commands: commandsFile,
         onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
       stopFollowing();
@@ -86,6 +86,9 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     marker: { ...Object.fromEntries(['sink', 'shell', 'will-navigate', 'window-open', 'ipc', 'process'].map(kind => [kind, records.filter(r => r.kind === kind && (r.marker || (kind === 'sink' && r.live))).length])) },
     // how the observer was loaded: NODE_OPTIONS for an app folder, the Node inspector for a packaged app
     injection: packagedApp ? { method: 'inspector', ...injection } : watch ? { method: 'NODE_OPTIONS' } : undefined,
+    // the traffic checks that ran inside the app: how much they saw, from which sources (no hosts: they identify the app)
+    traffic: runtime.summary.traffic && { http: runtime.summary.traffic.http, ws: runtime.summary.traffic.ws, hosts: runtime.summary.traffic.hosts,
+      sources: runtime.summary.traffic.sources, findings: runtime.summary.traffic.findings, notes: runtime.summary.traffic.notes.length },
   };
   // read the fuses actually written into the packaged binary, which the static FUSES_* checks can't see
   if (packagedApp) {

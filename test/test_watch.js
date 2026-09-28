@@ -402,6 +402,27 @@ describe('Watch mode', () => {
       report.issues.filter(i => i.id === 'RUNTIME_WINDOW_SUMMARY').some(i => i.properties.preload === 'preload.js').should.equal(true);
     });
 
+    run('checks the traffic, consoles and errors of a real session', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-traffic-app-'));
+      fs.cpSync(path.join(import.meta.dirname, 'apps', 'traffic-app'), dir, { recursive: true });
+      fs.symlinkSync(path.join(import.meta.dirname, '..', 'node_modules'), path.join(dir, 'node_modules'), 'junction');
+      const output = path.join(dir, 'report.json');
+      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '-r', '-o', output];
+      const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8' }) : spawnSync(process.execPath, cli, { encoding: 'utf8' });
+      command.status.should.equal(0, command.stderr);
+      const report = JSON.parse(fs.readFileSync(output, 'utf8'));
+      const ids = report.issues.map(i => i.id);
+      ids.should.include.members(['TRAFFIC_CLEARTEXT_HTTP', 'TRAFFIC_SECRET_IN_URL', 'TRAFFIC_INSECURE_COOKIE', 'TRAFFIC_AUTH_TO_THIRD_PARTY', 'TRAFFIC_USER_INPUT_TO_THIRD_PARTY',
+        'TRAFFIC_IDOR_CANDIDATE', 'TRAFFIC_SECRET_IN_RESPONSE', 'TRAFFIC_WS_CLEARTEXT', 'TRAFFIC_WS_HTML_MESSAGE',
+        'RUNTIME_SECRET_IN_CONSOLE', 'RUNTIME_UNCAUGHT_EXCEPTION', 'RUNTIME_CSP_VIOLATION']);
+      // the main process's own requests (Node http) are checked too
+      report.issues.some(i => i.id === 'TRAFFIC_SECRET_IN_URL' && /api\/status/.test(i.description)).should.equal(true);
+      // secrets are redacted in everything written
+      JSON.stringify(report).should.not.include('A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8');
+      JSON.stringify(report).should.not.include('Zk2Qm9Lr7Tx4Wv1Yp8Nb');
+      report.runtime.traffic.sources.debugger.should.be.above(0);
+    });
+
     run('observes a real session without disturbing the app', () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-watch-app-'));
       fs.cpSync(path.join(import.meta.dirname, 'apps', 'runtime-app'), dir, { recursive: true });

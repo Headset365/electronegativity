@@ -9,11 +9,15 @@
 //   network    - needs a position on the network path (Wi-Fi, proxy, a compromised server or CDN)
 //   local      - needs access to the user's device: to its files, to start the app, or to the keyboard
 //   dependency - known vulnerabilities in outdated software; how they are exploited depends on each advisory
+//   server     - another user of the same service, through its server API (authorization gaps, data it hands out)
+//   thirdparty - a third-party service the app sends data to (analytics, CDNs, trackers)
 //   info       - inventory and coverage, nothing to fix by itself
 export const ROUTES = {
   content: 'Shared content',
   escalation: 'Raises impact',
   network: 'Network',
+  server: 'Other users (server)',
+  thirdparty: 'Third parties',
   local: 'Local access',
   dependency: 'Known vulnerabilities',
   info: 'Information',
@@ -89,6 +93,24 @@ const CONSEQUENCES = {
   WRITE_SHORTCUT: ['local', 'Windows shortcut (.lnk) files are created or changed; only a concern if their target or path comes from page content or IPC.'],
   XSS_SINK: ['content', 'Dynamic data is inserted as HTML: if it can hold content stored by another user, their markup runs as script in this window (XSS).'],
 
+  TRAFFIC_CLEARTEXT_HTTP: ['network', 'The app sent requests over unencrypted http: anyone on the network path (Wi-Fi, proxy) can read and change them, including the responses the app acts on.'],
+  TRAFFIC_SECRET_IN_URL: ['network', 'A secret travels in a URL: URLs are kept in proxy and server logs, browser history and Referer headers, where others can read them.'],
+  TRAFFIC_AUTH_TO_THIRD_PARTY: ['thirdparty', 'The app\'s own credentials (a cookie, token or key) are sent to another company\'s server, which can then act as the user.'],
+  TRAFFIC_USER_INPUT_TO_THIRD_PARTY: ['thirdparty', 'Something the user typed into the app is passed on to a third party: a privacy leak, and a problem if it is personal or confidential data.'],
+  TRAFFIC_STATE_CHANGE_NO_AUTH: ['server', 'A request that changes data carries no visible credentials: if the server does not authenticate it some other way, anyone can make it.'],
+  TRAFFIC_IDOR_CANDIDATE: ['server', 'An object is addressed by a guessable number: if the server does not check who owns it, another user can read or change it by changing the number (IDOR).'],
+  TRAFFIC_REFLECTED_INPUT: ['content', 'A request value comes back in the response: if it is not encoded for where it lands, a crafted link or request injects markup (reflected XSS).'],
+  TRAFFIC_BASIC_AUTH: ['network', 'The user\'s password travels, only base64-encoded, with every request: anything that sees one request can reuse it.'],
+  TRAFFIC_SECRET_IN_RESPONSE: ['server', 'The server hands a secret to the client: anyone who can make the same request (or read the app\'s cache) gets it.'],
+  TRAFFIC_INSECURE_COOKIE: ['escalation', 'Without HttpOnly, script injected into the page can read the session cookie; without Secure, it can be sent over unencrypted http.'],
+  TRAFFIC_WS_CLEARTEXT: ['network', 'The WebSocket is unencrypted: anyone on the network path can read and inject messages.'],
+  TRAFFIC_WS_SECRET_IN_URL: ['network', 'A secret travels in the WebSocket URL, which ends up in logs.'],
+  TRAFFIC_WS_HTML_MESSAGE: ['content', 'The server pushes HTML to the app over a WebSocket, often content another user wrote: rendered as HTML without sanitizing, it runs as script (XSS).'],
+  TRAFFIC_WS_SECRET_IN_MESSAGE: ['server', 'A secret is sent in WebSocket messages, where it can be logged or read by whoever receives them.'],
+  TRAFFIC: ['info', 'Traffic observed from the app.'],
+  RUNTIME_SECRET_IN_CONSOLE: ['local', 'A secret is written to the console: console output is kept in log files and crash reports that other programs and support staff can read.'],
+  RUNTIME_UNCAUGHT_EXCEPTION: ['info', 'An error nothing handled: it can leave the app in an odd state, and its stack trace may reveal internals. Check whether content can trigger it.'],
+  RUNTIME_CSP_VIOLATION: ['content', 'The Content Security Policy blocked something the page tried to load or run: the policy worked, but find the cause, as injected content is one.'],
   RUNTIME_CERTIFICATE_ERROR: ['network', 'A certificate error happened during the session: check that the app refused the connection.'],
   RUNTIME_CONTEXT_ISOLATION: ['escalation', 'A page ran without context isolation: an XSS in it can reach the preload\'s privileged APIs.'],
   RUNTIME_COVERAGE: ['info', 'IPC channels the session did not exercise.'],
@@ -144,6 +166,11 @@ const HOW_TO_VALIDATE = {
   DEVTOOLS: 'Manual, local access only: check that DevTools cannot be opened in the shipped build (the call is behind a development flag). Content from other users cannot use it.',
   WRITE_SHORTCUT: 'Manual: check that the shortcut\'s target and path are fixed values, not taken from IPC or page content. If so, dismiss it: it needs local access.',
   FUSES: 'Manual, local access only: set the fuses in the build (@electron/fuses). Content from other users cannot use them.',
+  TRAFFIC_IDOR_CANDIDATE: 'Manual, on a test server: sign in as a second test account and repeat the request with the first account\'s id (replay it from your proxy). The tool never requests other ids.',
+  TRAFFIC_STATE_CHANGE_NO_AUTH: 'Manual: replay the request from your proxy without cookies or tokens; it should be refused (401/403).',
+  TRAFFIC_REFLECTED_INPUT: 'Manual: replay the request with markup in the parameter (e.g. <b>x</b>) and check whether it comes back unencoded.',
+  TRAFFIC_WS_HTML_MESSAGE: MARKER_HTML,
+  TRAFFIC_SECRET_IN_RESPONSE: 'Manual: check whether the client needs this value at all, and whether it is scoped to the signed-in user.',
   PACKAGED_FUSES: 'Manual, local access only: set the fuses in the build (@electron/fuses). Content from other users cannot use them.',
 };
 

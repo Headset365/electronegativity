@@ -9,6 +9,7 @@ import run from './runner.js';
 import { severity } from './finder/attributes.js';
 import { OUTPUT_FORMATS } from './util/index.js';
 import fs from 'node:fs';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import readline from 'node:readline/promises';
 import { locateApp } from './watch/locate.js';
@@ -53,6 +54,9 @@ async function main() {
     .option('--no-watch-capture', __('watchCaptureOptionDescription'))
     .option('--remote <url>', __('remoteOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--remote-header <header>', __('remoteHeaderOptionDescription'), (value, previous) => [...(previous || []), value])
+    .option('--ingest <file>', __('ingestOptionDescription'), (value, previous) => [...(previous || []), value])
+    .option('--scope <domain>', __('scopeOptionDescription'), (value, previous) => [...(previous || []), value])
+    .option('--no-watch-traffic', __('watchTrafficOptionDescription'))
     .option('--diagnostics <file>', __('diagnosticsOptionDescription'))
     .option('--redact <terms>', __('redactOptionDescription'))
     .parse(process.argv);
@@ -84,6 +88,8 @@ async function main() {
   const headers = parseHeaders(options.remoteHeader);
   const redact = options.redact ? options.redact.split(',').map(term => term.trim()).filter(Boolean) : [];
   const capture = options.watchCapture !== false;
+  const traffic = options.watchTraffic !== false;
+  const scope = (options.scope || []).flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
 
   if (options.output) {
     options.fileFormat = options.output.split('.').pop().toLowerCase();
@@ -117,11 +123,13 @@ async function main() {
     baseline: options.baseline,
     writeBaseline: options.writeBaseline,
     redact,
+    captures: options.ingest || [],
+    scope,
   };
 
   try {
     if (options.app) {
-      await guided(options, common, { watchArgs, headers, capture });
+      await guided(options, common, { watchArgs, headers, capture, traffic, scope });
       return;
     }
 
@@ -129,7 +137,7 @@ async function main() {
     let session;
     if (options.watch || options.watchLog) {
       try {
-        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker, capture, confirm: interactiveConfirm() });
+        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker, capture, traffic, scope, confirm: interactiveConfirm() });
       } catch (error) {
         console.error(chalk.red(error.message));
         process.exit(2);
@@ -140,6 +148,9 @@ async function main() {
     const remote = await collectRemote({ runtime: session && session.runtime, watchLog: session && session.watchLog, capture, remote: options.remote || [], headers, offline: options.offline });
     // --remote on its own: the downloaded front end is the input
     if (!options.input && remote.scanDir) options.input = remote.scanDir;
+
+    // captures of the app's traffic on their own: nothing to scan statically
+    if (!options.input && options.ingest) options.input = fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-no-code-'));
 
     if (!options.input) {
       program.outputHelp();
@@ -237,7 +248,7 @@ function countBySeverity(issues) {
  * --app <location>: finds the app, scans it statically, then runs as many watch sessions as the user wants (one per
  * account, typically), each with its own report and diagnostics file, all in one results folder.
  */
-async function guided(options, common, { watchArgs, headers, capture }) {
+async function guided(options, common, { watchArgs, headers, capture, traffic, scope }) {
   const located = locateApp(options.app);
   const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
   const outDir = path.resolve(options.out || `electronegativity-results-${stamp}`);
@@ -276,7 +287,7 @@ async function guided(options, common, { watchArgs, headers, capture }) {
     }
     let session;
     try {
-      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, capture, assistant, confirm: interactiveConfirm() });
+      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, capture, traffic, scope, assistant, confirm: interactiveConfirm() });
     } catch (error) {
       console.error(chalk.red(error.message));
       break;

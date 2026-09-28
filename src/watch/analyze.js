@@ -1,6 +1,7 @@
 // Turns the log written by hook.cjs during a watch session into findings, in the same shape as the static ones.
 import fs from 'node:fs';
 import { severity, confidence } from '../finder/attributes.js';
+import { trafficIssues } from '../traffic/ingest.js';
 
 const DOCS = 'https://www.electronjs.org/docs/latest/tutorial/security';
 const LOCAL_HOSTS = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/;
@@ -213,7 +214,40 @@ export function analyzeWatchLog(records) {
 
   markerEvidence(records, add, first, api, issues);
 
-  return { issues, summary: { started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api } };
+  // the traffic checks that ran inside the app: its last report holds every finding so far
+  const trafficRecord = records.filter(r => r.kind === 'traffic').pop();
+  const traffic = trafficRecord ? { ...trafficRecord.summary, findings: trafficRecord.findings.length } : undefined;
+  if (traffic) {
+    traffic.notes = records.filter(r => r.kind === 'traffic-note').map(r => r.message).slice(0, 20);
+    issues.push(...trafficIssues(trafficRecord.findings, 'watch'));
+  }
+  consoleAndErrors(records, add, first, issues);
+
+  return { issues, summary: { started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic } };
+}
+
+// Secrets written to the consoles, errors nothing handled, and CSP violations: each once per kind and place
+function consoleAndErrors(records, add, first, issues) {
+  for (const r of records.filter(r => r.kind === 'console-secret')) {
+    const where = r.where === 'main' ? 'the main process' : `a page${r.url ? ` (${r.url})` : ''}`;
+    if (!first(`console-secret:${r.where}:${(r.kinds || []).join(',')}`)) continue;
+    add('RUNTIME_SECRET_IN_CONSOLE', r.url || r.where, severity.LOW, confidence.FIRM, `${(r.kinds || []).join(', ')} written to the console by ${where}: console output ends up in log files and crash reports`,
+      { where: r.where, kinds: r.kinds, evidence: r.evidence }, 'https://cwe.mitre.org/data/definitions/532.html');
+    issues[issues.length - 1].sample = (r.evidence || [])[0] || '';
+  }
+  for (const r of records.filter(r => r.kind === 'main-exception' || r.kind === 'page-exception')) {
+    const main = r.kind === 'main-exception';
+    if (!first(`exception:${r.kind}:${r.url || ''}:${String(r.message).slice(0, 60)}`)) continue;
+    add('RUNTIME_UNCAUGHT_EXCEPTION', main ? 'main process' : r.url, severity.LOW, confidence.CERTAIN,
+      `An exception nothing handled was thrown in ${main ? 'the main process' : `a page (${r.url || '?'})`}: ${r.message}`, { where: main ? 'main' : 'renderer', line: r.line },
+      'https://cwe.mitre.org/data/definitions/248.html');
+  }
+  for (const r of records.filter(r => r.kind === 'csp-violation')) {
+    if (!first(`csp-violation:${origin(r.url)}:${r.directive}:${r.blocked}`)) continue;
+    add('RUNTIME_CSP_VIOLATION', r.url, severity.MEDIUM, confidence.FIRM,
+      `The Content Security Policy blocked ${r.blocked || 'a resource'}${r.directive ? ` (${r.directive})` : ''} on ${r.url || 'a page'}: find what tried to load it; content injected into the page is a common cause`,
+      { directive: r.directive, blocked: r.blocked }, 'https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP');
+  }
 }
 
 // Where the planted marker (--watch-marker) turned up: each is runtime proof for a finding that needs review. A value

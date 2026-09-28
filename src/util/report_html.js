@@ -192,7 +192,15 @@ function runtimeSurface(runtimeWindows, ipc, coverage, summary, windowCoverage) 
     </tbody>
   </table></div>` : ''}${unused.length > 0 ? `
   <p class="note"><b>IPC channels not exercised during the session:</b> ${unused.map(c => `<code>${escapeHtml(c)}</code>`).join(' ')}. Go through the features that use these channels to cover them.</p>` : ''}${unopened.length > 0 ? `
-  <p class="note"><b>Windows never opened during the session:</b> ${unopened.map(w => escapeHtml(w)).join('; ')}. Open these screens to observe them at runtime.</p>` : ''}${apiEndpoints(summary)}${entryPoints(summary)}`;
+  <p class="note"><b>Windows never opened during the session:</b> ${unopened.map(w => escapeHtml(w)).join('; ')}. Open these screens to observe them at runtime.</p>` : ''}${apiEndpoints(summary)}${entryPoints(summary)}${trafficNote(summary && summary.traffic, 'during the session')}`;
+}
+
+// how much traffic the traffic checks saw (in watch mode, or in the saved captures given with --ingest)
+function trafficNote(traffic, where) {
+  if (!traffic) return '';
+  const sources = traffic.sources ? Object.entries(traffic.sources).filter(([, n]) => n > 0).map(([name, n]) => `${escapeHtml(name)} ${escapeHtml(n)}`).join(', ') : '';
+  return `
+  <p class="note"><b>Traffic checked ${escapeHtml(where)}:</b> ${escapeHtml(traffic.http)} HTTP request(s) and ${escapeHtml(traffic.ws)} WebSocket message(s) to ${escapeHtml(traffic.hosts)} host(s)${traffic.firstParty && traffic.firstParty.length ? `; the app's own domains: ${traffic.firstParty.map(d => `<code>${escapeHtml(d)}</code>`).join(' ')}` : '; the app\'s own domains could not be told (give them with --scope)'}${sources ? ` (sources: ${sources})` : ''}.${(traffic.notes || []).length ? ` ${traffic.notes.map(n => escapeHtml(n)).join('; ')}.` : ''}</p>`;
 }
 
 const ENTRY_NAMES = { 'paste-html': 'paste (formatted)', 'paste-text': 'paste (plain text)', 'paste-file': 'paste (file)', 'drop-html': 'drop (formatted)',
@@ -325,6 +333,7 @@ export function renderHtmlReport(allIssues, meta) {
   .route { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-right: 4px; border: 1px solid currentColor; white-space: nowrap; }
   .route-content { color: var(--high); } .route-escalation { color: var(--medium); } .route-network { color: var(--accent); }
   .route-local, .route-info, .route-other { color: var(--muted); } .route-dependency { color: var(--low); }
+  .route-server { color: var(--high); } .route-thirdparty { color: var(--medium); }
   .linkish { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
   .validation { margin: 2px 0 6px; font-size: 13px; padding: 4px 8px; border-radius: 6px; }
   .validation b { margin-right: 4px; }
@@ -388,7 +397,8 @@ ${SEVERITIES.map(s => `    <button type="button" class="card sev-${s.toLowerCase
     <div class="card"><div class="n">${manual}</div><div class="l">Need manual review</div></div>
   </div>
 
-${attackSurface(windows, apis, runtime, !!meta.runtime)}
+${attackSurface(windows, apis, runtime, !!meta.runtime)}${meta.traffic ? `
+  <h2>Captured traffic</h2>${trafficNote(meta.traffic, `in ${meta.traffic.files} capture file(s)`)}` : ''}
   <h2>Findings by check</h2>
   <div class="checks">
 ${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check="${escapeHtml(id)}"><span class="badge sev-${e.severity.name.toLowerCase()}" style="min-width:0">${e.count}</span> ${escapeHtml(id)}</button>`).join('\n')}
