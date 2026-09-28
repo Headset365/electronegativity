@@ -52,6 +52,18 @@ const SIGNATURES = [
   ['jquery', /\bjquery:\s*["'](\d+\.\d+\.\d+)["']\s*,\s*constructor:/],
   ['moment', /\.version\s*=\s*["'](2\.\d+\.\d+)["'][\s\S]{0,80}?\.fn\s*=[\s\S]{0,200}?\.min\s*=/],
   ['textangular', /textAngularVersion[\s\S]{0,200}?["']v(\d+\.\d+\.\d+)["']/],
+  // AngularJS error links carry the version, in every build and in webpack bundles (errors.angularjs.org/1.8.2/)
+  ['angular', /errors\.angularjs\.org\/(1\.\d+\.\d+(?:-[\w.]+)?)\//],
+  // jQuery's constructor, right after its version: f="3.5.1",E=function(e,t){return new E.fn.init(e,t)}
+  ['jquery', /["'](\d+\.\d+\.\d+)["'][\s\S]{0,200}?=\s*function\s*\(\s*\w+\s*,\s*\w+\s*\)\s*\{\s*(?:\/\/[^\n]*\s*)*return\s+new\s+\w+\.fn\.init\b/],
+  // TinyMCE keeps its version as two fields: majorVersion:"5",minorVersion:"10.2"
+  ['tinymce', /majorVersion\s*:\s*["'](\d+)["']\s*,\s*minorVersion\s*:\s*["'](\d+\.\d+)["']/, (m) => `${m[1]}.${m[2]}`],
+  ['ckeditor5', /CKEDITOR_VERSION\s*=\s*["'](\d+\.\d+\.\d+)["']/],
+  ['jquery-ui', /\.widget\(\s*["']ui\.\w+["']\s*,\s*(?:[\w.$]+\s*,\s*)?\{\s*version\s*:\s*["'](\d+\.\d+\.\d+)["']/],
+  // Bootstrap's plugins: Modal.VERSION = '3.4.1' next to its defaults (3.x), or a VERSION getter (4.x, 5.x) in code using .bs. events
+  ['bootstrap', /\.VERSION\s*=\s*["'](3\.\d+\.\d+)["']\s*[,;]\s*\w+\.(?:TRANSITION_DURATION|DEFAULTS)\b/],
+  ['bootstrap', /(?:key\s*:\s*["']VERSION["']\s*,\s*get\s*:\s*function\s*\(\)\s*\{|get VERSION\s*\(\)\s*\{)\s*return\s*["']?(?:\w+\s*\})?["']?(\d+\.\d+\.\d+)["'][\s\S]*?\.bs\./],
+  ['underscore', /exports\._\s*=\s*\w+\)?\s*[,;]\s*\w+\.VERSION\s*=\s*["'](\d+\.\d+\.\d+)["']/],
 ];
 
 const COMMENTS = /\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n\s*\/\/[^\n]*)*/g;
@@ -70,9 +82,9 @@ export function detectLibraries(text) {
       if (match) add(name, match.slice(1).find(Boolean));
     }
   }
-  for (const [name, pattern] of SIGNATURES) {
+  for (const [name, pattern, version = (m) => m[1]] of SIGNATURES) {
     const match = text.match(pattern);
-    if (match) add(name, match[1]);
+    if (match) add(name, version(match));
   }
   return [...found.values()];
 }

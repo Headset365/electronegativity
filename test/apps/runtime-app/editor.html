@@ -3,12 +3,17 @@
 <head><title>Editor</title></head>
 <body><div contenteditable="true">Document</div>
 <div id="stored"></div>
+<iframe id="document-frame"></iframe>
 <script>
   // stand-in for stored content rendered as HTML at runtime: carries an event handler and an attribute named
   // after the planted marker, so the renderer-side observer reports the DOM injection and the marker as live HTML
   setTimeout(function () {
     document.getElementById('stored').innerHTML = '<img src=x onerror="void 0"><span data-ENGCANARY="1">note</span>';
   }, 150);
+  // a rich-text editor showing the stored document inside an iframe, as TinyMCE and CKEditor 4 do
+  setTimeout(function () {
+    document.getElementById('document-frame').contentDocument.body.innerHTML = '<p>Stored document <b data-ENGCANARY="1">body</b></p>';
+  }, 900);
 </script>
 </body>
 </html>

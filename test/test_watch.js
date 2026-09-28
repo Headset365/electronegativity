@@ -425,10 +425,13 @@ describe('Watch mode', () => {
       live.should.have.length.above(0, 'the planted marker came back as live HTML');
       live.some(i => /editor\.html/.test(i.file)).should.equal(true, 'the editor renders the marker as markup');
       live.some(i => /safe-view\.html/.test(i.file)).should.equal(false, 'the safe view does not');
+      // inside the editor's iframe too, with the sink that wrote it there
+      live.some(i => i.properties.frame).should.equal(true, 'the marker rendered inside the editor iframe is seen');
+      report.issues.some(i => i.id === 'RUNTIME_MARKER_SINK' && i.properties.frame).should.equal(true, 'the sink inside the iframe is recorded');
       // the marker traced through the app: the HTML sink that wrote it (at the script line), the request fields that
       // carried it, the blocked link and window, the IPC channel and the file path
-      const sink = report.issues.find(i => i.id === 'RUNTIME_MARKER_SINK');
-      sink.properties.frames[0].url.should.match(/\/static\/viewer\.js$/);
+      const sink = report.issues.find(i => i.id === 'RUNTIME_MARKER_SINK' && /\/static\/viewer\.js$/.test(i.properties.frames[0].url));
+      (sink !== undefined).should.equal(true, 'the viewer script that wrote the marker is recorded');
       sink.properties.sink.should.equal('innerHTML');
       const sent = report.issues.find(i => i.id === 'RUNTIME_MARKER_SENT');
       sent.properties.fields.should.have.members(['title', 'body']);
