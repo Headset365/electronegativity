@@ -1,7 +1,7 @@
 {
 	"electronegativityDescription": "Electronegativity est un outil pour identifier les mauvaises configurations et les anti-modèles de sécurité dans les applications Electron.",
 	"inputOption": "-i, --input <path>",
-	"inputOptionDescription": "entrée [répertoire | .js | .html | .asar]",
+	"inputOptionDescription": "entrée : un dossier, .js, .html, .asar, le dossier ou l'exécutable d'une application installée, ou un installateur ou paquet (.exe NSIS ou Squirrel, .7z, .zip, .nupkg)",
 	"checksOption": "-l, --checks <checkNames>",
 	"checksOptionDescription": "ne lancer que la liste de contrôles spécifiée, passée au format csv",
 	"excludeChecksOption": "-x, --exclude-checks <excludedCheckNames>",
@@ -11,7 +11,7 @@
 	"confidenceOption": "-c, --confidence <confidenceSet>",
 	"confidenceOptionDescription": "renvoyer uniquement les constatations avec le niveau de confiance spécifié ou supérieur",
 	"outputOption": "-o, --output <filename>",
-	"outputOptionDescription": "enregistrer les résultats dans un fichier : rapport .html, .json, .sarif ou .csv",
+	"outputOptionDescription": "enregistrer les résultats dans un fichier : rapport .html, .json, .sarif, .csv, .docx (rapport Word) ou .cdx.json (SBOM CycloneDX) ; plusieurs séparés par des virgules",
 	"relativeOption": "-r, --relative",
 	"relativeOptionDescription": "afficher le chemin relatif des fichiers",
 	"verboseOption": "-v, --verbose <bool>",
