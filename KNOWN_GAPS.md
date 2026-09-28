@@ -159,5 +159,8 @@ the limits that remain, so the boundaries of the analysis stay clear.
 
 ## Requested, not implemented
 
-Nothing outstanding: the last request here — sending the marker request automatically — is now built in (see
+- **A combined report across a guided run's sessions.** Requested: one report bringing together the static scan and
+  every watch session. Not built yet; each session still has its own report. Being handled outside this tool.
+
+Built since it was requested here: sending the marker request automatically (see
 ["Sending the marker request automatically"](#10-sending-the-marker-request-automatically) above).

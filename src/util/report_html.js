@@ -1,5 +1,5 @@
 // Self-contained HTML report: no external resources, so it can be archived, attached to tickets or opened offline.
-import { ROUTES, consequenceOf, validationHint } from '../finder/consequences.js';
+import { ROUTES, ROUTE_IMPACT, consequenceOf, validationHint, worstCase } from '../finder/consequences.js';
 import { NOTE_FIELDS } from '../report/notes.js';
 import { scores } from '../report/scores.js';
 
@@ -93,9 +93,81 @@ function findingRow(issue, index) {
           ${advisories ? `<div class="advisories">${advisoryLinks(advisories)}</div>` : ''}
           ${url ? `<a class="ref" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Reference</a>` : ''}
         </td>
-        <td class="loc">${escapeHtml(location)}<span class="pos">${escapeHtml(position)}</span></td>
+        <td class="loc">${issue.session ? `<div class="session">${escapeHtml(issue.session)}</div>` : ''}${escapeHtml(location)}<span class="pos">${escapeHtml(position)}</span></td>
         <td><span class="conf">${conf}</span></td>
       </tr>`;
+}
+
+// Findings grouped by check: what the finding is, what it implies, its impact, and where it was found
+const SEVERITY_IMPACT = {
+  HIGH: 'Rated high: serious harm if the conditions above hold.',
+  MEDIUM: 'Rated medium: harmful in combination with other weaknesses, or under specific conditions.',
+  LOW: 'Rated low: limited harm, or hard to reach.',
+  INFORMATIONAL: 'Informational.',
+};
+const localDescription = (id) => {
+  try {
+    const text = typeof __ === 'function' ? __(id) : undefined;
+    return text && text !== id ? text : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+function findingGroups(sorted) {
+  const groups = new Map();
+  for (const issue of sorted) {
+    const group = groups.get(issue.id) || { id: issue.id, issues: [], severity: issue.severity };
+    group.issues.push(issue);
+    if (issue.severity.value > group.severity.value) group.severity = issue.severity;
+    groups.set(issue.id, group);
+  }
+  const routeOrder = ['content', 'escalation', 'network', 'dependency', 'local', 'info', 'other'];
+  return [...groups.values()].sort((a, b) => b.severity.value - a.severity.value ||
+    routeOrder.indexOf((consequenceOf(a.id) || { route: 'other' }).route) - routeOrder.indexOf((consequenceOf(b.id) || { route: 'other' }).route) ||
+    b.issues.length - a.issues.length || a.id.localeCompare(b.id));
+}
+
+function groupCard(group) {
+  const consequence = consequenceOf(group.id);
+  const route = consequence ? consequence.route : 'other';
+  const issues = group.issues;
+  // what the check detects: its own description, or the shortest description of its findings (the least specific)
+  const meaning = localDescription(group.id) || issues.map(i => String(i.description || '')).sort((a, b) => a.length - b.length)[0];
+  const statuses = { confirmed: 0, observed: 0, safe: 0, open: 0 };
+  for (const issue of issues) {
+    const state = validationState(issue);
+    if (state in statuses) statuses[state]++;
+  }
+  const evidence = [
+    statuses.confirmed ? `<span class="v-confirmed-t">${statuses.confirmed} confirmed at runtime</span>` : '',
+    statuses.observed ? `<span class="v-observed-t">${statuses.observed} seen at runtime</span>` : '',
+    statuses.safe ? `<span class="v-safe-t">${statuses.safe} ruled out</span>` : '',
+    statuses.open ? `<span>${statuses.open} to review</span>` : '',
+  ].filter(Boolean).join(' · ');
+  const impact = [
+    consequence ? ROUTE_IMPACT[route] : undefined,
+    worstCase(group.id) ? `Worst case: ${worstCase(group.id)}` : undefined,
+    SEVERITY_IMPACT[group.severity.name],
+    statuses.confirmed ? `Runtime evidence proves it in ${statuses.confirmed} place${statuses.confirmed === 1 ? '' : 's'}.` : statuses.safe && !statuses.open && !statuses.observed ? 'The runtime checks ruled it out where they were run.' : undefined,
+  ].filter(Boolean);
+  const where = issues.slice(0, 12).map(i => `<li>${escapeHtml(i.session ? `[${i.session}] ` : '')}${escapeHtml(i.file === 'N/A' ? 'Application-wide' : place(i))}${i.validation ? ` <span class="v-${escapeHtml(i.validation.status)}-t">(${escapeHtml(VALIDATION_LABELS[i.validation.status] || i.validation.status)})</span>` : ''}</li>`).join('');
+  const hint = validationHint(group.id);
+  return `
+    <details class="group" data-route="${route}">
+      <summary><span class="badge sev-${group.severity.name.toLowerCase()}">${group.severity.name === 'INFORMATIONAL' ? 'INFO' : group.severity.name}</span>
+        <span class="gid">${escapeHtml(group.id)}</span> <span class="gcount">×${issues.length}</span>
+        ${consequence ? `<span class="route route-${route}">${escapeHtml(consequence.label)}</span>` : ''}
+        ${evidence ? `<span class="gevidence">${evidence}</span>` : ''}</summary>
+      <dl>
+        <dt>What it is</dt><dd>${escapeHtml(meaning)}</dd>
+        ${consequence ? `<dt>Implication</dt><dd>${escapeHtml(consequence.text)}</dd>` : ''}
+        <dt>Impact</dt><dd>${impact.map(escapeHtml).join('<br>')}</dd>
+        ${hint ? `<dt>How to validate</dt><dd>${escapeHtml(hint)}</dd>` : ''}
+        <dt>Where</dt><dd><ul class="where">${where}${issues.length > 12 ? `<li>and ${issues.length - 12} more</li>` : ''}</ul>
+          <button type="button" class="linkish filter-check" data-check="${escapeHtml(group.id)}">Show these ${issues.length} finding${issues.length === 1 ? '' : 's'} below</button></dd>
+      </dl>
+    </details>`;
 }
 
 // The dependency table: one row per package or library version found
@@ -361,7 +433,7 @@ export function renderHtmlReport(allIssues, meta) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Electronegativity report</title>
+<title>${escapeHtml(meta.title || 'Electronegativity report')}</title>
 <style>
   :root {
     --bg: #f7f7f8; --panel: #ffffff; --text: #1d1f23; --muted: #5d6470; --border: #dfe2e7; --code: #f1f3f5;
@@ -420,6 +492,20 @@ export function renderHtmlReport(allIssues, meta) {
   .v-observed { background: color-mix(in srgb, var(--medium) 12%, transparent); } .v-observed b { color: var(--medium); }
   .v-safe { background: color-mix(in srgb, #2e7d32 12%, transparent); } .v-safe b { color: #2e7d32; }
   details.howto { font-size: 12px; margin: 2px 0 6px; } details.howto div { margin-top: 4px; color: var(--muted); }
+  .groups { display: grid; gap: 8px; }
+  details.group { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+  details.group > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; color: var(--text); list-style-position: outside; }
+  details.group .gid { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+  details.group .gcount { color: var(--muted); font-size: 12px; }
+  details.group .gevidence { font-size: 12px; color: var(--muted); }
+  details.group dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 10px 0 4px; font-size: 13px; }
+  details.group dt { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; padding-top: 2px; }
+  details.group dd { margin: 0; }
+  details.group ul.where { margin: 0 0 4px; padding-left: 18px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+  .v-confirmed-t { color: var(--high); font-weight: 600; } .v-observed-t { color: var(--medium); } .v-safe-t { color: #2e7d32; }
+  button.filter-check.active { font-weight: 600; }
+  @media (max-width: 720px) { details.group dl { grid-template-columns: 1fr; } }
+  .loc .session { font-family: system-ui, sans-serif; font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
   .muted { color: var(--muted); font-size: 12px; }
   .mono, .deps .pkg { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
   .nowrap { white-space: nowrap; font-size: 12px; }
@@ -461,7 +547,7 @@ export function renderHtmlReport(allIssues, meta) {
 </head>
 <body>
 <main>
-  <h1>Electronegativity report</h1>
+  <h1>${escapeHtml(meta.title || 'Electronegativity report')}</h1>
   <div class="meta">
     <span>Target: <b>${escapeHtml(meta.installer ? meta.installer.file : meta.input)}</b>${meta.installer ? ` (${escapeHtml(meta.installer.kind)}, SHA-256 ${escapeHtml(meta.installer.sha256)}; the app inside was unpacked to ${escapeHtml(meta.input)})` : ''}</span>
     <span>Electron: <b>${escapeHtml(meta.electronVersion || 'not detected (oldest defaults assumed)')}</b></span>
@@ -479,14 +565,15 @@ ${SEVERITIES.map(s => `    <button type="button" class="card sev-${s.toLowerCase
     <div class="card" title="Only what someone other than the user can exploit: shared content, anyone with the app, the network, other users through the server, third parties, the supply chain, known vulnerabilities"><div class="n">${scores(issues).external}</div><div class="l">External-only score</div></div>
   </div>
 
+${meta.extraSections || ''}
 ${attackSurface(windows, apis, runtime, !!meta.runtime)}${meta.traffic ? `
   <h2>Captured traffic</h2>${trafficNote(meta.traffic, `in ${meta.traffic.files} capture file(s)`)}` : ''}${savedCredentials(allIssues.filter(i => i.id === 'CREDENTIAL_ACCESS_JS_CHECK'), meta.atRest)}
-  <h2>Findings by check</h2>
-  <div class="checks">
-${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check="${escapeHtml(id)}"><span class="badge sev-${e.severity.name.toLowerCase()}" style="min-width:0">${e.count}</span> ${escapeHtml(id)}</button>`).join('\n')}
+  <h2>Findings by type (${byCheck.size})</h2>
+  <p class="note">Each type of finding once: what it is, what it implies and its impact, with where it was found. Open one for details; "Show these findings" filters the list below.</p>
+  <div class="groups">${findingGroups(sorted).map(groupCard).join('')}
   </div>
 
-  <h2>Findings</h2>
+  <h2 id="findings">Findings</h2>
   <div class="toolbar">
     <input type="search" id="search" placeholder="Filter by check, file, description or code" aria-label="Filter findings">
     <label>Confidence <select id="confidence">
@@ -523,7 +610,7 @@ ${errors.length > 0 ? `
   const confidenceValue = { CERTAIN: 2, FIRM: 1, TENTATIVE: 0 };
   const rows = [...document.querySelectorAll('tr.finding')];
   const cards = [...document.querySelectorAll('.card[data-sev]')];
-  const checkButtons = [...document.querySelectorAll('.checks button')];
+  const checkButtons = [...document.querySelectorAll('button.filter-check')];
   const search = document.getElementById('search');
   const confidence = document.getElementById('confidence');
   const manual = document.getElementById('manual');
@@ -560,8 +647,14 @@ ${errors.length > 0 ? `
   }));
   checkButtons.forEach(button => button.addEventListener('click', () => {
     activeCheck = activeCheck === button.dataset.check ? null : button.dataset.check;
-    checkButtons.forEach(b => b.classList.toggle('active', b.dataset.check === activeCheck));
+    checkButtons.forEach(b => {
+      const active = b.dataset.check === activeCheck;
+      if (!b.dataset.label) b.dataset.label = b.textContent;
+      b.classList.toggle('active', active);
+      b.textContent = active ? 'Showing only these below (click to show all)' : b.dataset.label;
+    });
     apply();
+    if (activeCheck) document.getElementById('findings').scrollIntoView({ behavior: 'smooth' });
   }));
   [search, confidence, manual, route, validation, onlyNew].filter(Boolean).forEach(el => el.addEventListener('input', apply));
   const depRows = [...document.querySelectorAll('tr.dep')];

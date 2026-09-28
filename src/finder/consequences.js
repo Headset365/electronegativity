@@ -194,6 +194,59 @@ const HOW_TO_VALIDATE = {
   PACKAGED_FUSES: 'Manual, local access only: set the fuses in the build (@electron/fuses). Content from other users cannot use them.',
 };
 
+// Who could exploit a finding of each route, for the "Impact" line of a finding group
+export const ROUTE_IMPACT = {
+  content: 'Reachable without access to the device: another user can trigger it with content they save, share or link to.',
+  escalation: 'Not an entry point on its own: it decides how far injected content gets (from the page to the preload, Node.js or the operating system), so it raises the impact of every content finding.',
+  network: 'Needs a position on the network path (Wi-Fi, a proxy, a compromised server or CDN).',
+  local: 'Needs access to the user\'s device (its files, or starting the app). Outside a shared-content threat model.',
+  dependency: 'Depends on whether the vulnerable feature is reachable in this app; read each advisory.',
+  info: 'Inventory and coverage: nothing to fix on its own.',
+};
+
+// The worst realistic outcome, for the checks where it is worth spelling out
+const WORST_CASE = {
+  XSS_SINK: 'Script written by another user runs in this window as the victim: it can read what they see and act as them in the app. Without context isolation, or with powerful preload APIs, it can go further, up to running programs on their machine.',
+  ANGULAR_TRUST_HTML: 'Markup or {{ }} expressions stored by another user run as code in the victim\'s window (XSS, AngularJS template injection).',
+  ANGULAR_BIND_HTML_UNSAFE: 'Stored markup runs as script in the victim\'s window (XSS).',
+  ANGULAR_SCE_DISABLED: 'Every binding that holds markup becomes a potential XSS.',
+  RICH_TEXT_EDITOR: 'A document another user saved can carry script that runs when the victim opens or edits it (XSS), unless the editor and the server filter it.',
+  SANITIZER_CONFIG: 'The filter meant to stop script in stored content lets it through: stored XSS for everyone who views that content.',
+  DANGEROUS_FUNCTIONS: 'Data turned into code: if content reaches it, the content runs as the app.',
+  OPEN_EXTERNAL: 'One click on a crafted link in shared content makes Windows open whatever it points to: a program, a file share (leaking the user\'s Windows credentials), or another app\'s protocol handler.',
+  OPEN_PATH: 'A file chosen by another user (an attachment name or path) is opened with its default program: an executable, script or shortcut would run.',
+  COMMAND_INJECTION: 'Content becomes part of a command line: programs run on the user\'s machine.',
+  UNTRUSTED_LOAD_URL: 'A site chosen by an attacker runs inside the app window, with that window\'s preload and IPC access.',
+  LIMIT_NAVIGATION: 'A link in shared content moves the app window to an attacker\'s site, which then has the window\'s preload and IPC access.',
+  WINDOW_OPEN_HANDLER: 'Links in shared content open app windows the app does not vet: phishing inside a trusted app, or a foreign page with app privileges.',
+  FILE_HANDLER: 'A link in an email or document launches the app with attacker-chosen input.',
+  CONTEXT_ISOLATION: 'Any XSS in this window can tamper with the preload and reach its privileged APIs, often up to Node.js: an XSS becomes code execution on the machine.',
+  NODE_INTEGRATION: 'Any XSS in this window is immediately code execution on the user\'s machine.',
+  SANDBOX: 'A renderer bug exploited by content escapes to the operating system more easily.',
+  IPC_SENDER_VALIDATION: 'Script injected into any window, or a foreign page a window navigated to, can call this handler and use the main process\'s privileges (files, shell, network, credentials).',
+  CONTEXT_BRIDGE_EXPOSURE: 'Any XSS in the page can call the exposed APIs directly.',
+  CSP: 'Nothing stops injected markup from running script: one HTML injection is a full XSS.',
+  WEB_SECURITY: 'Script in the page can read other sites\' data and local files.',
+  DEPENDENCY_VULNERABILITIES: 'Known, published flaws; some have public exploits. The impact is each advisory\'s.',
+  END_OF_LIFE_LIBRARY: 'Flaws found from now on will never be fixed in this version.',
+  UNSUPPORTED_VERSION: 'Chromium and Node.js flaws fixed since this release, some exploitable by web content, stay open.',
+  AVAILABLE_SECURITY_FIXES: 'Published Electron flaws fixed in later releases stay open in this one.',
+  FUSES: 'Someone who can start the app on the device can make it run their own code as the app (and with its signature).',
+  PACKAGED_FUSES: 'Someone who can start the app on the device can make it run their own code as the app (and with its signature), or read its cookies from disk.',
+  RUNTIME_MARKER: 'When live: stored content from one user is rendered as markup for another, which is a stored XSS unless a strict CSP blocks script.',
+  RUNTIME_MARKER_SINK: 'Proven path from another user\'s stored content to an HTML sink: stored XSS at that line unless the markup is sanitized first.',
+  RUNTIME_MARKER_OPEN_PATH: 'Proven: content chooses which file is opened with its default program.',
+  RUNTIME_MARKER_OPEN_EXTERNAL: 'Proven: content chooses what the operating system opens.',
+  RUNTIME_MARKER_NAVIGATION: 'When not blocked: a link in content moves the app window to any site, with the window\'s privileges.',
+  RUNTIME_MARKER_COMMAND: 'Proven: content reaches a command line.',
+  RUNTIME_HTML_ENDPOINT: 'If the server stores the markup as sent, every client that renders it without escaping is exposed.',
+};
+
+/** The worst realistic outcome of a finding with this check id, or undefined. */
+export function worstCase(id) {
+  return WORST_CASE[id] || WORST_CASE[baseId(id)];
+}
+
 const baseId = (id) => String(id || '').replace(/_(JS|HTML|JSON|GLOBAL)_CHECK$/, '').replace(/_LOCK_CHECK$/, '');
 
 /** How to confirm or rule out a finding with this check id, or undefined. */
