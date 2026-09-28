@@ -1,0 +1,195 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
+import { should as chaiShould } from 'chai';
+import _i18n from '../src/locales/i18n.js';
+import { createAssistant, followLog, writeMarkerFiles, markerForms } from '../src/watch/assistant.js';
+import { analyzeWatchLog } from '../src/watch/analyze.js';
+import { reconcileRuntime } from '../src/watch/reconcile.js';
+import { mapFrames, MANIFEST } from '../src/remote/sources.js';
+import { validationHint } from '../src/finder/consequences.js';
+import { renderHtmlReport } from '../src/util/report_html.js';
+import { severity, confidence } from '../src/finder/attributes.js';
+
+chaiShould();
+await _i18n();
+
+const M = 'ENGTEST01';
+const strip = (text) => stripVTControlCharacters(text);
+const assistantWith = (options = {}) => {
+  const lines = [];
+  const assistant = createAssistant({ marker: M, print: (line) => lines.push(strip(line)), ...options });
+  return { assistant, lines };
+};
+const staticIssue = (id, file, line, extra = {}) => ({ id, file, location: { line, column: 4 }, manualReview: true, severity: severity.MEDIUM, confidence: confidence.TENTATIVE, description: id, ...extra });
+
+describe('Validation assistant', () => {
+  it('tailors its opening to what the static scan flagged for review', () => {
+    const { assistant, lines } = assistantWith({ staticIssues: [staticIssue('XSS_SINK_JS_CHECK', 'app.js', 3), staticIssue('OPEN_EXTERNAL_JS_CHECK', 'main.js', 9), staticIssue('IPC_SENDER_VALIDATION_JS_CHECK', 'main.js', 20)] });
+    assistant.intro();
+    lines.join('\n').should.include(`<span data-${M}="1">${M}</span>`);
+    lines.some(l => /1 place\(s\) that write data as HTML/.test(l)).should.equal(true);
+    lines.some(l => l.includes(`https://example.invalid/${M}`) && /links and navigation/.test(l)).should.equal(true);
+    lines.some(l => /event\.senderFrame/.test(l)).should.equal(true);
+  });
+
+  it('asks for a request to be sent again with the marker, then acknowledges it', () => {
+    const { assistant, lines } = assistantWith();
+    const api = (fields) => ({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/matters/12/documents/99', status: 200, fields });
+    assistant.handle(api([{ name: 'title', html: false, marker: false }, { name: 'body', html: true, marker: false }]));
+    assistant.handle(api([{ name: 'title', html: false, marker: false }, { name: 'body', html: true, marker: false }]));
+    lines.should.have.length(1, 'asked once per endpoint');
+    lines[0].should.equal(`[validate] → Saw PUT https://srv.test/api/matters/{id}/documents/{id} carrying HTML in: body; text in: title. Send it again with the marker: ${M} in the text fields and <span data-${M}="1">${M}</span> in body. Use the app (the editor's HTML/source view if it has one), or replay this request from your proxy.`);
+    assistant.handle(api([{ name: 'title', html: false, marker: true }, { name: 'body', html: true, marker: true }]));
+    lines[1].should.match(/^\[validate\] ✓ The marker was sent with PUT .* in: title, body \(as HTML in: body\)/);
+    assistant.summary().some(i => i.status === 'done' && /title, body/.test(i.text)).should.equal(true);
+    assistant.summary().some(i => i.status === 'todo' && /send PUT/.test(i.text)).should.equal(false);
+  });
+
+  it('ties an HTML sink hit to the static finding at that line', () => {
+    const { assistant, lines } = assistantWith({ staticIssues: [staticIssue('XSS_SINK_JS_CHECK', 'https://srv.test/js/app.js', 120)] });
+    assistant.handle({ kind: 'sink', sink: 'innerHTML', live: true, url: 'https://srv.test/', frames: [{ url: 'https://srv.test/js/app.js', line: 120, column: 17 }] });
+    assistant.handle({ kind: 'sink', sink: 'innerHTML', live: false, url: 'https://srv.test/', frames: [{ url: 'https://srv.test/js/other.js', line: 5, column: 1 }] });
+    lines.should.deep.equal(['[validate] ✗ Markup carrying the marker was written with innerHTML by https://srv.test/js/app.js:120:17: confirms XSS_SINK_JS_CHECK at https://srv.test/js/app.js:120.']);
+  });
+
+  it('suggests the next link to try, and reports what the app did with links from content', () => {
+    const { assistant, lines } = assistantWith();
+    assistant.handle({ kind: 'start', platform: 'win32' });
+    assistant.handle({ kind: 'shell', method: 'openExternal', marker: true, scheme: 'https' });
+    lines.pop().should.include(`file:///C:/Windows/#${M}`);
+    assistant.handle({ kind: 'shell', method: 'openExternal', marker: true, scheme: 'file' });
+    lines.pop().should.equal('[validate] ✗ A file: link from content was passed to the operating system by shell.openExternal: the app has no scheme allowlist.');
+    assistant.handle({ kind: 'window-open', marker: true, action: 'allow', default: true });
+    lines.pop().should.equal('[validate] ✗ A link from content opened a new app window (the app has no setWindowOpenHandler).');
+    assistant.handle({ kind: 'will-navigate', marker: true, prevented: true, url: `https://example.invalid/${M}` });
+    lines.pop().should.match(/✓ The app blocked the window/);
+    assistant.handle({ kind: 'process', marker: true, program: 'cmd.exe', method: 'exec' });
+    lines.pop().should.match(/✗ The marker reached a command the app runs \(cmd\.exe/);
+    const summary = assistant.summary();
+    summary.some(i => i.status === 'confirmed' && /no scheme allowlist/.test(i.text)).should.equal(true);
+    summary.some(i => i.status === 'safe' && /navigation to the marker link was blocked/.test(i.text)).should.equal(true);
+  });
+
+  it('asks for formatted content after a plain-text paste', () => {
+    const { assistant, lines } = assistantWith({ files: { page: '/out/ENGTEST01-paste-me.html', file: '/out/ENGTEST01.txt' } });
+    assistant.handle({ kind: 'entry', detail: 'paste-text' });
+    lines[0].should.equal('[validate] → You pasted plain text. Also paste formatted content: open /out/ENGTEST01-paste-me.html in a browser, select all, copy, and paste it here.');
+    assistant.summary().some(i => i.status === 'todo' && /formatted/.test(i.text)).should.equal(true);
+  });
+
+  it('only points to --watch-marker when there is no marker', () => {
+    const lines = [];
+    const assistant = createAssistant({ print: (line) => lines.push(strip(line)) });
+    assistant.intro();
+    assistant.handle({ kind: 'shell', method: 'openExternal', marker: true, scheme: 'file' });
+    lines.should.have.length(1);
+    lines[0].should.match(/--watch-marker/);
+  });
+
+  it('writes the marker files: a page to copy formatted content from, and a file to attach', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-marker-'));
+    const files = writeMarkerFiles(dir, M);
+    fs.readFileSync(files.page, 'utf8').should.include(markerForms(M).html).and.include(`href="https://example.invalid/${M}"`);
+    path.basename(files.file).should.equal(`${M}.txt`);
+  });
+
+  it('follows a log while it is being written', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-follow-'));
+    const log = path.join(dir, 'session.jsonl');
+    fs.writeFileSync(log, '');
+    const seen = [];
+    const stop = followLog(log, record => seen.push(record.kind), 20);
+    fs.appendFileSync(log, '{"kind":"start"}\n{"kind":"ap');
+    await new Promise(resolve => setTimeout(resolve, 60));
+    fs.appendFileSync(log, 'i"}\n');
+    stop();
+    seen.should.deep.equal(['start', 'api']);
+  });
+});
+
+describe('Marker evidence', () => {
+  const records = [
+    { kind: 'start' },
+    { kind: 'sink', id: 1, url: 'https://srv.test/', sink: 'innerHTML', live: true, frames: [{ url: 'https://srv.test/js/app.js', line: 1, column: 50 }] },
+    { kind: 'sink', id: 1, url: 'https://srv.test/', sink: 'innerHTML', live: false, frames: [{ url: 'https://srv.test/js/app.js', line: 9, column: 1 }] },
+    { kind: 'api', method: 'POST', url: 'https://srv.test/api/notes', status: 201, fields: [{ name: 'text', html: true, marker: true }] },
+    { kind: 'shell', method: 'openExternal', target: 'file:///C:/Windows/', marker: true, scheme: 'file' },
+    { kind: 'shell', method: 'openPath', target: `C:\\Users\\me\\Downloads\\${M}.txt`, marker: true },
+    { kind: 'will-navigate', id: 1, url: `https://example.invalid/${M}`, marker: true, prevented: false },
+    { kind: 'window-open', id: 1, url: `https://example.invalid/${M}`, marker: true, action: 'deny' },
+    { kind: 'ipc', channel: 'files:open', sender: 'https://srv.test/', args: ['string'], marker: true },
+    { kind: 'process', method: 'exec', program: 'cmd.exe', marker: true },
+  ];
+
+  it('turns where the marker went into runtime findings', () => {
+    const { issues } = analyzeWatchLog(records);
+    const byId = (id) => issues.filter(i => i.id === id);
+    byId('RUNTIME_MARKER_SINK').should.have.length(1, 'escaped text reaching innerHTML is not evidence');
+    byId('RUNTIME_MARKER_SINK')[0].should.include({ file: 'https://srv.test/js/app.js' });
+    byId('RUNTIME_MARKER_SINK')[0].location.should.deep.equal({ line: 1, column: 50 });
+    byId('RUNTIME_MARKER_SENT')[0].properties.fields.should.deep.equal(['text']);
+    byId('RUNTIME_MARKER_OPEN_EXTERNAL')[0].severity.should.equal(severity.HIGH);
+    byId('RUNTIME_MARKER_OPEN_PATH').should.have.length(1);
+    byId('RUNTIME_MARKER_NAVIGATION')[0].properties.blocked.should.equal(false);
+    byId('RUNTIME_MARKER_NEW_WINDOW')[0].properties.blocked.should.equal(true);
+    byId('RUNTIME_MARKER_IPC')[0].properties.channel.should.equal('files:open');
+    byId('RUNTIME_MARKER_COMMAND')[0].properties.program.should.equal('cmd.exe');
+  });
+
+  it('confirms or rules out the static findings that need review', () => {
+    const { issues: runtime } = analyzeWatchLog([...records, { kind: 'page', id: 1, type: 'window', url: 'https://srv.test/', prefs: {} }]);
+    const issues = [
+      staticIssue('XSS_SINK_JS_CHECK', 'https://srv.test/js/app.js', 1),
+      staticIssue('XSS_SINK_JS_CHECK', 'https://srv.test/js/app.js', 30),
+      staticIssue('OPEN_EXTERNAL_JS_CHECK', 'main.js', 9),
+      staticIssue('OPEN_PATH_JS_CHECK', 'main.js', 12),
+      staticIssue('LIMIT_NAVIGATION_JS_CHECK', 'main.js', 3),
+      staticIssue('WINDOW_OPEN_HANDLER_JS_CHECK', 'main.js', 4),
+      staticIssue('COMMAND_INJECTION_JS_CHECK', 'main.js', 40),
+      staticIssue('IPC_SENDER_VALIDATION_JS_CHECK', 'main.js', 50, { properties: { channel: 'files:open' } }),
+      staticIssue('IPC_SENDER_VALIDATION_JS_CHECK', 'main.js', 60, { properties: { channel: 'settings:get' } }),
+      ...runtime,
+    ];
+    reconcileRuntime(issues, {});
+    const status = issues.slice(0, 9).map(i => i.validation && i.validation.status);
+    status.should.deep.equal(['confirmed', undefined, 'confirmed', 'confirmed', 'confirmed', 'safe', 'confirmed', 'observed', undefined]);
+    issues[0].validation.text.should.match(/written with innerHTML from this line \(https:\/\/srv\.test\/js\/app\.js:1:50\)/);
+  });
+
+  it('maps a minified stack frame to the original source the scan reported on', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-frames-'));
+    // one generated line whose column 40 comes from line 3 of src/viewer.js
+    fs.writeFileSync(path.join(dir, 'app.js.map'), JSON.stringify({ version: 3, sources: ['webpack://app/./src/viewer.js'], names: [], mappings: 'AAAA,wCAEA' }));
+    fs.writeFileSync(path.join(dir, MANIFEST), JSON.stringify({ kind: 'map', url: 'https://srv.test/app.js.map', of: 'https://srv.test/app.js', file: 'app.js.map' }) + '\n');
+    const frames = mapFrames(dir, [{ url: 'https://srv.test/app.js', line: 1, column: 45 }, { url: 'https://srv.test/other.js', line: 1, column: 1 }]);
+    frames[0].original.should.deep.equal({ file: 'https://srv.test/app.js (source: src/viewer.js)', line: 3, column: 1 });
+    (frames[1].original === undefined).should.equal(true);
+  });
+});
+
+describe('Validation in the report', () => {
+  const meta = { version: '2.0.0', input: '/app', electronVersion: '34.5.8', filesScanned: 1, atomicChecks: 1, globalChecks: 1, generatedAt: 'now', errors: [] };
+  const issue = (overrides) => ({ id: 'XSS_SINK_JS_CHECK', file: 'app.js', location: { line: 3, column: 2 }, sample: 'el.innerHTML = x', description: 'd',
+    severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true, shortenedURL: 'https://example.com', ...overrides });
+
+  it('shows runtime results, or how to validate a finding that needs review', () => {
+    const html = renderHtmlReport([
+      issue({ validation: { status: 'confirmed', text: 'Confirmed at runtime: markup reached this line.' } }),
+      issue({ id: 'IPC_SENDER_VALIDATION_JS_CHECK' }),
+      issue({ id: 'DEVTOOLS_JS_CHECK' }),
+    ], meta);
+    html.should.include('<div class="validation v-confirmed"><b>Confirmed at runtime</b> markup reached this line.</div>');
+    html.should.include('data-validation="confirmed"');
+    html.should.include('data-validation="open"');
+    html.should.include('<summary>How to validate</summary><div>Manual: read the handler and check that it verifies event.senderFrame');
+    html.should.include('id="validation"');
+  });
+
+  it('has a validation hint for every check that commonly needs review', () => {
+    for (const id of ['XSS_SINK_JS_CHECK', 'OPEN_EXTERNAL_JS_CHECK', 'OPEN_PATH_JS_CHECK', 'LIMIT_NAVIGATION_JS_CHECK', 'RUNTIME_NAVIGATION', 'IPC_SENDER_VALIDATION_JS_CHECK',
+      'DEVTOOLS_JS_CHECK', 'WRITE_SHORTCUT_JS_CHECK', 'COMMAND_INJECTION_JS_CHECK', 'RICH_TEXT_EDITOR_JS_CHECK', 'RUNTIME_HTML_ENDPOINT', 'PACKAGED_FUSES'])
+      validationHint(id).should.be.a('string', id);
+  });
+});

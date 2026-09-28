@@ -6,7 +6,7 @@ import _i18n from '../src/locales/i18n.js';
 import run from '../src/runner.js';
 import { detectLibraries } from '../src/util/libraries.js';
 import { vendoredLibrary } from '../src/util/file.js';
-import { dependencyReport, registryFacts, supportFacts, advisoryFacts, eolProduct, sortRows } from '../src/util/dependencies.js';
+import { dependencyReport, registryFacts, supportFacts, advisoryFacts, eolProduct, sortRows, repositoryUrl } from '../src/util/dependencies.js';
 import { renderHtmlReport } from '../src/util/report_html.js';
 
 chaiShould();
@@ -16,6 +16,8 @@ await _i18n();
 const REGISTRY = {
   jquery: {
     'dist-tags': { latest: '3.7.1' },
+    homepage: 'https://jquery.com',
+    repository: { type: 'git', url: 'git+https://github.com/jquery/jquery.git' },
     versions: { '1.12.4': {}, '3.4.1': { deprecated: 'This version is deprecated.' }, '3.5.0': {}, '3.6.0': {}, '3.7.1': {}, '4.0.0-beta': {} },
     time: { '1.12.4': '2016-05-20T00:00:00Z', '3.4.1': '2019-05-01T21:04:36Z', '3.5.0': '2020-04-10T00:00:00Z', '3.6.0': '2021-03-02T00:00:00Z', '3.7.1': '2023-08-28T13:37:37Z' },
   },
@@ -38,6 +40,8 @@ const EOL = {
 };
 const OSV = {
   'jquery@3.4.1': [{ id: 'GHSA-gxr4-xjj5-5px2', aliases: ['CVE-2020-11022'], summary: 'Potential XSS vulnerability in jQuery', database_specific: { severity: 'MODERATE' },
+    references: [{ type: 'WEB', url: 'https://blog.jquery.com/2020/04/10/jquery-3-5-0-released/' }, { type: 'ADVISORY', url: 'https://nvd.nist.gov/vuln/detail/CVE-2020-11022' },
+      { type: 'FIX', url: 'https://github.com/jquery/jquery/commit/1d61fd9407e6fbe82fe55cb0b938307aa0791f77' }, { type: 'PACKAGE', url: 'https://www.npmjs.com/package/jquery' }],
     affected: [{ package: { name: 'jquery', ecosystem: 'npm' }, ranges: [{ type: 'SEMVER', events: [{ introduced: '1.2.0' }, { fixed: '3.5.0' }] }] }] }],
   'angular@1.5.8': [{ id: 'GHSA-aaaa', aliases: ['CVE-2022-25844'], summary: 'ReDoS', database_specific: { severity: 'MODERATE' },
     affected: [{ package: { name: 'angular', ecosystem: 'npm' }, ranges: [{ type: 'SEMVER', events: [{ introduced: '1.2.21' }] }] }] }],
@@ -103,6 +107,15 @@ describe('Dependency table', () => {
     facts.deprecated.should.match(/deprecated/);
   });
 
+  it('links to the project: repository, release notes and homepage', () => {
+    registryFacts(REGISTRY.jquery, '3.4.1').should.include({ homepage: 'https://jquery.com', repository: 'https://github.com/jquery/jquery', releaseNotes: 'https://github.com/jquery/jquery/releases' });
+    repositoryUrl('github:owner/repo').should.equal('https://github.com/owner/repo');
+    repositoryUrl('owner/repo').should.equal('https://github.com/owner/repo');
+    repositoryUrl('git@github.com:owner/repo.git').should.equal('https://github.com/owner/repo');
+    repositoryUrl({ url: 'git://github.com/owner/repo.git#main' }).should.equal('https://github.com/owner/repo');
+    (repositoryUrl('not a url') === undefined).should.equal(true);
+  });
+
   it('matches a version to its release line on endoflife.date', () => {
     supportFacts(EOL.jquery, '3.4.1').should.include({ status: 'supported' });
     supportFacts(EOL.jquery, '1.12.4').should.include({ status: 'unsupported' });
@@ -116,7 +129,9 @@ describe('Dependency table', () => {
 
   it('lists advisories with their CVE ids and the version that fixes them', () => {
     const [advisory] = advisoryFacts(OSV['jquery@3.4.1'], 'jquery', '3.4.1');
-    advisory.should.deep.equal({ id: 'GHSA-gxr4-xjj5-5px2', cves: ['CVE-2020-11022'], summary: 'Potential XSS vulnerability in jQuery', severity: 'MEDIUM', fixed: '3.5.0' });
+    advisory.should.deep.include({ id: 'GHSA-gxr4-xjj5-5px2', cves: ['CVE-2020-11022'], summary: 'Potential XSS vulnerability in jQuery', severity: 'MEDIUM', fixed: '3.5.0' });
+    // the advisory's own references, advisory first, without package links
+    advisory.references.map(r => r.type).should.deep.equal(['ADVISORY', 'FIX', 'WEB']);
     advisoryFacts(OSV['angular@1.5.8'], 'angular', '1.5.8')[0].should.include({ fixed: undefined });
   });
 
@@ -178,6 +193,13 @@ describe('Dependency table', () => {
       html.should.include('<h2 id="dependencies">Dependencies (3)</h2>');
       html.should.include('CVE-2020-11022');
       html.should.include('All fixed in 3.5.0');
+      // references for each advisory and for the latest version
+      html.should.include('href="https://nvd.nist.gov/vuln/detail/CVE-2020-11022"');
+      html.should.include('href="https://github.com/advisories/GHSA-gxr4-xjj5-5px2"');
+      html.should.include('href="https://github.com/jquery/jquery/commit/1d61fd9407e6fbe82fe55cb0b938307aa0791f77"');
+      html.should.include('href="https://www.npmjs.com/package/jquery/v/3.7.1"');
+      html.should.include('href="https://github.com/jquery/jquery/releases"');
+      html.should.include('href="https://www.npmjs.com/package/jquery/v/3.5.0"');
     } finally {
       mock.restore();
     }

@@ -190,14 +190,19 @@ export function analyzeWatchLog(records) {
     const route = apiRoute(r.url);
     if (!route) continue;
     const key = `${r.method} ${route}`;
-    if (!endpoints.has(key)) endpoints.set(key, { method: r.method, route, calls: 0, statuses: new Set(), htmlBody: false, maxBodyBytes: 0 });
+    if (!endpoints.has(key)) endpoints.set(key, { method: r.method, route, calls: 0, statuses: new Set(), htmlBody: false, maxBodyBytes: 0, fields: new Map() });
     const endpoint = endpoints.get(key);
     endpoint.calls++;
     if (r.status) endpoint.statuses.add(r.status);
     if (r.htmlBody) endpoint.htmlBody = true;
     endpoint.maxBodyBytes = Math.max(endpoint.maxBodyBytes, r.bodyBytes || 0);
+    // field names, whether each carried markup and whether it carried the planted marker (values are never recorded)
+    for (const field of r.fields || []) {
+      const known = endpoint.fields.get(field.name) || { name: field.name, html: false, marker: false };
+      endpoint.fields.set(field.name, { name: field.name, html: known.html || !!field.html, marker: known.marker || !!field.marker });
+    }
   }
-  const api = [...endpoints.values()].map(e => ({ ...e, statuses: [...e.statuses].sort() })).sort((a, b) => Number(b.htmlBody) - Number(a.htmlBody) || b.calls - a.calls);
+  const api = [...endpoints.values()].map(e => ({ ...e, statuses: [...e.statuses].sort(), fields: [...e.fields.values()] })).sort((a, b) => Number(b.htmlBody) - Number(a.htmlBody) || b.calls - a.calls);
   for (const endpoint of api.filter(e => e.htmlBody && e.statuses.some(status => status < 400))) {
     add('RUNTIME_HTML_ENDPOINT', endpoint.route, severity.INFORMATIONAL, confidence.CERTAIN,
       `${endpoint.method} ${endpoint.route} accepted a request body containing HTML markup (${endpoint.calls} call${endpoint.calls === 1 ? '' : 's'}, status ${endpoint.statuses.join('/')}): verify on the server that stored markup is sanitized before other users receive it`,
@@ -205,12 +210,64 @@ export function analyzeWatchLog(records) {
     issues[issues.length - 1].manualReview = true;
   }
 
+  markerEvidence(records, add, first, api, issues);
+
   return { issues, summary: { started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api } };
+}
+
+// Where the planted marker (--watch-marker) turned up: each is runtime proof for a finding that needs review. A value
+// from content reached an HTML sink (with the script location that wrote it), openExternal, openPath, a navigation, a
+// new window, IPC or a command line; or the app blocked it.
+function markerEvidence(records, add, first, api, issues) {
+  for (const r of records.filter(r => r.kind === 'sink' && r.live)) {
+    const frame = (r.frames || [])[0];
+    const where = frame ? `${frame.url}:${frame.line}:${frame.column}` : 'an unknown script';
+    if (!first(`marker-sink:${r.sink}:${where}`)) continue;
+    add('RUNTIME_MARKER_SINK', frame ? frame.url : r.url, severity.HIGH, confidence.CERTAIN,
+      `Markup carrying the planted marker was written into the page with ${r.sink} by ${where} (page ${r.url}): content from another user reaches this HTML sink`,
+      { sink: r.sink, frames: r.frames, page: r.url }, 'https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html');
+    // at the script location, so it lines up with the static finding there
+    if (frame) issues[issues.length - 1].location = { line: frame.line, column: frame.column };
+  }
+  for (const endpoint of api.filter(e => e.fields.some(f => f.marker))) {
+    const fields = endpoint.fields.filter(f => f.marker).map(f => f.name);
+    add('RUNTIME_MARKER_SENT', endpoint.route, severity.INFORMATIONAL, confidence.CERTAIN,
+      `The planted marker was sent with ${endpoint.method} ${endpoint.route} in: ${fields.join(', ')}`, { method: endpoint.method, route: endpoint.route, fields });
+  }
+  for (const r of records.filter(r => r.kind === 'shell' && r.marker)) {
+    if (r.method === 'openExternal') {
+      const web = /^(https?|mailto)$/i.test(r.scheme || '');
+      if (!first(`marker-external:${web}:${r.scheme}`)) continue;
+      if (web) add('RUNTIME_MARKER_OPEN_EXTERNAL', r.target, severity.MEDIUM, confidence.CERTAIN, `A link from content (carrying the planted marker) was handed to the operating system by shell.openExternal (${r.scheme}:): content chooses what the OS opens; check that only http(s) and mailto are allowed`, { scheme: r.scheme }, `${DOCS}#15-do-not-use-shellopenexternal-with-untrusted-content`);
+      else add('RUNTIME_MARKER_OPEN_EXTERNAL', r.target, severity.HIGH, confidence.CERTAIN, `A ${r.scheme}: link from content (carrying the planted marker) was handed to the operating system by shell.openExternal: the app has no scheme allowlist`, { scheme: r.scheme }, `${DOCS}#15-do-not-use-shellopenexternal-with-untrusted-content`);
+    } else if (first(`marker-path:${r.method}`)) {
+      add('RUNTIME_MARKER_OPEN_PATH', r.target, severity.HIGH, confidence.CERTAIN, `A path from content (carrying the planted marker) was opened by shell.${r.method}: content chooses which file the app opens with its default program`, { method: r.method }, 'https://www.electronjs.org/docs/latest/api/shell');
+    }
+  }
+  for (const r of records.filter(r => r.kind === 'will-navigate' && r.marker)) {
+    if (!first(`marker-nav:${r.prevented}`)) continue;
+    if (r.prevented) add('RUNTIME_MARKER_NAVIGATION', r.url, severity.INFORMATIONAL, confidence.CERTAIN, `A link from content (carrying the planted marker) tried to navigate an app window, and the app blocked it`, { blocked: true }, `${DOCS}#13-disable-or-limit-navigation`);
+    else add('RUNTIME_MARKER_NAVIGATION', r.url, severity.HIGH, confidence.CERTAIN, `A link from content (carrying the planted marker) navigated an app window to ${r.url}: that page runs with the window's preload and IPC access`, { blocked: false }, `${DOCS}#13-disable-or-limit-navigation`);
+  }
+  for (const r of records.filter(r => r.kind === 'window-open' && r.marker)) {
+    const denied = r.action === 'deny';
+    if (!first(`marker-window:${denied}`)) continue;
+    if (denied) add('RUNTIME_MARKER_NEW_WINDOW', r.url, severity.INFORMATIONAL, confidence.CERTAIN, 'A link from content (carrying the planted marker) tried to open a new window, and the app refused', { blocked: true }, `${DOCS}#14-disable-or-limit-creation-of-new-windows`);
+    else add('RUNTIME_MARKER_NEW_WINDOW', r.url, severity.MEDIUM, confidence.CERTAIN, `A link from content (carrying the planted marker) opened a new app window${r.default ? ': the app has no setWindowOpenHandler' : ''}`, { blocked: false }, `${DOCS}#14-disable-or-limit-creation-of-new-windows`);
+  }
+  for (const r of records.filter(r => r.kind === 'ipc' && r.marker)) {
+    if (first(`marker-ipc:${r.channel}`))
+      add('RUNTIME_MARKER_IPC', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN, `Content carrying the planted marker reached IPC channel '${r.channel}'${r.sender ? ` from ${r.sender}` : ''}: its handler receives content from other users, so it must validate the sender and the value`, { channel: r.channel, sender: r.sender });
+  }
+  for (const r of records.filter(r => r.kind === 'process' && r.marker)) {
+    if (first(`marker-process:${r.program}`))
+      add('RUNTIME_MARKER_COMMAND', 'runtime', severity.HIGH, confidence.CERTAIN, `The planted marker reached a command the app runs (${r.program}, via ${r.method}): content controls part of a command line`, { program: r.program, method: r.method }, 'https://owasp.org/www-community/attacks/Command_Injection');
+  }
 }
 
 // https://host/api/documents/42/comments?x=1 -> https://host/api/documents/{id}/comments: numbers, UUIDs and long hex or
 // base64-like segments are identifiers
-function apiRoute(url) {
+export function apiRoute(url) {
   try {
     const parsed = new URL(url);
     const segments = parsed.pathname.split('/').map(segment => {

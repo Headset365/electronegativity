@@ -71,6 +71,11 @@ What happens:
    - share the document with account B (or put it where other users see it: comments, notes, previews);
    - try a `myapp://` link or a file association if the app has them;
    - close the app completely (File > Exit or the tray's Quit).
+   While the app runs, the terminal shows `[validate]` lines: follow them. They ask you to send a request again with the
+   marker in named fields, to paste formatted content (open the `<marker>-paste-me.html` file from the results folder in
+   a browser, select all, copy, paste into the editor), to click the marker link `https://example.invalid/<marker>`
+   placed in a document, or to attach the `<marker>.txt` file. They also say what the marker showed (✓ shown safely or
+   blocked, ✗ confirmed). A summary is printed when the app closes.
 3. **Optional, tests the server:** before the next session, in Burp, take account A's request that saves a document and
    put this harmless markup in the body: `<span data-ENGK7Q2XM="1">ENGK7Q2XM</span>` (with your marker). The endpoint is
    in `session-1.html` under "API endpoint called", flagged "contains HTML".
@@ -79,6 +84,9 @@ What happens:
    app completely.
 5. Press `s` when asked about session 3 to finish. The results folder then holds `static.html`, `session-1.html`,
    `session-2.html` and a `-diag.json` file for each.
+
+In each session report, use the **Validation** filter: "Confirmed at runtime" lists the findings the marker proved
+(with the script line for HTML sinks), "Needs review, not validated" what is left, each with how to check it.
 
 In `session-2.html`, `RUNTIME_MARKER` HIGH means the marker came back as live markup (stored content reaches another
 user's view unneutralized); INFORMATIONAL means it was shown safely as text.

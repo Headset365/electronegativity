@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import readline from 'node:readline/promises';
 import { locateApp } from './watch/locate.js';
 import { observeSession, collectRemote, parseHeaders } from './watch/session.js';
+import { createAssistant, writeMarkerFiles } from './watch/assistant.js';
 
 async function main() {
 
@@ -136,7 +137,7 @@ async function main() {
       if (!options.input && session.staticInput) options.input = session.staticInput;
     }
     // Front-end code served over the network: what watch mode captured, and --remote URLs. It is scanned with the app.
-    const remote = await collectRemote({ watchLog: session && session.watchLog, capture, remote: options.remote || [], headers, offline: options.offline });
+    const remote = await collectRemote({ runtime: session && session.runtime, watchLog: session && session.watchLog, capture, remote: options.remote || [], headers, offline: options.offline });
     // --remote on its own: the downloaded front end is the input
     if (!options.input && remote.scanDir) options.input = remote.scanDir;
 
@@ -233,7 +234,7 @@ async function guided(options, common, { watchArgs, headers, capture }) {
   // 1. the app's code, including what's behind the login, and --remote URLs if given
   console.log(chalk.cyan(__('appStatic')));
   const remote = await collectRemote({ remote: options.remote || [], headers, offline: options.offline });
-  await step('static', { extraInputs: remote.extraInputs, remoteDiagnostics: remote.remoteDiagnostics });
+  const staticResult = await step('static', { extraInputs: remote.extraInputs, remoteDiagnostics: remote.remoteDiagnostics });
 
   // 2. watch sessions, until the user stops
   const interactive = !!process.stdin.isTTY;
@@ -241,6 +242,9 @@ async function guided(options, common, { watchArgs, headers, capture }) {
   if (!located.executable && sessions > 0) console.error(chalk.yellow(__('appNoExecutable')));
   const marker = options.watchMarker || generateMarker();
   if (located.executable && sessions > 0) console.log(chalk.cyan(__('appMarker', { marker })));
+  // one assistant for all sessions: what the static scan flagged for review, and what each session has shown so far
+  const assistant = createAssistant({ marker, staticIssues: staticResult.issues, files: writeMarkerFiles(outDir, marker) });
+  if (located.executable && sessions > 0) assistant.intro();
   for (let n = 1; located.executable && n <= sessions; n++) {
     if (options.sessions === undefined) {
       const answer = await ask(chalk.cyan(__(n === 1 ? 'appAskFirstSession' : 'appAskNextSession', { n })) + ' ');
@@ -248,15 +252,16 @@ async function guided(options, common, { watchArgs, headers, capture }) {
     }
     let session;
     try {
-      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, capture });
+      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, capture, assistant });
     } catch (error) {
       console.error(chalk.red(error.message));
       break;
     }
-    const captured = await collectRemote({ watchLog: session.watchLog, capture, headers, offline: options.offline });
+    const captured = await collectRemote({ runtime: session.runtime, watchLog: session.watchLog, capture, headers, offline: options.offline });
     await step(`session-${n}`, { runtime: session.runtime, watchDiagnostics: session.watchDiagnostics, runtimeElectronVersion: session.watchDiagnostics.electron,
       extraInputs: captured.extraInputs, remoteDiagnostics: captured.remoteDiagnostics });
   }
+  assistant.printSummary('Validation across all sessions');
   console.log(chalk.green(__('appDone', { dir: outDir })));
   for (const file of written) console.log(`  ${file}`);
 }

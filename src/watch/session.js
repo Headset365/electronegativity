@@ -9,7 +9,8 @@ import { locateApp } from './locate.js';
 import { readWatchLog, analyzeWatchLog } from './analyze.js';
 import { analyzePackagedFuses, readFuseWire, fuseBinaryFor } from './fuses.js';
 import { crawl } from '../remote/fetch.js';
-import { prepareScanFolder } from '../remote/sources.js';
+import { prepareScanFolder, mapFrames } from '../remote/sources.js';
+import { createAssistant, followLog, writeMarkerFiles } from './assistant.js';
 
 export function parseHeaders(list = []) {
   const headers = {};
@@ -25,7 +26,7 @@ export function parseHeaders(list = []) {
  * session log `watchLog`, and analyzes it. Returns { runtime, watchDiagnostics, watchLog, staticInput }.
  * @throws when the app can't be started or the log can't be read
  */
-export async function observeSession({ watch, watchLog, args = [], marker, capture = true }) {
+export async function observeSession({ watch, watchLog, args = [], marker, capture = true, assistant, staticIssues = [] }) {
   let log = watchLog;
   let packagedApp;
   let injection;
@@ -42,8 +43,22 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
       injection = { method: 'inspector', blockedByFuse: true };
     }
     console.log(chalk.cyan(__('watchStarting')));
-    log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture,
-      onNote: (note) => { injection = { ...injection, ...note }; } });
+    // the validation assistant follows the session as it happens: what to try next, what the marker has shown
+    const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-'));
+    const logFile = path.join(logDir, 'session.jsonl');
+    if (!assistant) {
+      assistant = createAssistant({ marker, staticIssues, files: marker ? writeMarkerFiles(logDir, marker) : undefined });
+      assistant.intro();
+    }
+    fs.writeFileSync(logFile, '');
+    const stopFollowing = followLog(logFile, record => assistant.handle(record));
+    try {
+      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture, log: logFile,
+        onNote: (note) => { injection = { ...injection, ...note }; } });
+    } finally {
+      stopFollowing();
+    }
+    assistant.printSummary();
     console.log(chalk.gray(__('watchLogSaved', { file: log })));
   }
   const records = readWatchLog(log);
@@ -54,8 +69,11 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
   const start = records.find(r => r.kind === 'start');
   const watchDiagnostics = {
     mode: watch ? 'launched' : 'log', packaged: !!packagedApp, hookStarted: !!start, lateStart: !!(start && start.late),
-    electron: start && start.electron, marker: !!marker, records: recordKinds,
-    hookErrors: records.filter(r => r.kind === 'hook-error').slice(0, 20).map(r => r.message), summary: { ...runtime.summary, fuses: undefined },
+    electron: start && start.electron, markerSet: !!marker, records: recordKinds,
+    hookErrors: records.filter(r => r.kind === 'hook-error').slice(0, 20).map(r => r.message),
+    // field names stay out of the shared diagnostics: only how many there were and whether the marker was sent
+    summary: { ...runtime.summary, fuses: undefined, api: runtime.summary.api.map(({ fields, ...endpoint }) => ({ ...endpoint, fields: fields.length, markerSent: fields.some(f => f.marker) })) },
+    marker: { ...Object.fromEntries(['sink', 'shell', 'will-navigate', 'window-open', 'ipc', 'process'].map(kind => [kind, records.filter(r => r.kind === kind && (r.marker || (kind === 'sink' && r.live))).length])) },
     // how the observer was loaded: NODE_OPTIONS for an app folder, the Node inspector for a packaged app
     injection: packagedApp ? { method: 'inspector', ...injection } : watch ? { method: 'NODE_OPTIONS' } : undefined,
   };
@@ -83,7 +101,7 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
  * Front-end code served over the network: what a watch session captured (capture/ next to its log) and `remote` URLs,
  * downloaded and prepared for scanning. Returns { extraInputs, remoteDiagnostics, scanDir }.
  */
-export async function collectRemote({ watchLog, capture = true, remote = [], headers = {}, offline = false }) {
+export async function collectRemote({ watchLog, capture = true, remote = [], headers = {}, offline = false, runtime }) {
   const extraInputs = [];
   const captureDir = capture && watchLog ? path.join(path.dirname(watchLog), 'capture') : undefined;
   const hasCapture = !!captureDir && fs.existsSync(captureDir);
@@ -103,6 +121,8 @@ export async function collectRemote({ watchLog, capture = true, remote = [], hea
     console.error(chalk.yellow(__('remoteFetchFailed', { url: remote[0] || 'capture', message: error.message })));
   }
   const prepared = prepareScanFolder(dir);
+  // script locations the marker was written from, translated to the original sources the scan reports on
+  if (hasCapture && runtime) for (const issue of runtime.issues.filter(i => i.id === 'RUNTIME_MARKER_SINK')) mapFrames(captureDir, issue.properties.frames);
   if (prepared) {
     extraInputs.push(prepared);
     remoteDiagnostics.scanned = prepared.counts;

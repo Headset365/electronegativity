@@ -6,7 +6,7 @@ import pkg from '../../package.json' with { type: 'json' };
 import { sourceExtensions } from '../parser/types.js';
 import { renderHtmlReport } from './report_html.js';
 import { detectLibraries } from './libraries.js';
-import { consequenceOf } from '../finder/consequences.js';
+import { consequenceOf, validationHint } from '../finder/consequences.js';
 
 const VER = pkg.version;
 const MANIFEST_FILES = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'electron-builder.json', 'electron-builder.yml', 'electron-builder.yaml'];
@@ -254,6 +254,8 @@ function jsonReport(result, meta) {
       description: issue.description,
       exploitableBy: consequenceOf(issue.id)?.label,
       consequence: consequenceOf(issue.id)?.text,
+      validation: issue.validation,
+      howToValidate: issue.manualReview && !issue.validation ? validationHint(issue.id) : undefined,
       reference: issue.shortenedURL,
       properties: reportProperties(issue.properties)
     }))

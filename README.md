@@ -230,6 +230,20 @@ The app starts with a small observer loaded into its main process, and a read-on
 
 To detect stored-content injection with `--watch-marker <token>`, put content carrying the token into the app from one account and open it as another user. The observer reports the token as live HTML when it became part of the page's markup (a tag or attribute name, or an event handler), and as shown safely when it only appears as text or in an ordinary attribute value such as a form field's value.
 
+#### Validation assistant
+
+With a marker (`--watch-marker`, or the one `--app` generates), watch mode follows the session as it happens and prints what to do next to confirm or rule out the findings that need review, and what the marker has shown so far. In guided mode (`--app`) it starts from the findings the static scan flagged. For example:
+
+```
+[validate] → Saw PUT https://api.example.com/matters/{id}/documents carrying HTML in: body; text in: title. Send it again with the marker: ENGK7Q2XM in the text fields and <span data-ENGK7Q2XM="1">ENGK7Q2XM</span> in body. Use the app (the editor's HTML/source view if it has one), or replay this request from your proxy.
+[validate] ✓ The marker was sent with PUT https://api.example.com/matters/{id}/documents in: title, body (as HTML in: body). Now view that content: reload it here, or open it signed in as the second account.
+[validate] ✗ Markup carrying the marker was written with innerHTML by https://app.example.com/js/app.min.js:1:48213: confirms XSS_SINK_JS_CHECK at https://app.example.com/js/app.min.js (source: src/documents/viewer.js):88.
+[validate] ! A link from content was handed to the operating system (shell.openExternal). Now try the same link as file:///C:/Windows/#ENGK7Q2XM: if a folder opens, the app passes links of any scheme to the OS.
+[validate] → You pasted plain text. Also paste formatted content: open ...\ENGK7Q2XM-paste-me.html in a browser, select all, copy, and paste it here.
+```
+
+It only ever uses the harmless marker: the token, the token in a `<span data-...>` element, a link to `https://example.invalid/<token>` and a text file named after it. Guided mode writes a page to copy formatted content from and that text file into the results folder. The observer records where the marker turns up, as yes/no values (never the content): in request fields (by field name), in HTML written with `innerHTML`/`outerHTML`/`insertAdjacentHTML`/`document.write` (with the script location, translated through captured source maps to the original source), in links handed to `shell.openExternal`, in paths opened with `shell.openPath`, in navigations and new windows (and whether the app blocked them), in IPC messages and in command lines the main process runs. Each becomes a `RUNTIME_MARKER_*` finding, and the static finding it proves is marked **Confirmed at runtime**, **Seen at runtime** or **Ruled out at runtime** in the report, which can be filtered on it. Findings that still need review say how to validate them. A summary of what was confirmed, ruled out and still to do is printed at the end of each session and of the guided run.
+
 The observer only records: it doesn't change what the app does. URLs are stored without their query strings, and IPC arguments only by type. For an app folder it is loaded through `NODE_OPTIONS=--require`. Packaged apps ignore that (Electron drops most `NODE_OPTIONS` there), so a packaged app is started paused under the Node inspector on a local port, the observer is loaded before any of the app's code runs, and the app is resumed; the inspector closes once the observer is in. This needs the `EnableNodeCliInspectArguments` fuse, which is on unless the build switched it off; watch mode checks the fuse first and says so when it can't observe a build. With an app folder, the folder is also scanned statically; with a packaged executable, its `resources/app.asar`.
 
 ### Diagnostics

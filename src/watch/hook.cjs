@@ -81,6 +81,18 @@ function instrument(electron, late) {
       return String(url || '').slice(0, 300);
     }
   };
+  // the planted marker (--watch-marker): where it turns up is recorded as a yes/no, so a finding that needs review can be
+  // confirmed at runtime (content reaching openExternal, a navigation, IPC, a command line), without logging the values
+  const MARKER = process.env.ELECTRONEGATIVITY_WATCH_MARKER || '';
+  const hasMarker = (value) => {
+    if (!MARKER || value === undefined || value === null) return false;
+    try {
+      return (typeof value === 'string' ? value : JSON.stringify(value) || String(value)).includes(MARKER);
+    } catch {
+      return false;
+    }
+  };
+  const schemeOf = (url) => (String(url).match(/^([a-z][\w+.-]*):/i) || [])[1];
   const typeOf = (value) => Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
   const safely = (fn) => {
     try {
@@ -110,7 +122,7 @@ function instrument(electron, late) {
 
   // IPC: channel names the app registers, and the calls the pages make
   const wrapInvoke = (channel, listener) => (event, ...args) => {
-    write('ipc', { channel: String(channel), mode: 'invoke', sender: redact(event.senderFrame && event.senderFrame.url), args: args.map(typeOf) });
+    write('ipc', { channel: String(channel), mode: 'invoke', sender: redact(event.senderFrame && event.senderFrame.url), args: args.map(typeOf), marker: hasMarker(args) });
     return listener(event, ...args);
   };
   safely(() => {
@@ -147,9 +159,31 @@ function instrument(electron, late) {
       const original = shell[method];
       if (typeof original !== 'function') continue;
       shell[method] = function (target, ...rest) {
-        write('shell', { method, target: method === 'openExternal' ? redact(target) : String(target) });
+        write('shell', { method, target: method === 'openExternal' ? redact(target) : String(target), marker: hasMarker(target),
+          scheme: method === 'openExternal' ? schemeOf(target) : undefined });
         return original.call(this, target, ...rest);
       };
+    }
+  });
+
+  // commands the main process runs: only the program name, and whether the marker was part of the command line
+  safely(() => {
+    const childProcess = require('child_process');
+    for (const method of ['exec', 'execSync', 'execFile', 'execFileSync', 'spawn', 'spawnSync']) {
+      const original = childProcess[method];
+      if (typeof original !== 'function') continue;
+      const wrapped = function (command, ...rest) {
+        try {
+          const args = Array.isArray(rest[0]) ? rest[0] : [];
+          write('process', { method, program: path.basename(String(command).trim().split(/\s+/)[0] || ''), marker: hasMarker(command) || hasMarker(args) });
+        } catch {
+          // observing never breaks the call
+        }
+        return original.call(this, command, ...rest);
+      };
+      // keep what hangs off the original, util.promisify.custom above all (promisify(exec) resolves { stdout, stderr })
+      Object.defineProperties(wrapped, Object.getOwnPropertyDescriptors(original));
+      childProcess[method] = wrapped;
     }
   });
 
@@ -215,16 +249,51 @@ function instrument(electron, late) {
   // sent HTML in the request body. Only whether the body looks like markup and its size are kept, never the content.
   const MARKUP = /<\s*[a-z][\w-]*[\s>/]|&lt;\s*[a-z][\w-]*|\\u003c\s*[a-z]/i;
   const requestBodies = new Map();
+  // the names of the fields a request body carries (JSON paths, form fields), each with whether its value looks like
+  // markup and whether it holds the marker: the validation assistant asks for the marker in them. Values are not kept.
+  const bodyFields = (text) => {
+    const fields = [];
+    const add = (name, value) => {
+      if (fields.length < 60 && typeof value === 'string') fields.push({ name, html: MARKUP.test(value), marker: hasMarker(value) });
+    };
+    const walk = (value, name, depth) => {
+      if (depth > 6 || fields.length >= 60) return;
+      if (Array.isArray(value)) value.slice(0, 20).forEach(item => walk(item, `${name}[]`, depth + 1));
+      else if (value && typeof value === 'object') for (const key of Object.keys(value)) walk(value[key], name ? `${name}.${key}` : key, depth + 1);
+      else add(name || '(body)', value);
+    };
+    const trimmed = text.trim();
+    if (/^[[{]/.test(trimmed)) {
+      try {
+        walk(JSON.parse(trimmed), '', 0);
+        return fields;
+      } catch {
+        // not JSON after all
+      }
+    }
+    if (/^[\w.%[\]-]+=/.test(trimmed) && !/\s/.test(trimmed.slice(0, 200))) {
+      for (const [name, value] of new URLSearchParams(trimmed)) add(name, value);
+      return fields;
+    }
+    for (const [, name, value] of trimmed.matchAll(/name="([^"]{1,100})"(?:; filename="[^"]*")?\r?\n(?:[^\r\n]+\r?\n)*\r?\n([\s\S]*?)\r?\n--/g)) add(name, value);
+    return fields;
+  };
   const inspectBody = (details) => {
     if (details.resourceType !== 'xhr' || !Array.isArray(details.uploadData) || details.uploadData.length === 0) return;
     let bytes = 0;
-    let html = false;
+    let text = '';
     for (const part of details.uploadData) {
       if (!part || !part.bytes) continue;
       bytes += part.bytes.length;
-      if (!html) html = MARKUP.test(part.bytes.subarray(0, 1024 * 1024).toString('utf8'));
+      if (text.length < 1024 * 1024) text += part.bytes.subarray(0, 1024 * 1024 - text.length).toString('utf8');
     }
-    requestBodies.set(details.id, { bytes, html });
+    let fields = [];
+    try {
+      fields = bodyFields(text);
+    } catch {
+      // unreadable body
+    }
+    requestBodies.set(details.id, { bytes, html: MARKUP.test(text), fields, marker: hasMarker(text) });
     if (requestBodies.size > 5000) requestBodies.delete(requestBodies.keys().next().value);
   };
   const recordApi = (details) => {
@@ -232,7 +301,8 @@ function instrument(electron, late) {
     const body = requestBodies.get(details.id);
     requestBodies.delete(details.id);
     write('api', { method: details.method, url: redact(details.url), status: details.statusCode, webContents: details.webContentsId,
-      bodyBytes: body ? body.bytes : 0, htmlBody: !!(body && body.html) });
+      bodyBytes: body ? body.bytes : 0, htmlBody: !!(body && body.html), fields: body && body.fields.length ? body.fields : undefined,
+      marker: !!(body && body.marker) });
   };
 
   // webRequest allows one listener per event and session: ours observes, then hands over to the app's own listener,
@@ -332,15 +402,29 @@ function instrument(electron, late) {
         .then(csp => write('page-meta-csp', { id, url, csp }))
         .catch(() => {});
     });
-    contents.on('will-navigate', (event, url) => write('will-navigate', { id, url: redact(url) }));
-    contents.on('did-navigate', (event, url) => write('did-navigate', { id, url: redact(url) }));
-    contents.on('did-create-window', (window, details) => write('child-window', { id, url: redact(details && details.url), disposition: details && details.disposition }));
+    contents.on('will-navigate', (event, url) => {
+      // read after the app's own handlers, which may cancel it
+      setImmediate(() => write('will-navigate', { id, url: redact(url), marker: hasMarker(url), prevented: !!event.defaultPrevented }));
+    });
+    contents.on('did-navigate', (event, url) => write('did-navigate', { id, url: redact(url), marker: hasMarker(url) }));
+    contents.on('did-create-window', (window, details) => write('child-window', { id, url: redact(details && details.url), disposition: details && details.disposition, marker: hasMarker(details && details.url) }));
+    // window.open() and target=_blank links, with what the app's handler decided (the default allows them)
+    safely(() => {
+      const originalSetHandler = contents.setWindowOpenHandler.bind(contents);
+      const logged = (handler) => (details) => {
+        const result = handler ? handler(details) : { action: 'allow' };
+        write('window-open', { id, url: redact(details && details.url), marker: hasMarker(details && details.url), action: (result && result.action) || 'allow', default: !handler });
+        return result;
+      };
+      originalSetHandler(logged(null));
+      contents.setWindowOpenHandler = (handler) => originalSetHandler(logged(handler));
+    });
     contents.on('will-attach-webview', (event, webPreferences, params) => {
       // read after the app's own handlers, which may change the options or cancel the webview
       setImmediate(() => write('webview', { id, src: redact(params && params.src), prefs: pickPrefs(webPreferences), prevented: !!event.defaultPrevented }));
     });
     const onMessage = (mode) => (event, channel, ...args) =>
-      write('ipc', { channel: String(channel), mode, sender: redact(event.senderFrame && event.senderFrame.url), args: args.map(typeOf), webContents: id });
+      write('ipc', { channel: String(channel), mode, sender: redact(event.senderFrame && event.senderFrame.url), args: args.map(typeOf), webContents: id, marker: hasMarker(args) });
     contents.on('ipc-message', onMessage('send'));
     contents.on('ipc-message-sync', onMessage('sendSync'));
 
@@ -356,6 +440,7 @@ function instrument(electron, late) {
           .then(list => {
             for (const e of (list || [])) {
               if (e.type === 'entry') write('entry', { id, url, detail: e.detail });
+              else if (e.type === 'sink') write('sink', { id, url, sink: e.detail, live: e.live, frames: (e.frames || []).map(f => ({ ...f, url: redact(f.url) })) });
               else write('dom-observed', { id, url, event: e.type, detail: e.detail, live: e.live });
             }
           })
@@ -421,6 +506,46 @@ function instrument(electron, late) {
           if (present) push({ type: 'marker', detail: MARKER, live: live });
         } catch (e) {}
       };
+      // HTML sinks: when a value carrying the marker is written as HTML, record the sink and the script location that
+      // did it, so the static finding at that line can be confirmed. Only values holding the marker are looked at.
+      var frames = function () {
+        var list = [];
+        String(new Error().stack || '').split('\\n').forEach(function (line) {
+          var m = line.match(/([a-z][\\w+.-]*:\\/\\/[^\\s()]+):(\\d+):(\\d+)/i);
+          if (m && list.length < 6) list.push({ url: m[1], line: Number(m[2]), column: Number(m[3]) });
+        });
+        return list;
+      };
+      var sinkSeen = {};
+      var sink = function (name, value) {
+        try {
+          if (!MARKER || typeof value !== 'string' || value.indexOf(MARKER) === -1) return;
+          var f = frames();
+          var live = new RegExp('<[a-z][^>]*' + MARKER, 'i').test(value);
+          var key = name + '|' + live + '|' + (f[0] ? f[0].url + ':' + f[0].line + ':' + f[0].column : '');
+          if (sinkSeen[key]) return;
+          sinkSeen[key] = 1;
+          events.push({ type: 'sink', detail: name, live: live, frames: f });
+        } catch (e) {}
+      };
+      if (MARKER) {
+        try {
+          ['innerHTML', 'outerHTML'].forEach(function (prop) {
+            var d = Object.getOwnPropertyDescriptor(Element.prototype, prop);
+            if (!d || !d.set || !d.configurable) return;
+            Object.defineProperty(Element.prototype, prop, { configurable: true, enumerable: d.enumerable, get: d.get, set: function (v) { sink(prop, v); return d.set.call(this, v); } });
+          });
+          var wrap = function (proto, name, argIndex) {
+            var original = proto && proto[name];
+            if (typeof original !== 'function') return;
+            proto[name] = function () { sink(name, arguments[argIndex]); return original.apply(this, arguments); };
+          };
+          wrap(Element.prototype, 'insertAdjacentHTML', 1);
+          wrap(Document.prototype, 'write', 0);
+          wrap(Document.prototype, 'writeln', 0);
+          wrap(window.Range && Range.prototype, 'createContextualFragment', 0);
+        } catch (e) {}
+      }
       // a per-session name, hidden from enumeration and read-only, so pages don't trip over it or replace it
       Object.defineProperty(window, KEY, { value: Object.freeze({ drain: function () { checkMarker(); return events.splice(0); } }), enumerable: false, writable: false, configurable: false });
       // entry points the user exercised (for coverage): paste, drag and drop, file pickers. Only the kind is kept.

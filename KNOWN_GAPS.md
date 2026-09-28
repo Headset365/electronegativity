@@ -91,6 +91,18 @@ the limits that remain, so the boundaries of the analysis stay clear.
   permission requests, reporting what the app's handler — or Electron's default, when the app sets none — allows
   (`RUNTIME_PERMISSION_CHECK`). Checks Chromium makes without a page origin (e.g. media device enumeration) are ignored.
 
+### 9. Validation assistant
+
+- **What it does:** with a marker, watch mode tells the tester during the session what to do to confirm or rule out the
+  findings that need review (send a request again with the marker in named fields, paste formatted content, click the
+  marker link, attach the marker file), and records where the marker goes: HTML sinks (with the script line, mapped
+  through captured source maps), request fields, `openExternal`, `openPath`, navigations, new windows, IPC and command
+  lines. Static findings are marked confirmed, seen or ruled out at runtime.
+- **Remaining limit:** only the marker's path is followed. A sink reached only by code that ran before the observer was
+  installed in a page (before `dom-ready`) isn't recorded; `openExternal`, `openPath`, navigation and command-line
+  evidence is tied to the kind of finding, not to one call site; and the IPC sender check itself still has to be read in
+  the handler.
+
 ## Remaining gaps
 
 - **The server.** Static and runtime analysis see the client. Watch mode lists the API endpoints pages called and those

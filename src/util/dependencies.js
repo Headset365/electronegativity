@@ -65,6 +65,7 @@ export function registryFacts(doc, version) {
     latestReleased: day(latest && time[latest]),
     deprecated: current && doc.versions && doc.versions[current] && doc.versions[current].deprecated || undefined,
     known: !!(current && doc.versions && doc.versions[current]),
+    ...projectLinks(doc),
   };
   if (current && latest && valid(latest)) {
     facts.versionsBehind = versions.filter(v => gt(v, current) && !gt(v, latest)).length;
@@ -73,6 +74,30 @@ export function registryFacts(doc, version) {
     facts.latestInMajor = versions.filter(v => major(v) === major(current) && gte(v, current)).pop();
   }
   return facts;
+}
+
+// git+https://github.com/owner/repo.git, git://github.com/owner/repo, github:owner/repo -> https://github.com/owner/repo
+export function repositoryUrl(repository) {
+  let url = typeof repository === 'string' ? repository : repository && repository.url;
+  if (!url) return undefined;
+  url = String(url).trim();
+  const short = url.match(/^(?:github:)?([\w.-]+)\/([\w.-]+)$/);
+  if (short) return `https://github.com/${short[1]}/${short[2]}`;
+  url = url.replace(/^git\+/, '').replace(/^git:\/\//, 'https://').replace(/^ssh:\/\/git@/, 'https://').replace(/^git@([^:]+):/, 'https://$1/').replace(/#.*$/, '').replace(/\.git$/, '');
+  return /^https?:\/\//.test(url) ? url : undefined;
+}
+
+// where to read about the project and its newer versions: homepage, repository and its release notes
+function projectLinks(doc) {
+  const latest = (doc['dist-tags'] && doc['dist-tags'].latest) || undefined;
+  const latestManifest = (latest && doc.versions && doc.versions[latest]) || {};
+  const repository = repositoryUrl(doc.repository || latestManifest.repository);
+  const homepage = doc.homepage || latestManifest.homepage;
+  return {
+    homepage: /^https?:\/\//.test(homepage || '') ? homepage : undefined,
+    repository,
+    releaseNotes: repository && /^https:\/\/(github\.com|gitlab\.com)\//.test(repository) ? `${repository}/${repository.includes('gitlab.com') ? '-/releases' : 'releases'}` : undefined,
+  };
 }
 
 /** Support status from an endoflife.date product, for `version`. */
@@ -124,7 +149,12 @@ export function advisoryFacts(vulns, name, version) {
       }
     }
     const level = (v.database_specific && v.database_specific.severity) || undefined;
-    return { id: v.id, cves, summary: v.summary || (v.details || '').split('\n')[0].slice(0, 200), severity: level ? String(level).toUpperCase().replace('MODERATE', 'MEDIUM') : undefined, fixed };
+    // the advisory's own references: the advisory page, the fix, the report (a few, web links only)
+    const references = (v.references || []).filter(r => /^https?:\/\//.test(r.url || '') && ['ADVISORY', 'FIX', 'REPORT', 'WEB', 'ARTICLE'].includes(r.type))
+      .sort((a, b) => ['ADVISORY', 'FIX', 'REPORT', 'ARTICLE', 'WEB'].indexOf(a.type) - ['ADVISORY', 'FIX', 'REPORT', 'ARTICLE', 'WEB'].indexOf(b.type))
+      .filter((r, i, all) => all.findIndex(o => o.url === r.url) === i).slice(0, 5).map(r => ({ type: r.type, url: r.url }));
+    return { id: v.id, cves, summary: v.summary || (v.details || '').split('\n')[0].slice(0, 200), severity: level ? String(level).toUpperCase().replace('MODERATE', 'MEDIUM') : undefined, fixed, references,
+      published: day(v.published) };
   }).sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
 }
 const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', undefined];

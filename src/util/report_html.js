@@ -1,5 +1,5 @@
 // Self-contained HTML report: no external resources, so it can be archived, attached to tickets or opened offline.
-import { ROUTES, consequenceOf } from '../finder/consequences.js';
+import { ROUTES, consequenceOf, validationHint } from '../finder/consequences.js';
 
 const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const CONFIDENCES = ['CERTAIN', 'FIRM', 'TENTATIVE'];
@@ -26,6 +26,14 @@ function sampleBlock(sample) {
   return `<details class="code"><summary>Code (${size})</summary><pre class="sample"><code>${escapeHtml(shown)}</code></pre>${cut ? `<div class="cut">${cut} more characters not shown; open the file at the location above.</div>` : ''}</details>`;
 }
 
+const VALIDATION_LABELS = { confirmed: 'Confirmed at runtime', observed: 'Seen at runtime', safe: 'Ruled out at runtime' };
+function validationBlock(issue) {
+  if (issue.validation) return `<div class="validation v-${escapeHtml(issue.validation.status)}"><b>${escapeHtml(VALIDATION_LABELS[issue.validation.status] || 'Validation')}</b> ${escapeHtml(issue.validation.text.replace(/^(Confirmed|Seen|Checked) at runtime: /, ''))}</div>`;
+  const hint = issue.manualReview ? validationHint(issue.id) : undefined;
+  return hint ? `<details class="howto"><summary>How to validate</summary><div>${escapeHtml(hint)}</div></details>` : '';
+}
+const validationState = (issue) => issue.validation ? issue.validation.status : issue.manualReview ? 'open' : 'none';
+
 function findingRow(issue, index) {
   const sev = issue.severity.name;
   const conf = issue.confidence.name;
@@ -38,12 +46,13 @@ function findingRow(issue, index) {
   const searchText = [issue.id, issue.file, issue.description, String(issue.sample ?? '').slice(0, SAMPLE_LIMIT), consequence && consequence.text].join(' ').toLowerCase();
 
   return `
-      <tr class="finding" data-severity="${sev}" data-confidence="${conf}" data-check="${escapeHtml(issue.id)}" data-manual="${issue.manualReview ? 1 : 0}" data-route="${route}" data-text="${escapeHtml(searchText)}" data-index="${index}">
+      <tr class="finding" data-severity="${sev}" data-confidence="${conf}" data-check="${escapeHtml(issue.id)}" data-manual="${issue.manualReview ? 1 : 0}" data-route="${route}" data-validation="${escapeHtml(validationState(issue))}" data-text="${escapeHtml(searchText)}" data-index="${index}">
         <td><span class="badge sev-${sev.toLowerCase()}">${sev === 'INFORMATIONAL' ? 'INFO' : sev}</span></td>
         <td>
           <div class="check">${escapeHtml(issue.id)}${issue.manualReview ? ' <span class="review" title="Requires manual review">review</span>' : ''}</div>
           <div class="desc">${escapeHtml(issue.description)}</div>
           ${consequence ? `<div class="consequence"><span class="route route-${route}" title="Who can exploit it">${escapeHtml(consequence.label)}</span> ${escapeHtml(consequence.text)}</div>` : ''}
+          ${validationBlock(issue)}
           ${issue.sample ? sampleBlock(issue.sample) : ''}
           ${advisories ? `<div class="advisories">${advisoryLinks(advisories)}</div>` : ''}
           ${url ? `<a class="ref" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Reference</a>` : ''}
@@ -57,13 +66,34 @@ function findingRow(issue, index) {
 const SUPPORT_LABELS = { supported: 'Supported', unsupported: 'Unsupported', outdated: 'Older major', current: 'Latest major', unknown: 'Unknown' };
 const npmUrl = (name, version) => `https://www.npmjs.com/package/${name.split('/').map(encodeURIComponent).join('/')}${version ? `/v/${encodeURIComponent(version)}` : ''}`;
 
+const REFERENCE_LABELS = { ADVISORY: 'advisory', FIX: 'fix', REPORT: 'report', ARTICLE: 'article', WEB: 'reference' };
+const link = (url, text) => safeUrl(url) ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>` : escapeHtml(text);
+
+// links for the latest version: its npm page, release notes, repository and homepage
+function projectLinks(row) {
+  const links = [];
+  if (row.latest && row.known !== undefined) links.push(link(npmUrl(row.name, row.latest), 'npm'));
+  if (row.releaseNotes) links.push(link(row.releaseNotes, 'release notes'));
+  if (row.repository && row.repository !== row.releaseNotes) links.push(link(row.repository, 'repository'));
+  if (row.homepage && row.homepage !== row.repository && !String(row.homepage).startsWith(`${row.repository}#`)) links.push(link(row.homepage, 'homepage'));
+  if (row.support && row.support.policy && safeUrl(row.support.policy)) links.push(link(row.support.policy, 'support policy'));
+  return links.length ? `<div class="refs">${links.join(' · ')}</div>` : '';
+}
+
 function advisoryList(row) {
   if (row.advisoryError) return '<span class="muted">lookup failed</span>';
   if (row.advisories.length === 0) return '<span class="muted">none known</span>';
   const counts = {};
   for (const a of row.advisories) counts[a.severity || 'UNRATED'] = (counts[a.severity || 'UNRATED'] || 0) + 1;
   const summary = Object.entries(counts).map(([level, n]) => `<span class="adv adv-${level.toLowerCase()}">${n} ${level.toLowerCase()}</span>`).join(' ');
-  const items = row.advisories.map(a => `<li><a href="https://osv.dev/vulnerability/${encodeURIComponent(a.id)}" target="_blank" rel="noopener noreferrer">${escapeHtml(a.cves.length ? a.cves.join(', ') : a.id)}</a>${a.severity ? ` <span class="adv adv-${a.severity.toLowerCase()}">${a.severity.toLowerCase()}</span>` : ''} ${escapeHtml(a.summary)}${a.fixed ? ` <span class="muted">(fixed in ${escapeHtml(a.fixed)})</span>` : ' <span class="muted">(no fixed version)</span>'}</li>`).join('');
+  const items = row.advisories.map(a => {
+    const cves = a.cves.map(cve => link(`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve)}`, cve)).join(', ');
+    const sources = [link(`https://osv.dev/vulnerability/${encodeURIComponent(a.id)}`, a.cves.length ? a.id : `${a.id} (OSV)`)];
+    if (/^GHSA-/.test(a.id)) sources.push(link(`https://github.com/advisories/${encodeURIComponent(a.id)}`, 'GitHub advisory'));
+    for (const ref of a.references || []) if (safeUrl(ref.url) && !sources.some(s => s.includes(escapeHtml(ref.url)))) sources.push(link(ref.url, REFERENCE_LABELS[ref.type] || 'reference'));
+    const fixed = a.fixed ? ` <span class="muted">(fixed in ${link(npmUrl(row.name, a.fixed), a.fixed)})</span>` : ' <span class="muted">(no fixed version)</span>';
+    return `<li>${cves ? `${cves} ` : ''}${a.severity ? `<span class="adv adv-${a.severity.toLowerCase()}">${a.severity.toLowerCase()}</span> ` : ''}${escapeHtml(a.summary)}${fixed}<div class="refs">${sources.join(' · ')}</div></li>`;
+  }).join('');
   const fix = row.fixedIn ? `<div class="muted">All fixed in ${escapeHtml(row.fixedIn)}</div>` : row.fixedIn === null ? '<div class="muted">Not all have a fix</div>' : '';
   return `<details><summary>${summary}</summary><ul class="advlist">${items}</ul></details>${fix}`;
 }
@@ -87,13 +117,13 @@ function dependencySection(deps) {
     return `
       <tr class="dep" data-issue="${issue ? 1 : 0}" data-text="${escapeHtml([r.name, r.version, r.kinds.join(' '), r.files.join(' ')].join(' ').toLowerCase())}">
         <td><a class="pkg" href="${npmUrl(r.name)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.name)}</a><div class="muted">${escapeHtml(where)}</div>${files}</td>
-        <td class="mono">${escapeHtml(r.version)}${r.known === false ? '<div class="muted">not on npm</div>' : ''}</td>
+        <td class="mono">${r.known ? link(npmUrl(r.name, r.version), r.version) : escapeHtml(r.version)}${r.known === false ? '<div class="muted">not on npm</div>' : ''}</td>
         <td class="nowrap">${escapeHtml(r.released || '?')}</td>
-        <td class="mono">${escapeHtml(r.latest || '?')}${r.latestInMajor && r.latestInMajor !== r.version && r.latestInMajor !== r.latest ? `<div class="muted">${escapeHtml(r.latestInMajor)} in this major</div>` : ''}</td>
+        <td class="mono">${r.latest ? link(npmUrl(r.name, r.latest), r.latest) : '?'}${r.latestInMajor && r.latestInMajor !== r.version && r.latestInMajor !== r.latest ? `<div class="muted">${link(npmUrl(r.name, r.latestInMajor), r.latestInMajor)} in this major</div>` : ''}${projectLinks(r)}</td>
         <td class="nowrap">${escapeHtml(r.latestReleased || '?')}</td>
         <td>${behind(r)}</td>
         <td><span class="support support-${r.support.status}">${SUPPORT_LABELS[r.support.status]}</span><div class="muted">${escapeHtml(r.support.detail)}</div></td>
-        <td>${r.support.supported && r.support.supported.length ? escapeHtml(r.support.supported.join(', ')) : '<span class="muted">?</span>'}${r.support.policy && safeUrl(r.support.policy) ? `<div><a class="muted" href="${escapeHtml(r.support.policy)}" target="_blank" rel="noopener noreferrer">policy</a></div>` : ''}</td>
+        <td>${r.support.supported && r.support.supported.length ? escapeHtml(r.support.supported.join(', ')) : '<span class="muted">?</span>'}</td>
         <td>${advisoryList(r)}</td>
       </tr>`;
   }).join('');
@@ -296,6 +326,12 @@ export function renderHtmlReport(allIssues, meta) {
   .route-content { color: var(--high); } .route-escalation { color: var(--medium); } .route-network { color: var(--accent); }
   .route-local, .route-info, .route-other { color: var(--muted); } .route-dependency { color: var(--low); }
   .linkish { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
+  .validation { margin: 2px 0 6px; font-size: 13px; padding: 4px 8px; border-radius: 6px; }
+  .validation b { margin-right: 4px; }
+  .v-confirmed { background: color-mix(in srgb, var(--high) 12%, transparent); } .v-confirmed b { color: var(--high); }
+  .v-observed { background: color-mix(in srgb, var(--medium) 12%, transparent); } .v-observed b { color: var(--medium); }
+  .v-safe { background: color-mix(in srgb, #2e7d32 12%, transparent); } .v-safe b { color: #2e7d32; }
+  details.howto { font-size: 12px; margin: 2px 0 6px; } details.howto div { margin-top: 4px; color: var(--muted); }
   .muted { color: var(--muted); font-size: 12px; }
   .mono, .deps .pkg { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
   .nowrap { white-space: nowrap; font-size: 12px; }
@@ -306,6 +342,7 @@ export function renderHtmlReport(allIssues, meta) {
   .support-supported, .support-current { color: #2e7d32; }
   .adv { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 5px; white-space: nowrap; border: 1px solid currentColor; }
   .adv-critical, .adv-high { color: var(--high); } .adv-medium { color: var(--medium); } .adv-low { color: var(--low); } .adv-unrated { color: var(--muted); }
+  .refs { font-size: 11px; margin-top: 2px; font-family: system-ui, sans-serif; } .refs a { color: var(--accent); }
   .advlist { margin: 6px 0 0; padding-left: 18px; min-width: 280px; } .advlist li { margin-bottom: 4px; font-size: 12px; }
   .depsummary { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 4px 0; color: var(--muted); } .depsummary b { color: var(--text); }
   .loc { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; min-width: 180px; }
@@ -366,6 +403,9 @@ ${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check=
     <label>Exploitable by <select id="route">
       <option value="">Anyone</option>${routeOptions}
     </select></label>
+    <label>Validation <select id="validation">
+      <option value="">Any</option><option value="confirmed">Confirmed at runtime</option><option value="observed">Seen at runtime</option><option value="safe">Ruled out at runtime</option><option value="open">Needs review, not validated</option>
+    </select></label>
     <label><input type="checkbox" id="manual"> Manual review only</label>
     <button type="button" id="expand" class="linkish">Expand all code</button>
     <span class="count" id="count"></span>
@@ -394,6 +434,7 @@ ${errors.length > 0 ? `
   const confidence = document.getElementById('confidence');
   const manual = document.getElementById('manual');
   const route = document.getElementById('route');
+  const validation = document.getElementById('validation');
   const expand = document.getElementById('expand');
   let activeCheck = null;
 
@@ -407,6 +448,7 @@ ${errors.length > 0 ? `
         confidenceValue[row.dataset.confidence] >= minConfidence &&
         (!manual.checked || row.dataset.manual === '1') &&
         (!route.value || row.dataset.route === route.value) &&
+        (!validation.value || row.dataset.validation === validation.value) &&
         (!activeCheck || row.dataset.check === activeCheck) &&
         (!q || row.dataset.text.includes(q));
       row.hidden = !show;
@@ -425,7 +467,7 @@ ${errors.length > 0 ? `
     checkButtons.forEach(b => b.classList.toggle('active', b.dataset.check === activeCheck));
     apply();
   }));
-  [search, confidence, manual, route].forEach(el => el.addEventListener('input', apply));
+  [search, confidence, manual, route, validation].forEach(el => el.addEventListener('input', apply));
   const depRows = [...document.querySelectorAll('tr.dep')];
   const depSearch = document.getElementById('depsearch');
   const depIssues = document.getElementById('depissues');

@@ -15,6 +15,7 @@ import { analyzePackagedFuses, packagedBinaryFor, readElectronVersion, fuseBinar
 import { GlobalChecks, severity, confidence } from './finder/index.js';
 import { extension, input_exists, is_directory, writeIssues, getRelativePath, outputFormat } from './util/index.js';
 import { dependencyReport, sortRows } from './util/dependencies.js';
+import { validationHint } from './finder/consequences.js';
 import { startDiagnostics, stopDiagnostics, diagnostics, writeDiagnostics } from './util/diagnostics.js';
 import pkg from '../package.json' with { type: 'json' };
 import { detectLibraries } from './util/libraries.js';
@@ -334,6 +335,11 @@ async function scan(options, forCli) {
       console.log(table.toString());
     } else console.log(chalk.green(`\n${__('noIssuesFound')}`));
     if (suppressed.length > 0 || stale.length > 0) console.log(chalk.gray(__('baselineSummary', { suppressed: suppressed.length, stale: stale.length })));
+    // what it takes to settle the findings that need review: most can be checked in a watch session with a marker
+    const review = reported.filter(i => i.manualReview && !i.validation);
+    const automatic = review.filter(i => /^(Automatic|Semi-automatic|Partly automatic)/.test(validationHint(i.id) || ''));
+    if (review.length > 0 && !options.runtime)
+      console.log(chalk.cyan(`${review.length} finding(s) need review; ${automatic.length} of them can be checked automatically in a watch session: electronegativity --app <install folder>, then follow its prompts. The report says how to check each one.`));
     console.log('\x1b[4m\x1b[36m%s\x1b[0m',`${__('tryElectroNg')}`);
   }
   if (options.diagnostics) {

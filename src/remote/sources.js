@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { SourceMap } from 'node:module';
 
 export const MANIFEST = 'manifest.jsonl';
 
@@ -142,6 +143,47 @@ export function prepareScanFolder(captureDir) {
   return labels.size > 0 ? { dir: scanDir, labels, counts } : undefined;
 }
 
+/**
+ * Script locations from stack traces (watch mode), in terms of what was scanned: a frame in a captured bundle whose
+ * source map was captured too gets `original` = { file, line, column }, file being the label of the original source
+ * the scan reported findings under ("<script URL> (source: src/viewer.js)"). Mutates and returns `frames`.
+ */
+export function mapFrames(captureDir, frames) {
+  const manifest = path.join(captureDir, MANIFEST);
+  if (!fs.existsSync(manifest) || !Array.isArray(frames) || frames.length === 0) return frames;
+  const entries = fs.readFileSync(manifest, 'utf8').split('\n').filter(Boolean).map(line => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return undefined;
+    }
+  }).filter(Boolean);
+  const withoutQuery = (url) => String(url || '').split(/[?#]/)[0];
+  const maps = new Map(entries.filter(e => e.kind === 'map' && e.of && e.file).map(e => [withoutQuery(e.of), e]));
+  const loaded = new Map();
+  for (const frame of frames) {
+    const entry = maps.get(withoutQuery(frame.url));
+    if (!entry || !frame.line) continue;
+    if (!loaded.has(entry.file)) {
+      let sourceMap;
+      try {
+        sourceMap = new SourceMap(JSON.parse(fs.readFileSync(path.join(captureDir, entry.file), 'utf8')));
+      } catch {
+        sourceMap = undefined;
+      }
+      loaded.set(entry.file, sourceMap);
+    }
+    const sourceMap = loaded.get(entry.file);
+    const found = sourceMap && sourceMap.findEntry(frame.line - 1, Math.max(0, (frame.column || 1) - 1));
+    if (!found || found.originalSource === undefined || found.originalLine === undefined) continue;
+    frame.original = { file: `${entry.of} (source: ${cleanSourceName(found.originalSource)})`, line: found.originalLine + 1, column: found.originalColumn + 1 };
+  }
+  return frames;
+}
+
+// webpack://app/./src/viewer.js -> src/viewer.js
+const cleanSourceName = (name) => String(name).replace(/^(webpack|vite|rollup|ng):\/\/[^/]*\//i, '').replace(/^file:\/+/i, '').replace(/^(\.\.?\/)+/, '').replace(/\?.*$/, '');
+
 /** The original sources embedded in a source map (sourcesContent), with bundler prefixes removed. */
 export function originalSources(mapText) {
   let map;
@@ -159,7 +201,7 @@ export function originalSources(mapText) {
     names.forEach((name, i) => {
       const content = contents[i];
       if (typeof content !== 'string' || content.length === 0) return;
-      const clean = String(name).replace(/^(webpack|vite|rollup|ng):\/\/[^/]*\//i, '').replace(/^file:\/+/i, '').replace(/^(\.\.?\/)+/, '').replace(/\?.*$/, '');
+      const clean = cleanSourceName(name);
       if (!SOURCE_EXTENSIONS.test(clean)) return; // CSS and assets
       sources.push({ name: clean, content });
     });

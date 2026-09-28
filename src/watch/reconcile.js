@@ -22,6 +22,7 @@ const place = (issue) => `${issue.file}${issue.location && issue.location.line ?
  * the static scan found that were never opened during the session. @returns the same array.
  */
 export function reconcileRuntime(issues, summary) {
+  linkMarkerEvidence(issues);
   const runtimeWindows = issues.filter(i => i.id === 'RUNTIME_WINDOW_SUMMARY');
   if (runtimeWindows.length === 0) return issues; // nothing was observed: leave the static findings untouched
   entryCoverage(issues, summary);
@@ -93,4 +94,67 @@ function entryCoverage(issues, summary) {
     properties: { untried, entryPoints: used }, shortenedURL: DOCS, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
     manualReview: false, visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: 'Runtime'
   });
+}
+
+const HTML_CODE = new Set(['XSS_SINK_JS_CHECK', 'ANGULAR_TRUST_HTML_JS_CHECK', 'RICH_TEXT_EDITOR_JS_CHECK', 'DANGEROUS_FUNCTIONS_JS_CHECK', 'SANITIZER_CONFIG_JS_CHECK']);
+const withoutQuery = (url) => String(url || '').split(/[?#]/)[0];
+// a static file (a path, or the URL of a script captured from the server) and a script URL from a stack trace
+function sameScript(file, url) {
+  const a = withoutQuery(file);
+  const b = withoutQuery(url);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const tail = (p) => p.split(/[\\/]/).filter(Boolean).slice(-2).join('/');
+  return tail(a) !== '' && tail(a) === tail(b);
+}
+
+/**
+ * Marks static findings the planted marker confirmed (or ruled out) during the session: `validation` = { status, text }.
+ * HTML sinks are matched to the exact script line that wrote the markup; the others by kind (the marker shows the app
+ * does it somewhere, the static finding says where it can happen).
+ */
+function linkMarkerEvidence(issues) {
+  const of = (id) => issues.filter(i => i.id === id);
+  const mark = (issue, status, text) => { if (!issue.validation || issue.validation.status !== 'confirmed') issue.validation = { status, text }; };
+
+  for (const sink of of('RUNTIME_MARKER_SINK')) {
+    const frames = (sink.properties && sink.properties.frames) || [];
+    for (const issue of issues.filter(i => HTML_CODE.has(i.id))) {
+      if (!issue.location) continue;
+      // the scanned file is the script itself, or the original source its source map pointed to
+      const frame = frames.find(f => (f.original && f.original.file === issue.file && f.original.line === issue.location.line) ||
+        (f.line === issue.location.line && sameScript(issue.file, f.url)));
+      if (frame) {
+        mark(issue, 'confirmed', `Confirmed at runtime: markup planted as another user's content was written with ${sink.properties.sink} from this line (${frame.url}:${frame.line}:${frame.column}${frame.original ? `, ${frame.original.file.replace(/^.* \(source: (.*)\)$/, '$1')}:${frame.original.line}` : ''}).`);
+        sink.properties = { ...sink.properties, staticFinding: `${issue.id} at ${issue.file}:${issue.location.line}` };
+      }
+    }
+  }
+  const external = of('RUNTIME_MARKER_OPEN_EXTERNAL');
+  for (const issue of of('OPEN_EXTERNAL_JS_CHECK')) {
+    const nonWeb = external.find(r => r.properties && !/^(https?|mailto)$/i.test(r.properties.scheme || ''));
+    if (nonWeb) mark(issue, 'confirmed', `Confirmed at runtime: a ${nonWeb.properties.scheme}: link from content reached shell.openExternal, so there is no scheme allowlist (the session does not tell which openExternal call it was).`);
+    else if (external.length) mark(issue, 'observed', 'Seen at runtime: links from content reach shell.openExternal. Try a file:/// link in the next session to check the scheme allowlist.');
+  }
+  const paths = of('RUNTIME_MARKER_OPEN_PATH');
+  for (const issue of issues.filter(i => i.id === 'OPEN_PATH_JS_CHECK' || i.id === 'SHOWITEMINFOLDER_JS_CHECK'))
+    if (paths.length) mark(issue, 'confirmed', `Confirmed at runtime: a path from content reached shell.${paths[0].properties.method}.`);
+  const navigation = of('RUNTIME_MARKER_NAVIGATION');
+  for (const issue of issues.filter(i => /^LIMIT_NAVIGATION_/.test(i.id) || i.id === 'RUNTIME_NAVIGATION')) {
+    if (navigation.some(r => r.properties && !r.properties.blocked)) mark(issue, 'confirmed', 'Confirmed at runtime: a link from content navigated an app window.');
+    else if (navigation.length) mark(issue, 'safe', 'Checked at runtime: the app blocked a link from content from navigating the window.');
+  }
+  const windows = of('RUNTIME_MARKER_NEW_WINDOW');
+  for (const issue of issues.filter(i => i.id === 'WINDOW_OPEN_HANDLER_JS_CHECK' || i.id === 'RUNTIME_NEW_WINDOW')) {
+    if (windows.some(r => r.properties && !r.properties.blocked)) mark(issue, 'confirmed', 'Confirmed at runtime: a link from content opened a new app window.');
+    else if (windows.length) mark(issue, 'safe', 'Checked at runtime: the app refused to open a window for a link from content.');
+  }
+  const commands = of('RUNTIME_MARKER_COMMAND');
+  for (const issue of of('COMMAND_INJECTION_JS_CHECK'))
+    if (commands.length) mark(issue, 'confirmed', `Confirmed at runtime: content reached a command line (${commands.map(c => c.properties.program).join(', ')}).`);
+  const channels = new Map(of('RUNTIME_MARKER_IPC').map(r => [r.properties.channel, r.properties.sender]));
+  for (const issue of of('IPC_SENDER_VALIDATION_JS_CHECK')) {
+    const channel = issue.properties && issue.properties.channel;
+    if (channel && channels.has(channel)) mark(issue, 'observed', `Seen at runtime: content from other users reaches '${channel}'${channels.get(channel) ? ` (sent from ${channels.get(channel)})` : ''}, so this handler must check the sender and validate the value.`);
+  }
 }

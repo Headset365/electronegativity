@@ -31,23 +31,26 @@ export default class IpcSenderValidationJSCheck {
     if (!/^ipcMain$/.test(calleeObjectName(astNode.callee) || '')) return null;
     if (astNode.arguments.length < 2) return null;
 
+    // the channel name, so a watch session can tie content seen on that channel to this handler
+    const channelArg = astNode.arguments[0];
+    const properties = (channelArg.type === 'StringLiteral' || channelArg.type === 'Literal') && typeof channelArg.value === 'string' ? { channel: channelArg.value } : undefined;
     let handlerArg = astNode.arguments[astNode.arguments.length - 1];
     // wrappers like ipcValidate(handler, schema) or withSenderCheck(handler)
     if ((handlerArg.type === 'CallExpression' || handlerArg.type === 'OptionalCallExpression') && memberName(handlerArg.callee) !== 'bind' && handlerArg.arguments.length > 0) {
       const wrapper = handlerArg.callee.type === 'Identifier' ? handlerArg.callee.name : memberName(handlerArg.callee);
       if (/sender|origin|trusted|secure|guard|auth/i.test(wrapper || ''))
-        return [finding(this, astNode, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true,
+        return [finding(this, astNode, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true, properties,
           description: `${this.description} (wrapped by ${wrapper}(); verify that it validates the sender)` })];
       handlerArg = handlerArg.arguments[0];
     }
     const handler = handlerFunction(handlerArg, scope, context.ancestors);
     if (!handler) {
       // handler defined elsewhere, can't tell whether it validates the sender
-      return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true })];
+      return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true, properties })];
     }
 
     if (this.validatesSender(handler)) return null;
-    return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true })];
+    return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true, properties })];
   }
 
   validatesSender(handler) {

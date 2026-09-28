@@ -98,6 +98,14 @@ const CONSEQUENCES = {
   RUNTIME_HTML_ENDPOINT: ['content', 'This endpoint stores HTML sent by the client, which other users\' clients will render: test on the server that it sanitizes or rejects markup, whatever the client sends.'],
   RUNTIME_INSECURE_LOAD: ['network', 'Content was loaded over plain http: the network path can modify it.'],
   RUNTIME_IPC: ['info', 'IPC channels pages used during the session, and from which origins.'],
+  RUNTIME_MARKER_SINK: ['content', 'Markup planted as another user\'s content was written into the page as HTML by this code: stored content reaches an HTML sink, which is XSS unless the markup is sanitized first.'],
+  RUNTIME_MARKER_SENT: ['info', 'The fields the planted marker was sent in, for checking where it comes back.'],
+  RUNTIME_MARKER_OPEN_EXTERNAL: ['content', 'A link in content reached shell.openExternal: whoever writes the content chooses what the operating system opens.'],
+  RUNTIME_MARKER_OPEN_PATH: ['content', 'A path from content reached shell.openPath: whoever writes the content chooses which file is opened with its default program.'],
+  RUNTIME_MARKER_NAVIGATION: ['content', 'Whether a link in content can navigate an app window (the page then runs with the window\'s preload and IPC access), or was blocked.'],
+  RUNTIME_MARKER_NEW_WINDOW: ['content', 'Whether a link in content can open a new app window, or was refused.'],
+  RUNTIME_MARKER_IPC: ['escalation', 'Content from other users reaches this IPC channel: its handler must check the sender and validate the value.'],
+  RUNTIME_MARKER_COMMAND: ['content', 'Content reached a command line the app runs: whoever writes the content controls part of the command.'],
   RUNTIME_MARKER: ['content', 'Where planted marker content appeared, and whether it came back as live HTML (stored content reaching another user\'s view) or as text.'],
   RUNTIME_NAVIGATION: ['content', 'A window went to another origin during the session: that origin\'s content ran inside the app window, with its preload and IPC access.'],
   RUNTIME_NEW_WINDOW: ['content', 'Page content opened a new app window during the session: check what setWindowOpenHandler allows.'],
@@ -113,7 +121,38 @@ const CONSEQUENCES = {
   RUNTIME_WINDOW_SUMMARY: ['info', 'A window observed at runtime and its settings.'],
 };
 
+// How to confirm or rule out a finding, keyed like CONSEQUENCES. "Automatic" ones are checked by a watch session with a
+// marker (electronegativity --app <install folder>), which prompts for the steps and links the result to the finding.
+const MARKER_HTML = 'Automatic: in a watch session (electronegativity --app <install folder>), save content carrying the HTML marker the tool prints, in the fields this code shows, then view it. If the markup reaches this code, the finding is confirmed at this location.';
+const MARKER_LINK = 'Automatic: in a watch session, put the link https://example.invalid/<marker> the tool prints into shared content and click it (also Ctrl+click and middle-click). The report shows whether the app navigated, opened a window, handed it to the OS, or blocked it.';
+const SETTINGS = 'Automatic: a watch session reports the settings each window really ran with.';
+const HOW_TO_VALIDATE = {
+  XSS_SINK: MARKER_HTML, ANGULAR_TRUST_HTML: MARKER_HTML, RICH_TEXT_EDITOR: MARKER_HTML, SANITIZER_CONFIG: MARKER_HTML, ANGULAR_BIND_HTML_UNSAFE: MARKER_HTML,
+  DANGEROUS_FUNCTIONS: MARKER_HTML, RUNTIME_DOM_INJECTION: MARKER_HTML,
+  OPEN_EXTERNAL: 'Automatic: in a watch session, put the link https://example.invalid/<marker> in shared content and click it, then a file:/// link the tool suggests. The report shows whether content reaches openExternal and whether non-web schemes get through.',
+  OPEN_PATH: 'Automatic: in a watch session, attach and open the <marker>.txt file the tool writes (or any file whose name carries the marker). The report shows whether a path from content reaches shell.openPath.',
+  SHOWITEMINFOLDER: 'Automatic: as for OPEN_PATH, open a file whose name carries the marker during a watch session.',
+  LIMIT_NAVIGATION: MARKER_LINK, WINDOW_OPEN_HANDLER: MARKER_LINK, AUXCLICK: MARKER_LINK, UNTRUSTED_LOAD_URL: MARKER_LINK, RUNTIME_NAVIGATION: 'Check where the window went: if the origin is not your app or its sign-in provider, find what sent it there. ' + MARKER_LINK,
+  RUNTIME_NEW_WINDOW: MARKER_LINK,
+  COMMAND_INJECTION: 'Automatic where a feature passes content on to a command: use the marker there during a watch session; the report says whether it reached a command line.',
+  IPC_SENDER_VALIDATION: 'Manual: read the handler and check that it verifies event.senderFrame (its URL or origin) before acting. A watch session lists the origins that used each channel, and whether content carrying the marker reached it.',
+  CONTEXT_ISOLATION: SETTINGS, NODE_INTEGRATION: SETTINGS, SANDBOX: SETTINGS, WEB_SECURITY: SETTINGS,
+  CSP: 'Automatic: a watch session records the Content Security Policy each page actually got.',
+  PERMISSION_REQUEST_HANDLER: 'Automatic: a watch session records the permissions pages were granted.',
+  FILE_HANDLER: 'Partly automatic: during a watch session, open a deep link or file association carrying the marker; the report lists the entry points used.',
+  RUNTIME_HTML_ENDPOINT: 'Semi-automatic: during a watch session the tool asks you to send this endpoint the marker, then view the content as the second user. Whether the server itself strips markup is best checked with your proxy too.',
+  DEVTOOLS: 'Manual, local access only: check that DevTools cannot be opened in the shipped build (the call is behind a development flag). Content from other users cannot use it.',
+  WRITE_SHORTCUT: 'Manual: check that the shortcut\'s target and path are fixed values, not taken from IPC or page content. If so, dismiss it: it needs local access.',
+  FUSES: 'Manual, local access only: set the fuses in the build (@electron/fuses). Content from other users cannot use them.',
+  PACKAGED_FUSES: 'Manual, local access only: set the fuses in the build (@electron/fuses). Content from other users cannot use them.',
+};
+
 const baseId = (id) => String(id || '').replace(/_(JS|HTML|JSON|GLOBAL)_CHECK$/, '').replace(/_LOCK_CHECK$/, '');
+
+/** How to confirm or rule out a finding with this check id, or undefined. */
+export function validationHint(id) {
+  return HOW_TO_VALIDATE[id] || HOW_TO_VALIDATE[baseId(id)];
+}
 
 /**
  * { route, label, text } for a finding's check id, or undefined. Upgrade checks (breaking changes between Electron

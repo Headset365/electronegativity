@@ -3,6 +3,10 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const http = require('http');
 const path = require('path');
+const os = require('os');
+// the marker the tester plants (watch mode passes it to the hook): here the server's stored document carries it, and the
+// app is driven through the ways content moves (a save request, a link, a window.open, IPC, a file path)
+const MARKER = process.env.ELECTRONEGATIVITY_WATCH_MARKER || 'ENGNONE';
 
 ipcMain.handle('documents:get', (event, id) => ({ id, title: 'Quarterly report' }));
 ipcMain.handle('documents:delete', () => true); // registered but never called: shows up in the coverage report
@@ -13,7 +17,7 @@ app.whenReady().then(async () => {
   // map carries the original code (captured for the static scan), and saves a document with HTML in it through the API.
   const viewerSource = "fetch('/api/documents/42').then(res => res.json()).then(doc => { document.getElementById('doc').innerHTML = doc.body; });";
   const saveSource = "fetch('/api/documents/42', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body: '<p>Quarterly <b>report</b></p>' }) });";
-  const map = JSON.stringify({ version: 3, file: 'viewer.js', mappings: '', names: [], sources: ['webpack://app/./src/viewer.js', 'webpack://app/./src/save.js'], sourcesContent: [viewerSource, saveSource] });
+  const map = JSON.stringify({ version: 3, file: 'viewer.js', mappings: 'AAAA', names: [], sources: ['webpack://app/./src/viewer.js', 'webpack://app/./src/save.js'], sourcesContent: [viewerSource, saveSource] });
   const server = http.createServer((request, response) => {
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'");
     const url = request.url.split('?')[0];
@@ -25,7 +29,7 @@ app.whenReady().then(async () => {
     if (url.startsWith('/api/documents/')) {
       request.resume();
       response.setHeader('content-type', 'application/json');
-      return response.end(JSON.stringify({ id: 42, body: '<p>Quarterly report</p>' }));
+      return response.end(JSON.stringify({ id: 42, body: `<p>Quarterly report <span data-${MARKER}="1">${MARKER}</span></p>` }));
     }
     response.end('<!doctype html><title>Remote</title><p>Remote page</p><div id="doc"></div><script src="/static/viewer.js"></script>');
   }).listen(0, '127.0.0.1');
@@ -39,7 +43,15 @@ app.whenReady().then(async () => {
   // a hardened window loading the backend page
   const viewer = new BrowserWindow({ show: false, webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true } });
   await viewer.loadURL(remote);
+  viewer.webContents.on('will-navigate', (event) => event.preventDefault());
+  viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   await viewer.webContents.executeJavaScript('window.app.getDocument(7).then(() => window.app.log("opened"))');
+  // the tester saves content carrying the marker, clicks a link carrying it (blocked), and the page passes it over IPC
+  await viewer.webContents.executeJavaScript(`fetch('/api/documents/42', { method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: '${MARKER}', body: '<span data-${MARKER}="1">${MARKER}</span>' }) }).then(r => r.text())`);
+  await viewer.webContents.executeJavaScript(`window.open('https://example.invalid/${MARKER}'); window.app.log('${MARKER}'); location.href = 'https://example.invalid/${MARKER}'; 1`);
+  // an attachment whose name came from content, opened with its default program (it doesn't exist: nothing opens)
+  shell.openPath(path.join(os.tmpdir(), `${MARKER}-missing-attachment.txt`)).catch(() => {});
   await editor.webContents.executeJavaScript('Notification.requestPermission()').catch(() => {});
   // the user pastes formatted content into the editor
   await editor.webContents.executeJavaScript(`(() => { const data = new DataTransfer(); data.setData('text/html', '<b>pasted</b>');

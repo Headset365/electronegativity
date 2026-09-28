@@ -423,7 +423,27 @@ describe('Watch mode', () => {
       ids.should.include('RUNTIME_DOM_INJECTION');
       const live = report.issues.filter(i => i.id === 'RUNTIME_MARKER' && i.properties.live);
       live.should.have.length.above(0, 'the planted marker came back as live HTML');
-      live.every(i => /editor\.html/.test(i.file)).should.equal(true, 'only the editor renders the marker as markup');
+      live.some(i => /editor\.html/.test(i.file)).should.equal(true, 'the editor renders the marker as markup');
+      live.some(i => /safe-view\.html/.test(i.file)).should.equal(false, 'the safe view does not');
+      // the marker traced through the app: the HTML sink that wrote it (at the script line), the request fields that
+      // carried it, the blocked link and window, the IPC channel and the file path
+      const sink = report.issues.find(i => i.id === 'RUNTIME_MARKER_SINK');
+      sink.properties.frames[0].url.should.match(/\/static\/viewer\.js$/);
+      sink.properties.sink.should.equal('innerHTML');
+      const sent = report.issues.find(i => i.id === 'RUNTIME_MARKER_SENT');
+      sent.properties.fields.should.have.members(['title', 'body']);
+      report.issues.find(i => i.id === 'RUNTIME_MARKER_NAVIGATION').properties.blocked.should.equal(true);
+      report.issues.find(i => i.id === 'RUNTIME_MARKER_NEW_WINDOW').properties.blocked.should.equal(true);
+      report.issues.find(i => i.id === 'RUNTIME_MARKER_IPC').properties.channel.should.equal('log');
+      ids.should.include('RUNTIME_MARKER_OPEN_PATH');
+      // the static finding at the line that wrote it is confirmed, through the source map of the captured bundle
+      const confirmed = report.issues.filter(i => i.id === 'XSS_SINK_JS_CHECK' && i.validation && i.validation.status === 'confirmed');
+      confirmed.should.have.length(1);
+      confirmed[0].file.should.match(/static\/viewer\.js \(source: src\/viewer\.js\)/);
+      // and the assistant said so while the app ran
+      command.stdout.should.match(/\[validate\] ✓ The marker was sent with PUT http:\/\/127\.0\.0\.1:\d+\/api\/documents\/\{id\} in: title, body/);
+      command.stdout.should.match(/\[validate\] ✗ Markup carrying the marker was written with innerHTML by http:\/\/127\.0\.0\.1:\d+\/static\/viewer\.js:1:\d+/);
+      command.stdout.should.match(/\[validate\] ✓ The app blocked the window from navigating to the marker link/);
       // windows in the code link to the windows observed at runtime through their preload (path.join(__dirname, 'preload.js'))
       const staticWithPreload = report.issues.filter(i => i.id === 'WINDOW_SUMMARY_JS_CHECK' && i.properties.preload === 'preload.js');
       staticWithPreload.should.have.length(2);
@@ -438,7 +458,11 @@ describe('Watch mode', () => {
       const guided = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--app', dir, '--sessions', '1', '--watch-args', '--no-sandbox', '--offline', '--out', out];
       const guidedRun = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...guided], { encoding: 'utf8' }) : spawnSync(process.execPath, guided, { encoding: 'utf8' });
       guidedRun.status.should.equal(0, guidedRun.stderr);
-      fs.readdirSync(out).sort().should.deep.equal(['session-1-diag.json', 'session-1.html', 'static-diag.json', 'static.html']);
+      const files = fs.readdirSync(out).sort();
+      files.filter(f => !/^ENG[A-Z0-9]{6}/.test(f)).should.deep.equal(['session-1-diag.json', 'session-1.html', 'static-diag.json', 'static.html']);
+      // the marker files the assistant hands the tester: a page to copy formatted content from, and a file to attach
+      files.filter(f => /^ENG[A-Z0-9]{6}/.test(f)).map(f => f.replace(/^ENG[A-Z0-9]{6}/, 'M')).sort().should.deep.equal(['M-paste-me.html', 'M.txt']);
+      guidedRun.stdout.should.match(/\[validate\] Validation across all sessions:/);
       JSON.parse(fs.readFileSync(path.join(out, 'session-1-diag.json'), 'utf8')).watch.hookStarted.should.equal(true);
       guidedRun.stdout.should.match(/marker for this run: ENG[A-Z0-9]{6}/);
       // the backend page's script was captured with the app's session, and its original source (from the source map)
@@ -448,8 +472,8 @@ describe('Watch mode', () => {
       remote[0].severity.should.equal('HIGH');
       // the endpoint that received HTML is listed for server-side testing, with the id in its path generalized
       const endpoints = report.issues.filter(i => i.id === 'RUNTIME_HTML_ENDPOINT');
-      endpoints.should.have.length(1);
-      endpoints[0].description.should.match(/^POST http:\/\/127\.0\.0\.1:\d+\/api\/documents\/\{id\}/);
+      endpoints.map(e => e.description.split(' ')[0]).sort().should.deep.equal(['POST', 'PUT']);
+      endpoints.every(e => /^(POST|PUT) http:\/\/127\.0\.0\.1:\d+\/api\/documents\/\{id\}/.test(e.description)).should.equal(true);
     });
   });
 });
