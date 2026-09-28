@@ -13,6 +13,8 @@
   },
   "files": [
     "src/",
+    "docs/*.json",
+    "docs/*.md",
     "defaults.json",
     "safe_releases.json"
   ],
