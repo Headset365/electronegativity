@@ -63,6 +63,7 @@ import DownloadJSCheck from './DownloadJSCheck.js';
 import { UpdateSecurityJSCheck, UpdateSecurityJSONCheck } from './UpdateSecurityChecks.js';
 import PlaintextSecretsJSCheck from './PlaintextSecretsJSCheck.js';
 import HardcodedSecretsCheck from './HardcodedSecretsCheck.js';
+import PackagedBinaryCheck from './PackagedBinaryCheck.js';
 import { SecretFileWriteJSCheck, ElectronStoreEncryptionJSCheck, CookieFlagsJSCheck, CredentialAccessJSCheck } from './StorageChecks.js';
 
 const CHECKS = [
@@ -151,6 +152,7 @@ const CHECKS = [
   CookieFlagsJSCheck,
   CredentialAccessJSCheck,
   HardcodedSecretsCheck,
+  PackagedBinaryCheck,
 ];
 
 export { CHECKS };

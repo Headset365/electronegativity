@@ -24,6 +24,7 @@ import { reconcileTraffic } from './traffic/reconcile.js';
 import { reviewDataAtRest, appNames } from './storage/index.js';
 import { secretSources, scanSecrets } from './secrets/scan.js';
 import { linkCredentialStores } from './finder/checks/AtomicChecks/StorageChecks.js';
+import { analyzeBinary } from './binary/index.js';
 
 export default async function run(options, forCli = false) {
   // --offline only applies to this scan
@@ -128,6 +129,7 @@ async function scan(options, forCli) {
   // the hard-coded secret scan: -l HardcodedSecretsCheck to run it alone, -x HardcodedSecretsCheck to leave it out
   const SECRET_SCAN = ['hardcodedsecretscheck', 'hardcoded_secret'];
   const runSecretScan = (options.customScan.length === 0 || options.customScan.some(c => SECRET_SCAN.includes(c))) && !options.excludeFromScan.some(c => SECRET_SCAN.includes(c));
+  const runBinaryChecks = (options.customScan.length === 0 || options.customScan.includes('packagedbinarycheck')) && !options.excludeFromScan.includes('packagedbinarycheck');
 
   // Parser options initialization
   const parser = new Parser(false, true);
@@ -299,6 +301,13 @@ async function scan(options, forCli) {
   // the fuses in the binary are the ground truth: they replace the guess that no fuse configuration exists
   if (issues.some(i => i.id === 'PACKAGED_FUSES')) issues = issues.filter(i => i.id !== 'FUSES_GLOBAL_CHECK');
 
+  // the executable of a packaged app: asar integrity, code signing, exploit mitigations
+  let binary;
+  if (runBinaryChecks) {
+    binary = analyzeBinary(options.input);
+    issues.push(...binary.issues);
+  }
+
   // Data at rest: the app's profile (--user-data, and after a watch session) and where a remembered test password went
   // (--canary)
   let atRest;
@@ -367,6 +376,7 @@ async function scan(options, forCli) {
       runtime: options.runtime && options.runtime.summary,
       traffic: traffic && traffic.summary,
       atRest: atRest && atRest.summary,
+      binary: binary && binary.summary.executable ? binary.summary : undefined,
       dependencies
     });
   }
@@ -432,7 +442,8 @@ async function scan(options, forCli) {
     suppressed,
     staleBaselineEntries: stale,
     traffic: traffic && traffic.summary,
-    atRest: atRest && atRest.summary
+    atRest: atRest && atRest.summary,
+    binary: binary && binary.summary
   };
 }
 

@@ -354,7 +354,7 @@ export function renderHtmlReport(allIssues, meta) {
   .route { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-right: 4px; border: 1px solid currentColor; white-space: nowrap; }
   .route-content { color: var(--high); } .route-escalation { color: var(--medium); } .route-network { color: var(--accent); }
   .route-local, .route-info, .route-other { color: var(--muted); } .route-dependency { color: var(--low); }
-  .route-server, .route-anyone { color: var(--high); } .route-thirdparty { color: var(--medium); }
+  .route-server, .route-anyone { color: var(--high); } .route-supply { color: var(--medium); } .route-thirdparty { color: var(--medium); }
   .linkish { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
   .validation { margin: 2px 0 6px; font-size: 13px; padding: 4px 8px; border-radius: 6px; }
   .validation b { margin-right: 4px; }
@@ -410,7 +410,8 @@ export function renderHtmlReport(allIssues, meta) {
     <span>Files scanned: <b>${escapeHtml(meta.filesScanned)}</b></span>
     <span>Checks: <b>${escapeHtml(meta.atomicChecks)}</b> atomic, <b>${escapeHtml(meta.globalChecks)}</b> global</span>
     <span>Generated: <b>${escapeHtml(meta.generatedAt)}</b></span>${meta.suppressedByBaseline ? `
-    <span>Accepted in baseline: <b>${escapeHtml(meta.suppressedByBaseline)}</b></span>` : ''}
+    <span>Accepted in baseline: <b>${escapeHtml(meta.suppressedByBaseline)}</b></span>` : ''}${meta.binary ? `
+    <span>Executable: <b>${escapeHtml(meta.binary.executable.split(/[\\/]/).pop())}</b>${meta.binary.signing ? ` (signature: ${escapeHtml(meta.binary.signing.status)}${meta.binary.signing.verifiedBy === 'none' && meta.binary.signing.status !== 'NotSigned' ? ', not verified on this host' : ''})` : ''}${meta.binary.integrity ? `, asar integrity: ${escapeHtml(meta.binary.integrity)}` : ''}${meta.binary.mitigations && meta.binary.mitigations.missing.length ? `, missing mitigations: ${escapeHtml(meta.binary.mitigations.missing.join(', '))}` : ''}</span>` : ''}
   </div>
 
   <div class="cards" role="group" aria-label="Filter by severity">

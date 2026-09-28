@@ -10,6 +10,7 @@
 //   local      - needs access to the user's device: to its files, to start the app, or to the keyboard
 //   dependency - known vulnerabilities in outdated software; how they are exploited depends on each advisory
 //   anyone     - anyone who downloads the app and looks inside it
+//   supply     - whoever can change the app between its build and the user's machine (a mirror, a download, an update)
 //   server     - another user of the same service, through its server API (authorization gaps, data it hands out)
 //   thirdparty - a third-party service the app sends data to (analytics, CDNs, trackers)
 //   info       - inventory and coverage, nothing to fix by itself
@@ -18,6 +19,7 @@ export const ROUTES = {
   escalation: 'Raises impact',
   network: 'Network',
   anyone: 'Anyone with the app',
+  supply: 'Supply chain',
   server: 'Other users (server)',
   thirdparty: 'Third parties',
   local: 'Local access',
@@ -115,6 +117,9 @@ const CONSEQUENCES = {
   ELECTRON_STORE_ENCRYPTION: ['local', 'The store is a readable JSON file in the profile folder (a constant encryptionKey only obfuscates it): anything stored there is readable by other programs.'],
   COOKIE_FLAGS: ['escalation', 'A cookie without HttpOnly can be read by script injected into the page; without Secure (or for an http URL) it can travel unencrypted.'],
   CREDENTIAL_ACCESS: ['info', 'Where the code keeps and reads credentials, and whether the operating system protects them.'],
+  ASAR_INTEGRITY: ['supply', 'Whether the app\'s code (app.asar) is still what was built: a changed archive is a tampered app, and without the integrity fuse Electron runs it anyway.'],
+  CODE_SIGNING: ['supply', 'Without a valid signature, users and the operating system cannot tell the genuine app from a modified copy (a repackaged download, a replaced file).'],
+  BINARY_HARDENING: ['escalation', 'Exploit mitigations (ASLR, DEP/NX, CFG) make memory corruption bugs harder to exploit; without them an exploit is easier to write.'],
   STORAGE_SECRET_AT_REST: ['local', 'A secret sits unencrypted in the app\'s profile folder: other programs running as the user, malware, backups and anyone with the disk can read it.'],
   STORAGE_COOKIE_AT_REST: ['local', 'Session cookies are stored without the operating system\'s encryption: whoever reads the profile folder can take over the session.'],
   STORAGE_CREDENTIAL_AT_REST: ['local', 'The password the app remembers is kept in plaintext or a reversible encoding: whoever reads the file gets the user\'s password, often reused elsewhere.'],
