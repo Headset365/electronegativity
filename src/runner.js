@@ -353,7 +353,9 @@ async function scan(options, forCli) {
       inputType: is_directory(options.input) ? 'directory' : extension(options.input) === 'asar' ? 'asar' : 'file',
       electronVersion,
       electronVersionSource,
-      files: { scanned: filenames.length, byExtension, skipped: loader.skipped, installedPackages: (loader.installedPackages || []).length, bundledLibraries: (loader.vendoredLibraries || []).map(l => `${l.name}@${l.version || '?'}`) },
+      files: { scanned: filenames.length, byExtension, skipped: loader.skipped, installedPackages: (loader.installedPackages || []).length, bundledLibraries: (loader.vendoredLibraries || []).map(l => `${l.name}@${l.version || '?'}`),
+        // libraries recognized inside scripts and bundles by their banners or version strings (names are public packages)
+        librariesInScripts: [...new Set(detectedLibraries.map(l => `${l.name}@${l.version}`))] },
       errors,
       issues: [...issues, ...suppressed],
       options: {
@@ -364,6 +366,9 @@ async function scan(options, forCli) {
       },
       dependencies: dependencies && { packages: dependencies.rows.length, withAdvisories: dependencies.rows.filter(r => r.advisories.length > 0).length,
         unsupported: dependencies.rows.filter(r => r.support.status === 'unsupported').length, offline: dependencies.offline,
+        bundled: dependencies.rows.filter(r => r.kinds.includes('bundled library')).map(r => `${r.name}@${r.version}`).slice(0, 50),
+        flagged: dependencies.rows.filter(r => r.advisories.length > 0 || r.support.status === 'unsupported')
+          .map(r => `${r.name}@${r.version} (${r.support.status}, ${r.advisories.length} advisories)`).slice(0, 50),
         lookupErrors: dependencies.errors.map(e => `${e.source}: ${e.message}`).filter((m, i, all) => all.indexOf(m) === i).slice(0, 10) },
       watch: options.watchDiagnostics,
       remote: options.remoteDiagnostics,

@@ -88,6 +88,19 @@ describe('Library detection', () => {
     detectLibraries('f.version="2.29.1",e=Tt,f.fn=pn,f.min=function(){}').should.deep.equal([{ name: 'moment', version: '2.29.1' }]);
   });
 
+  it('finds minified libraries with no banner at all, by what their code keeps', () => {
+    const find = (code) => detectLibraries(code).map(l => `${l.name}@${l.version}`);
+    find('throw Error("https://errors.angularjs.org/1.5.8/"+a)').should.deep.equal(['angular@1.5.8']);
+    find('var f="3.5.1",E=function(e,t){return new E.fn.init(e,t)}').should.deep.equal(['jquery@3.5.1']);
+    find('version = "1.12.4",\n\tjQuery = function( selector, context ) {\n\t\t// comment\n\t\treturn new jQuery.fn.init( selector, context );').should.deep.equal(['jquery@1.12.4']);
+    find('{majorVersion:"5",minorVersion:"10.2",releaseDate:"2021-11-17"}').should.deep.equal(['tinymce@5.10.2']);
+    find('t.widget("ui.menu",{version:"1.12.1",defaultElement:"<ul>"})').should.deep.equal(['jquery-ui@1.12.1']);
+    find('a.VERSION="3.4.1",a.TRANSITION_DURATION=150').should.deep.equal(['bootstrap@3.4.1']);
+    find('exports._=h),h.VERSION="1.9.1";').should.deep.equal(['underscore@1.9.1']);
+    find('window.CKEDITOR_VERSION="35.1.0"').should.deep.equal(['ckeditor5@35.1.0']);
+    find('var VERSION = "2.0.0"; function init() { return new App(); }').should.deep.equal([]);
+  });
+
   it('does not take the Underscore.js credit in lodash\'s banner for underscore', () => {
     detectLibraries('/**\n * @license\n * Lodash lodash.com/license | Underscore.js 1.8.3 underscorejs.org/LICENSE\n */').should.deep.equal([]);
   });

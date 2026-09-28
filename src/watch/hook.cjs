@@ -432,21 +432,47 @@ function instrument(electron, late) {
     // reports DOM changes that carry script (inserted <script>, on* handlers, javascript: URLs) and whether a planted
     // marker (--watch-marker) comes back rendered as live HTML. It is read-only and best effort: it never blocks the app.
     if (type === 'window' || type === 'webview' || type === 'browserView') {
-      const install = () => contents.executeJavaScript(rendererObserver(process.env.ELECTRONEGATIVITY_WATCH_MARKER), false).catch(() => {});
+      // every frame of the page, not only the top one: rich-text editors (TinyMCE, CKEditor 4) show the document inside
+      // an iframe, which is where stored content is rendered. Frames that appear later (an editor initialising) get the
+      // observer on the next poll.
+      const observerCode = rendererObserver(process.env.ELECTRONEGATIVITY_WATCH_MARKER);
+      const drainCode = `(window[${JSON.stringify(OBSERVER_KEY)}] ? window[${JSON.stringify(OBSERVER_KEY)}].drain() : null)`;
+      const frames = () => {
+        try {
+          const main = contents.mainFrame;
+          if (main && Array.isArray(main.framesInSubtree)) return main.framesInSubtree.map(frame => ({ frame, top: frame === main }));
+        } catch {
+          // frames are gone while the page navigates
+        }
+        return [{ frame: contents, top: true }]; // Electron without WebFrameMain: the top frame only
+      };
+      const install = () => {
+        for (const { frame } of frames()) Promise.resolve().then(() => frame.executeJavaScript(observerCode, false)).catch(() => {});
+      };
       const drain = () => {
         if (contents.isDestroyed()) return;
         const url = redact(contents.getURL());
-        contents.executeJavaScript(`(window[${JSON.stringify(OBSERVER_KEY)}] ? window[${JSON.stringify(OBSERVER_KEY)}].drain() : [])`, false)
-          .then(list => {
-            for (const e of (list || [])) {
-              if (e.type === 'entry') write('entry', { id, url, detail: e.detail });
-              else if (e.type === 'sink') write('sink', { id, url, sink: e.detail, live: e.live, frames: (e.frames || []).map(f => ({ ...f, url: redact(f.url) })) });
-              else write('dom-observed', { id, url, event: e.type, detail: e.detail, live: e.live });
-            }
-          })
-          .catch(() => {});
+        for (const { frame, top } of frames()) {
+          let frameUrl;
+          try {
+            frameUrl = top ? undefined : redact(frame.url) || 'about:blank';
+          } catch {
+            frameUrl = undefined;
+          }
+          Promise.resolve().then(() => frame.executeJavaScript(drainCode, false))
+            .then(list => {
+              if (list === null) return frame.executeJavaScript(observerCode, false); // not installed yet in this frame
+              for (const e of (list || [])) {
+                if (e.type === 'entry') write('entry', { id, url, detail: e.detail, frame: frameUrl });
+                else if (e.type === 'sink') write('sink', { id, url, frame: frameUrl, sink: e.detail, live: e.live, frames: (e.frames || []).map(f => ({ ...f, url: redact(f.url) })) });
+                else write('dom-observed', { id, url, frame: frameUrl, event: e.type, detail: e.detail, live: e.live });
+              }
+            })
+            .catch(() => {});
+        }
       };
       contents.on('dom-ready', () => { install(); });
+      contents.on('did-frame-finish-load', () => { install(); });
       const timer = setInterval(drain, 500);
       if (timer.unref) timer.unref();
       contents.once('destroyed', () => clearInterval(timer));

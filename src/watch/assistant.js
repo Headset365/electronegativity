@@ -127,12 +127,15 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
       }
       case 'dom-observed':
         if (r.event !== 'marker') break;
-        if (r.live && first(`live:${originOf(r.url)}`)) {
-          state.rendered.push({ url: r.url, live: true });
-          say.bad(`The marker came back as live HTML at ${r.url}: stored content is rendered as markup there.`);
-        } else if (!r.live && first(`text:${originOf(r.url)}`)) {
-          state.rendered.push({ url: r.url, live: false });
-          say.good(`The marker was shown as text at ${r.url}.`);
+        {
+          const where = `${r.url}${r.frame ? ` (in the frame ${r.frame}, e.g. an editor)` : ''}`;
+          if (r.live && first(`live:${originOf(r.url)}:${!!r.frame}`)) {
+            state.rendered.push({ url: where, live: true });
+            say.bad(`The marker came back as live HTML at ${where}: stored content is rendered as markup there.`);
+          } else if (!r.live && first(`text:${originOf(r.url)}:${!!r.frame}`)) {
+            state.rendered.push({ url: where, live: false });
+            say.good(`The marker was shown as text at ${where}.`);
+          }
         }
         break;
       case 'sink': {

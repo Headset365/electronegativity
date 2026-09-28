@@ -147,9 +147,10 @@ export function analyzeWatchLog(records) {
   // what the renderer-side observer saw inside pages: script-bearing DOM changes, and planted-marker reflections
   for (const r of records.filter(r => r.kind === 'dom-observed')) {
     if (r.event === 'marker') {
-      if (!first(`marker:${origin(r.url)}:${r.live}`)) continue;
-      if (r.live) add('RUNTIME_MARKER', r.url, severity.HIGH, confidence.FIRM, `Planted marker content came back rendered as live HTML at ${r.url}: stored input reaches another view without being neutralized (the stored-content threat)`, { marker: r.detail, live: true }, `${DOCS}#7-define-a-content-security-policy`);
-      else add('RUNTIME_MARKER', r.url, severity.INFORMATIONAL, confidence.CERTAIN, `Planted marker appeared as text (escaped) at ${r.url}`, { marker: r.detail, live: false });
+      if (!first(`marker:${origin(r.url)}:${r.frame ? 'frame' : 'top'}:${r.live}`)) continue;
+      const where = `${r.url}${r.frame ? ` (inside a frame: ${r.frame})` : ''}`;
+      if (r.live) add('RUNTIME_MARKER', r.url, severity.HIGH, confidence.FIRM, `Planted marker content came back rendered as live HTML at ${where}: stored input reaches another view without being neutralized (the stored-content threat)`, { marker: r.detail, live: true, frame: r.frame }, `${DOCS}#7-define-a-content-security-policy`);
+      else add('RUNTIME_MARKER', r.url, severity.INFORMATIONAL, confidence.CERTAIN, `Planted marker appeared as text (escaped) at ${where}`, { marker: r.detail, live: false, frame: r.frame });
       continue;
     }
     // script-bearing insertions: on* handlers and javascript: URLs are strong injection signals; plain <script> tags
@@ -224,8 +225,8 @@ function markerEvidence(records, add, first, api, issues) {
     const where = frame ? `${frame.url}:${frame.line}:${frame.column}` : 'an unknown script';
     if (!first(`marker-sink:${r.sink}:${where}`)) continue;
     add('RUNTIME_MARKER_SINK', frame ? frame.url : r.url, severity.HIGH, confidence.CERTAIN,
-      `Markup carrying the planted marker was written into the page with ${r.sink} by ${where} (page ${r.url}): content from another user reaches this HTML sink`,
-      { sink: r.sink, frames: r.frames, page: r.url }, 'https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html');
+      `Markup carrying the planted marker was written into the page with ${r.sink} by ${where} (page ${r.url}${r.frame ? `, inside a frame: ${r.frame}` : ''}): content from another user reaches this HTML sink`,
+      { sink: r.sink, frames: r.frames, page: r.url, frame: r.frame }, 'https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html');
     // at the script location, so it lines up with the static finding there
     if (frame) issues[issues.length - 1].location = { line: frame.line, column: frame.column };
   }
