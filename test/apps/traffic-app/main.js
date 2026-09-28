@@ -6,6 +6,12 @@ const http = require('http');
 const crypto = require('crypto');
 
 
+const fs = require('fs');
+const path = require('path');
+// the test gives the profile folder, so the data-at-rest review has something to read without touching the real one
+if (process.env.TRAFFIC_APP_PROFILE) app.setPath('userData', process.env.TRAFFIC_APP_PROFILE);
+// the test password typed into the login with "remember me" ticked: the app keeps it base64-encoded, not encrypted
+const REMEMBERED = 'Zq7-test-Pw!2026';
 app.commandLine.appendSwitch('host-resolver-rules', 'MAP app.traffic.test 127.0.0.1, MAP tracker.other.test 127.0.0.1');
 const TOKEN = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
 
@@ -26,7 +32,7 @@ app.whenReady().then(async () => {
     }
     if (url.pathname === '/api/login') {
       request.resume();
-      response.setHeader('set-cookie', 'session=Zk2Qm9Lr7Tx4Wv1Yp8Nb; Path=/');
+      response.setHeader('set-cookie', ['session=Zk2Qm9Lr7Tx4Wv1Yp8Nb; Path=/', 'remember=Rm8Kq3Wz5Xc7Vb9Nm1Lk; Path=/; Max-Age=86400']);
       response.setHeader('content-type', 'application/json');
       return response.end(JSON.stringify({ ok: true, token: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlLXZhbHVlLTEyMzQ1Ng' }));
     }
@@ -48,6 +54,7 @@ app.whenReady().then(async () => {
           new WebSocket('ws://app.traffic.test:' + port + '/socket').onerror = () => {};
           new WebSocket('ws://127.0.0.1:' + port + '/socket').onmessage = () => {};
           console.log('debug token ${TOKEN}');
+          localStorage.setItem('authToken', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlLXZhbHVlLTEyMzQ1Ng');
           const s = document.createElement('script'); s.textContent = 'window.inlineRan = 1'; document.body.appendChild(s);
           setTimeout(() => { throw new Error('traffic-app page failure'); }, 0);
         })();`);
@@ -68,6 +75,7 @@ app.whenReady().then(async () => {
   http.get({ host: '127.0.0.1', port, path: '/api/status?api_key=Tr4ff1cK3yM41nPr0c3ss99' }, (res) => res.resume()).on('error', () => {});
   console.log('main process token', TOKEN);
 
+  fs.writeFileSync(path.join(app.getPath('userData'), 'settings.json'), JSON.stringify({ user: 'alice', remembered: Buffer.from(REMEMBERED).toString('base64') }));
   const win = new BrowserWindow({ show: false });
   await win.loadURL(`http://app.traffic.test:${port}/`);
   setTimeout(() => { server.close(); app.quit(); }, 3000);

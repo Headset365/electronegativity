@@ -215,5 +215,9 @@
 	"ingestOptionDescription": "ejecutar también las comprobaciones de tráfico sobre una captura guardada del tráfico de la aplicación: un archivo HAR (exportado de DevTools o de un proxy) o el XML \"Save items\" de Burp Suite; se puede repetir y funciona sin -i",
 	"scopeOptionDescription": "un dominio que usa la propia aplicación (p. ej. example.com), para que las comprobaciones de tráfico distingan sus hosts de los de terceros; si no se indica, se deduce del tráfico; se puede repetir",
 	"watchTrafficOptionDescription": "en el modo de observación, no ejecutar las comprobaciones de tráfico dentro de la aplicación (peticiones, respuestas y mensajes WebSocket observados mediante la conexión del protocolo DevTools de cada ventana)",
-	"trafficSummary": "Tráfico: {{http}} peticiones HTTP y {{ws}} mensajes WebSocket a {{hosts}} hosts de {{files}} archivo(s) de captura"
+	"trafficSummary": "Tráfico: {{http}} peticiones HTTP y {{ws}} mensajes WebSocket a {{hosts}} hosts de {{files}} archivo(s) de captura",
+	"userDataOptionDescription": "revisar la carpeta de perfil de la aplicación (su userData: cookies, Local y Session Storage, IndexedDB) en busca de secretos guardados en claro, solo lectura; 'auto' la busca por el nombre de la aplicación. El modo de observación la revisa tras la sesión",
+	"canaryOptionDescription": "una contraseña de prueba única que escribió en la aplicación con 'recordarme' marcado: se busca en sus carpetas (y en sus claves del registro en Windows), en claro y en codificaciones habituales; con --watch, también se compara lo que escribió la sesión. Se puede repetir",
+	"searchDirOptionDescription": "otra carpeta donde buscar la contraseña de --canary; se puede repetir",
+	"showSecretsOptionDescription": "mantener en el informe los valores completos de los secretos encontrados en reposo (ya están en esta máquina: no comparta ese informe)"
 }

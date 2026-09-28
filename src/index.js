@@ -57,6 +57,10 @@ async function main() {
     .option('--ingest <file>', __('ingestOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--scope <domain>', __('scopeOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--no-watch-traffic', __('watchTrafficOptionDescription'))
+    .option('--user-data <dir>', __('userDataOptionDescription'))
+    .option('--canary <password>', __('canaryOptionDescription'), (value, previous) => [...(previous || []), value])
+    .option('--search-dir <dir>', __('searchDirOptionDescription'), (value, previous) => [...(previous || []), value])
+    .option('--show-secrets', __('showSecretsOptionDescription'))
     .option('--diagnostics <file>', __('diagnosticsOptionDescription'))
     .option('--redact <terms>', __('redactOptionDescription'))
     .parse(process.argv);
@@ -125,6 +129,10 @@ async function main() {
     redact,
     captures: options.ingest || [],
     scope,
+    userData: options.userData,
+    canaries: options.canary || [],
+    searchDirs: options.searchDir || [],
+    reveal: !!options.showSecrets,
   };
 
   try {
@@ -137,7 +145,8 @@ async function main() {
     let session;
     if (options.watch || options.watchLog) {
       try {
-        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker, capture, traffic, scope, confirm: interactiveConfirm() });
+        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker, capture, traffic, scope,
+          canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm() });
       } catch (error) {
         console.error(chalk.red(error.message));
         process.exit(2);
@@ -149,8 +158,8 @@ async function main() {
     // --remote on its own: the downloaded front end is the input
     if (!options.input && remote.scanDir) options.input = remote.scanDir;
 
-    // captures of the app's traffic on their own: nothing to scan statically
-    if (!options.input && options.ingest) options.input = fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-no-code-'));
+    // captures of the app's traffic, or a profile folder, on their own: nothing to scan statically
+    if (!options.input && (options.ingest || options.userData || options.canary)) options.input = fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-no-code-'));
 
     if (!options.input) {
       program.outputHelp();
@@ -164,6 +173,7 @@ async function main() {
       isSarif: options.fileFormat === 'sarif',
       runtimeElectronVersion: session && session.watchDiagnostics.electron,
       runtime: session && session.runtime,
+      credentials: session && session.credentials,
       extraInputs: remote.extraInputs,
       remoteDiagnostics: remote.remoteDiagnostics,
       diagnostics: options.diagnostics,
@@ -269,7 +279,8 @@ async function guided(options, common, { watchArgs, headers, capture, traffic, s
   // 1. the app's code, including what's behind the login, and --remote URLs if given
   console.log(chalk.cyan(__('appStatic')));
   const remote = await collectRemote({ remote: options.remote || [], headers, offline: options.offline });
-  const staticResult = await step('static', { extraInputs: remote.extraInputs, remoteDiagnostics: remote.remoteDiagnostics });
+  // the profile review and the password trace belong to the sessions, after the app has been used
+  const staticResult = await step('static', { extraInputs: remote.extraInputs, remoteDiagnostics: remote.remoteDiagnostics, canaries: [], userData: undefined });
 
   // 2. watch sessions, until the user stops
   const interactive = !!process.stdin.isTTY;
@@ -287,13 +298,14 @@ async function guided(options, common, { watchArgs, headers, capture, traffic, s
     }
     let session;
     try {
-      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, capture, traffic, scope, assistant, confirm: interactiveConfirm() });
+      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, capture, traffic, scope,
+        canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, assistant, confirm: interactiveConfirm() });
     } catch (error) {
       console.error(chalk.red(error.message));
       break;
     }
     const captured = await collectRemote({ runtime: session.runtime, watchLog: session.watchLog, capture, headers, offline: options.offline });
-    await step(`session-${n}`, { runtime: session.runtime, watchDiagnostics: session.watchDiagnostics, runtimeElectronVersion: session.watchDiagnostics.electron,
+    await step(`session-${n}`, { runtime: session.runtime, credentials: session.credentials, watchDiagnostics: session.watchDiagnostics, runtimeElectronVersion: session.watchDiagnostics.electron,
       extraInputs: captured.extraInputs, remoteDiagnostics: captured.remoteDiagnostics });
   }
   assistant.printSummary('Validation across all sessions');

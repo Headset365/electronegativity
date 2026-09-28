@@ -215,5 +215,9 @@
 	"ingestOptionDescription": "also run the traffic checks on a saved capture of the app's traffic: a HAR file (DevTools or proxy export) or Burp Suite \"Save items\" XML; can be repeated, and works without -i",
 	"scopeOptionDescription": "a domain the app itself uses (e.g. example.com), for the traffic checks to tell its own hosts from third parties; learned from the traffic when not given; can be repeated",
 	"watchTrafficOptionDescription": "in watch mode, don't run the traffic checks inside the app (requests, responses and WebSocket messages observed through each window's DevTools protocol connection)",
-	"trafficSummary": "Traffic: {{http}} HTTP requests and {{ws}} WebSocket messages to {{hosts}} hosts from {{files}} capture file(s)"
+	"trafficSummary": "Traffic: {{http}} HTTP requests and {{ws}} WebSocket messages to {{hosts}} hosts from {{files}} capture file(s)",
+	"userDataOptionDescription": "review the app's profile folder (its userData: cookies, Local and Session Storage, IndexedDB) for secrets stored in cleartext, read-only; 'auto' finds it by the app's name. Watch mode reviews it after the session",
+	"canaryOptionDescription": "a unique test password you typed into the app with 'remember me' ticked: its folders (and registry keys on Windows) are searched for it, in plaintext and common encodings; with --watch, what the session wrote is compared too. Can be repeated",
+	"searchDirOptionDescription": "another folder to search for the --canary password; can be repeated",
+	"showSecretsOptionDescription": "keep the full values of secrets found at rest in the report (they are already on this machine: don't share such a report)"
 }

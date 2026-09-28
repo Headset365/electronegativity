@@ -215,5 +215,9 @@
 	"ingestOptionDescription": "exécuter aussi les vérifications du trafic sur une capture enregistrée du trafic de l'application : un fichier HAR (export DevTools ou proxy) ou le XML « Save items » de Burp Suite ; peut être répété, et fonctionne sans -i",
 	"scopeOptionDescription": "un domaine utilisé par l'application elle-même (p. ex. example.com), pour que les vérifications du trafic distinguent ses hôtes des tiers ; déduit du trafic s'il n'est pas indiqué ; peut être répété",
 	"watchTrafficOptionDescription": "en mode observation, ne pas exécuter les vérifications du trafic dans l'application (requêtes, réponses et messages WebSocket observés via la connexion au protocole DevTools de chaque fenêtre)",
-	"trafficSummary": "Trafic : {{http}} requêtes HTTP et {{ws}} messages WebSocket vers {{hosts}} hôtes, depuis {{files}} fichier(s) de capture"
+	"trafficSummary": "Trafic : {{http}} requêtes HTTP et {{ws}} messages WebSocket vers {{hosts}} hôtes, depuis {{files}} fichier(s) de capture",
+	"userDataOptionDescription": "examiner le dossier de profil de l'application (son userData : cookies, Local et Session Storage, IndexedDB) à la recherche de secrets stockés en clair, en lecture seule ; « auto » le trouve d'après le nom de l'application. Le mode observation l'examine après la session",
+	"canaryOptionDescription": "un mot de passe de test unique saisi dans l'application avec « se souvenir de moi » coché : il est recherché dans ses dossiers (et ses clés de registre sous Windows), en clair et dans les encodages courants ; avec --watch, ce que la session a écrit est aussi comparé. Peut être répété",
+	"searchDirOptionDescription": "un autre dossier où chercher le mot de passe de --canary ; peut être répété",
+	"showSecretsOptionDescription": "garder dans le rapport les valeurs complètes des secrets trouvés au repos (ils sont déjà sur cette machine : ne partagez pas un tel rapport)"
 }

@@ -21,6 +21,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { detectLibraries } from './util/libraries.js';
 import { analyzeCaptures } from './traffic/ingest.js';
 import { reconcileTraffic } from './traffic/reconcile.js';
+import { reviewDataAtRest, appNames } from './storage/index.js';
 
 export default async function run(options, forCli = false) {
   // --offline only applies to this scan
@@ -287,6 +288,22 @@ async function scan(options, forCli) {
   // the fuses in the binary are the ground truth: they replace the guess that no fuse configuration exists
   if (issues.some(i => i.id === 'PACKAGED_FUSES')) issues = issues.filter(i => i.id !== 'FUSES_GLOBAL_CHECK');
 
+  // Data at rest: the app's profile (--user-data, and after a watch session) and where a remembered test password went
+  // (--canary)
+  let atRest;
+  const reviewProfile = !!options.userData || !!options.runtime;
+  if (reviewProfile || (options.canaries || []).length > 0) {
+    const credentials = options.credentials || {};
+    const names = credentials.names || appNames(topManifest(filenames, loader), options.appNames || []);
+    const packagedApp = /[\\/]resources[\\/]app(\.asar)?$/i.test(path.resolve(options.input)) ? path.dirname(path.dirname(path.resolve(options.input))) : undefined;
+    atRest = reviewDataAtRest({ names, userData: options.userData, observedUserData: options.runtime && options.runtime.summary && options.runtime.summary.userData,
+      review: reviewProfile, canaries: options.canaries || [], searchDirs: options.searchDirs || [], installDir: credentials.installDir || packagedApp,
+      baseline: credentials.baseline, cookieEncryption: cookieEncryptionFuse(issues), reveal: !!options.reveal });
+    issues.push(...atRest.issues);
+    for (const note of atRest.notes) errors.push({ file: 'data at rest', message: note, tolerable: true });
+    if (forCli) for (const note of atRest.notes) console.log(chalk.yellow(note));
+  }
+
   // Baseline: accepted findings are not reported again
   let suppressed = [];
   let stale = [];
@@ -338,6 +355,7 @@ async function scan(options, forCli) {
       errors,
       runtime: options.runtime && options.runtime.summary,
       traffic: traffic && traffic.summary,
+      atRest: atRest && atRest.summary,
       dependencies
     });
   }
@@ -402,22 +420,36 @@ async function scan(options, forCli) {
     dependencies,
     suppressed,
     staleBaselineEntries: stale,
-    traffic: traffic && traffic.summary
+    traffic: traffic && traffic.summary,
+    atRest: atRest && atRest.summary
   };
+}
+
+// The app's own package.json (the one closest to the top of the scanned code), or undefined
+function topManifest(filenames, loader) {
+  const manifest = filenames.filter(f => path.basename(f) === 'package.json' && !f.split(/[\\/]/).includes('node_modules'))
+    .sort((a, b) => a.split(/[\\/]/).length - b.split(/[\\/]/).length)[0];
+  try {
+    return manifest ? JSON.parse(String(loader.load_buffer(manifest))) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// the EnableCookieEncryption fuse read from the packaged binary: true, false, or undefined when unknown
+function cookieEncryptionFuse(issues) {
+  const fuses = issues.filter(i => i.id === 'PACKAGED_FUSES' && i.properties);
+  if (fuses.some(i => i.properties.fuse === 'EnableCookieEncryption')) return false;
+  const states = fuses.map(i => i.properties.states).find(Boolean);
+  return states ? states.EnableCookieEncryption === 'enabled' : undefined;
 }
 
 // Every package and library found (lockfiles, node_modules, library copies and bundles), once per name and version,
 // with the Electron runtime itself
 async function dependencyTable(issues, filenames, loader, electronVersion, input) {
   let direct = {};
-  const manifest = filenames.filter(f => path.basename(f) === 'package.json' && !f.split(/[\\/]/).includes('node_modules'))
-    .sort((a, b) => a.split(/[\\/]/).length - b.split(/[\\/]/).length)[0];
-  try {
-    const json = manifest ? JSON.parse(String(loader.load_buffer(manifest))) : {};
-    direct = { ...Object.fromEntries(Object.keys(json.dependencies || {}).map(n => [n, 'dependency'])), ...Object.fromEntries(Object.keys(json.devDependencies || {}).map(n => [n, 'dev'])) };
-  } catch {
-    // no readable manifest
-  }
+  const json = topManifest(filenames, loader) || {};
+  direct = { ...Object.fromEntries(Object.keys(json.dependencies || {}).map(n => [n, 'dependency'])), ...Object.fromEntries(Object.keys(json.devDependencies || {}).map(n => [n, 'dev'])) };
   const byKey = new Map();
   const add = (name, version, kind, file, dev) => {
     const key = `${name}@${version}`;

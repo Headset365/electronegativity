@@ -123,16 +123,21 @@ function freePort() {
   });
 }
 
-// The app's entry script, from its package.json "main" (index.js by default), relative to its code
-export function mainScriptOf(code) {
-  let manifest;
+/** The app's package.json, from its code (a folder or an app.asar), or undefined. */
+export function readManifest(code) {
   try {
     const text = /\.asar$/i.test(code || '') ? createRequire(import.meta.url)('@electron/asar').extractFile(code, 'package.json').toString('utf8')
       : fs.readFileSync(path.join(code, 'package.json'), 'utf8');
-    manifest = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
     return undefined;
   }
+}
+
+// The app's entry script, from its package.json "main" (index.js by default), relative to its code
+export function mainScriptOf(code) {
+  const manifest = readManifest(code);
+  if (!manifest) return undefined;
   let main = typeof manifest.main === 'string' && manifest.main.trim() ? manifest.main.trim() : 'index.js';
   main = main.replace(/\\/g, '/').replace(/^\.\//, '');
   if (!/\.[cm]?js$/i.test(main)) main += '.js';

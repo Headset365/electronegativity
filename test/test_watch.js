@@ -407,11 +407,18 @@ describe('Watch mode', () => {
       fs.cpSync(path.join(import.meta.dirname, 'apps', 'traffic-app'), dir, { recursive: true });
       fs.symlinkSync(path.join(import.meta.dirname, '..', 'node_modules'), path.join(dir, 'node_modules'), 'junction');
       const output = path.join(dir, 'report.json');
-      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '-r', '-o', output];
-      const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8' }) : spawnSync(process.execPath, cli, { encoding: 'utf8' });
+      // the app keeps its profile here (app.setPath), and remembers this test password base64-encoded
+      const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-traffic-profile-'));
+      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '-r', '--canary', 'Zq7-test-Pw!2026', '-o', output];
+      const env = { ...process.env, TRAFFIC_APP_PROFILE: profile };
+      const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8', env }) : spawnSync(process.execPath, cli, { encoding: 'utf8', env });
       command.status.should.equal(0, command.stderr);
       const report = JSON.parse(fs.readFileSync(output, 'utf8'));
       const ids = report.issues.map(i => i.id);
+      // the profile Chromium wrote (Local Storage LevelDB, the cookie store) and where the password went
+      ids.should.include.members(['STORAGE_SECRET_AT_REST', 'STORAGE_COOKIE_AT_REST', 'STORAGE_CREDENTIAL_AT_REST']);
+      report.atRest.profile.path.should.equal(profile);
+      JSON.stringify(report).should.not.include('Zq7-test-Pw!2026');
       ids.should.include.members(['TRAFFIC_CLEARTEXT_HTTP', 'TRAFFIC_SECRET_IN_URL', 'TRAFFIC_INSECURE_COOKIE', 'TRAFFIC_AUTH_TO_THIRD_PARTY', 'TRAFFIC_USER_INPUT_TO_THIRD_PARTY',
         'TRAFFIC_IDOR_CANDIDATE', 'TRAFFIC_SECRET_IN_RESPONSE', 'TRAFFIC_WS_CLEARTEXT', 'TRAFFIC_WS_HTML_MESSAGE',
         'RUNTIME_SECRET_IN_CONSOLE', 'RUNTIME_UNCAUGHT_EXCEPTION', 'RUNTIME_CSP_VIOLATION']);

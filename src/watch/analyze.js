@@ -223,7 +223,9 @@ export function analyzeWatchLog(records) {
   }
   consoleAndErrors(records, add, first, issues);
 
-  return { issues, summary: { started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic } };
+  const paths = records.filter(r => r.kind === 'paths').pop();
+  return { issues, summary: { started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic,
+    userData: paths && paths.userData } };
 }
 
 // Secrets written to the consoles, errors nothing handled, and CSP violations: each once per kind and place

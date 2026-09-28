@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import chalk from 'chalk';
-import { resolveApp, watchApp } from './launch.js';
+import { resolveApp, watchApp, readManifest } from './launch.js';
+import { credentialBaseline, appNames } from '../storage/index.js';
 import { locateApp } from './locate.js';
 import { readWatchLog, analyzeWatchLog } from './analyze.js';
 import { analyzePackagedFuses, readFuseWire, fuseBinaryFor } from './fuses.js';
@@ -26,11 +27,13 @@ export function parseHeaders(list = []) {
  * session log `watchLog`, and analyzes it. Returns { runtime, watchDiagnostics, watchLog, staticInput }.
  * @throws when the app can't be started or the log can't be read
  */
-export async function observeSession({ watch, watchLog, args = [], marker, capture = true, traffic = true, scope = [], assistant, staticIssues = [], confirm }) {
+export async function observeSession({ watch, watchLog, args = [], marker, capture = true, traffic = true, scope = [], canaries = [], searchDirs = [], userData,
+  assistant, staticIssues = [], confirm }) {
   let log = watchLog;
   let packagedApp;
   let injection;
   let staticInput;
+  let credentials;
   if (watch) {
     const located = locateApp(watch);
     const app = resolveApp(located.kind === 'project' ? located.folder : located.executable, args);
@@ -41,6 +44,12 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     if (wire && wire.config.EnableNodeCliInspectArguments === false) {
       console.error(chalk.yellow(__('watchInspectFuseOff')));
       injection = { method: 'inspector', blockedByFuse: true };
+    }
+    // --canary: record the app's folders and the Credential Manager first, to show afterwards what the session wrote
+    if (canaries.length > 0) {
+      const names = appNames(readManifest(located.code), [located.name]);
+      credentials = { names, installDir: located.kind === 'project' ? undefined : located.folder,
+        baseline: credentialBaseline({ names, searchDirs, userData, installDir: located.kind === 'project' ? undefined : located.folder }) };
     }
     console.log(chalk.cyan(__('watchStarting')));
     // the validation assistant follows the session as it happens: what to try next, what the marker has shown
@@ -107,7 +116,7 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     console.error(chalk.yellow(__('watchNoWindows')));
     watchDiagnostics.noWindows = true;
   }
-  return { runtime, watchDiagnostics, watchLog: log, staticInput };
+  return { runtime, watchDiagnostics, watchLog: log, staticInput, credentials };
 }
 
 /**

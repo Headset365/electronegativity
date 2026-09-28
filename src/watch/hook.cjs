@@ -867,6 +867,9 @@ function instrument(electron, late) {
   app.on('session-created', (ses) => safely(() => instrumentSession(ses)));
   app.on('certificate-error', (event, contents, url, error) => write('certificate-error', { url: redact(url), error: String(error) }));
   app.whenReady().then(() => safely(() => instrumentSession(electron.session.defaultSession)));
+  // where the app keeps its profile (cookies, web storage): reviewed after the session for data at rest. Read when the
+  // app is ready, after any app.setPath('userData') of its own.
+  app.whenReady().then(() => safely(() => write('paths', { userData: app.getPath('userData') })));
   app.on('quit', () => {
     if (traffic) safely(() => traffic.flush());
     write('quit', {});
