@@ -13,9 +13,11 @@ import { loadBaseline, applyBaseline, writeBaseline } from './util/baseline.js';
 import { reconcileRuntime } from './watch/reconcile.js';
 import { analyzePackagedFuses, packagedBinaryFor, readElectronVersion, fuseBinaryFor } from './watch/fuses.js';
 import { GlobalChecks, severity, confidence } from './finder/index.js';
-import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util/index.js';
+import { extension, input_exists, is_directory, writeIssues, getRelativePath, outputFormat } from './util/index.js';
+import { dependencyReport, sortRows } from './util/dependencies.js';
 import { startDiagnostics, stopDiagnostics, diagnostics, writeDiagnostics } from './util/diagnostics.js';
 import pkg from '../package.json' with { type: 'json' };
+import { detectLibraries } from './util/libraries.js';
 
 export default async function run(options, forCli = false) {
   // --offline only applies to this scan
@@ -160,6 +162,7 @@ async function scan(options, forCli) {
     };
   }
 
+  const detectedLibraries = [];
   try {
     if (forCli) progress.start(filenames.length, 0);
 
@@ -167,7 +170,12 @@ async function scan(options, forCli) {
       if (forCli) progress.increment();
 
       try {
-        const [type, data, content, warnings] = parser.parse(file, loader.load_buffer(file));
+        const buffer = loader.load_buffer(file);
+        // libraries inside scripts and bundles (by their banners or version strings), for the dependency inventory
+        if (/\.([cm]?js|html?)$/i.test(file) && buffer) {
+          for (const library of detectLibraries(String(buffer))) detectedLibraries.push({ ...library, file });
+        }
+        const [type, data, content, warnings] = parser.parse(file, buffer);
         if (data === null)
           continue;
 
@@ -201,8 +209,10 @@ async function scan(options, forCli) {
           confidence: confidence.CERTAIN, manualReview: false, shortenedURL: 'https://osv.dev', visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false },
           constructorName: 'DependencyInventoryLockCheck' });
       }
-      for (const { name, version, file } of loader.vendoredLibraries || []) {
-        if (!version) continue;
+      const listed = new Set();
+      for (const { name, version, file } of [...(loader.vendoredLibraries || []), ...detectedLibraries]) {
+        if (!version || listed.has(`${name}@${version}@${file}`)) continue;
+        listed.add(`${name}@${version}@${file}`);
         issues.push({ file, sample: '', location: { line: 1, column: 0 }, id: 'DEPENDENCY_INVENTORY_LOCK_CHECK', description: `${__('DEPENDENCY_INVENTORY_LOCK_CHECK')} (${name}@${version})`,
           properties: { packages: [{ name, version, dev: false, line: 1, vendored: true }] }, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
           manualReview: false, shortenedURL: 'https://osv.dev', visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false },
@@ -228,12 +238,22 @@ async function scan(options, forCli) {
   // Second pass of checks (in "GlobalChecks")
   // Now that we have all the "naive" findings we may analyze them further to sort out false negatives
   // and false positives before presenting them in the final report (e.g. CSP)
+  // the global checks consume the package inventory: keep it for the dependency table
+  const inventory = issues.filter(i => i.id === 'DEPENDENCY_INVENTORY_LOCK_CHECK');
   issues = await globalChecker.getResults(issues, options.output);
   endPhase('globalChecks');
   errors.push(...globalChecker.checkErrors);
   if (forCli) for (const error of globalChecker.checkErrors) console.error(chalk.red(error.message));
 
   for (const issue of issues) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
+
+  // the dependency table of HTML and JSON reports (online lookups of release dates, support and advisories)
+  let dependencies;
+  if (options.dependencies ?? (options.output && ['html', 'json'].includes(outputFormat(options.output, options.isSarif)))) {
+    for (const issue of inventory) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
+    dependencies = await dependencyTable(inventory, filenames, loader, electronVersion, options.input);
+    endPhase('dependencies');
+  }
 
   // Adjust visibility
   issues = issues.filter(i => !Object.hasOwn(i, 'visibility') || (!i.visibility.inlineDisabled && !i.visibility.globalCheckDisabled));
@@ -303,7 +323,8 @@ async function scan(options, forCli) {
       globalChecks: globalChecker._enabled_checks.length,
       atomicChecks: finder._enabled_checks.length,
       errors,
-      runtime: options.runtime && options.runtime.summary
+      runtime: options.runtime && options.runtime.summary,
+      dependencies
     });
   }
 
@@ -335,6 +356,9 @@ async function scan(options, forCli) {
         baseline: !!options.baseline, severity: options.severitySet && options.severitySet.name, confidence: options.confidenceSet && options.confidenceSet.name,
         upgrade: options.electronUpgrade, watch: !!options.runtime,
       },
+      dependencies: dependencies && { packages: dependencies.rows.length, withAdvisories: dependencies.rows.filter(r => r.advisories.length > 0).length,
+        unsupported: dependencies.rows.filter(r => r.support.status === 'unsupported').length, offline: dependencies.offline,
+        lookupErrors: dependencies.errors.map(e => `${e.source}: ${e.message}`).filter((m, i, all) => all.indexOf(m) === i).slice(0, 10) },
       watch: options.watchDiagnostics,
       remote: options.remoteDiagnostics,
     }, { redact: options.redact || [], version: pkg.version });
@@ -349,9 +373,46 @@ async function scan(options, forCli) {
     errors,
     issues,
     reported,
+    dependencies,
     suppressed,
     staleBaselineEntries: stale
   };
+}
+
+// Every package and library found (lockfiles, node_modules, library copies and bundles), once per name and version,
+// with the Electron runtime itself
+async function dependencyTable(issues, filenames, loader, electronVersion, input) {
+  let direct = {};
+  const manifest = filenames.filter(f => path.basename(f) === 'package.json' && !f.split(/[\\/]/).includes('node_modules'))
+    .sort((a, b) => a.split(/[\\/]/).length - b.split(/[\\/]/).length)[0];
+  try {
+    const json = manifest ? JSON.parse(String(loader.load_buffer(manifest))) : {};
+    direct = { ...Object.fromEntries(Object.keys(json.dependencies || {}).map(n => [n, 'dependency'])), ...Object.fromEntries(Object.keys(json.devDependencies || {}).map(n => [n, 'dev'])) };
+  } catch {
+    // no readable manifest
+  }
+  const byKey = new Map();
+  const add = (name, version, kind, file, dev) => {
+    const key = `${name}@${version}`;
+    const row = byKey.get(key) || { name, version, kinds: [], files: [], dev: true, direct: Object.hasOwn(direct, name) };
+    if (!row.kinds.includes(kind)) row.kinds.push(kind);
+    if (file && !row.files.includes(file) && row.files.length < 5) row.files.push(file);
+    row.dev = row.dev && !!dev;
+    byKey.set(key, row);
+  };
+  if (electronVersion) add('electron', electronVersion, 'Electron runtime', undefined, false);
+  for (const issue of issues) {
+    if (issue.id !== 'DEPENDENCY_INVENTORY_LOCK_CHECK') continue;
+    for (const pkg of (issue.properties && issue.properties.packages) || []) {
+      if (!pkg.name || !pkg.version) continue;
+      const kind = pkg.vendored ? 'bundled library' : pkg.installed ? 'node_modules' : 'lockfile';
+      const file = pkg.vendored ? (path.isAbsolute(issue.file) ? getRelativePath(input, issue.file) : issue.file) : undefined;
+      add(pkg.name, pkg.version, kind, file, pkg.dev || (pkg.name !== 'electron' && direct[pkg.name] === 'dev'));
+    }
+  }
+  const report = await dependencyReport([...byKey.values()]);
+  report.rows = sortRows(report.rows);
+  return report;
 }
 
 // Lets CommonJS consumers keep using `const run = require('@doyensec/electronegativity')` (Node's require(esm))

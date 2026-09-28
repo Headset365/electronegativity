@@ -172,7 +172,9 @@ Using electronegativity to look for issues in an `asar` archive and saving the r
 $ electronegativity -i /path/to/asar/archive -o report.html
 ```
 
-The HTML report is a single file with no external resources. It summarizes the findings by severity and check, and can be filtered by severity, confidence, check, manual review status and free text.
+The HTML report is a single file with no external resources. It summarizes the findings by severity and check, and can be filtered by severity, confidence, check, manual review status and free text. Each finding says what it means in practice and who could exploit it (content another user can place in the app, a network position, local access, ...), and its code sample is collapsed until opened.
+
+HTML and JSON reports also include a dependency table: every npm package (from the lockfile, or the `node_modules` of a packaged app), every library copy or bundle recognized by its banner or version string (jQuery, AngularJS, TinyMCE, CKEditor, DOMPurify, lodash, ..., including scripts loaded from a server with `--remote` or watch mode) and the Electron runtime. For each, it gives the release date of the version found, the latest version and its release date, how many releases and major versions behind it is, whether its release line is supported (from [endoflife.date](https://endoflife.date) where the project publishes a policy, otherwise npm deprecation and the latest major line), and the advisories that affect it with their CVE ids and fixed versions (from [OSV](https://osv.dev)). With `--offline` the table lists the versions found without looking anything up.
 
 Using electronegativity when upgrading from one version of Electron to another to find breaking changes:
 ```

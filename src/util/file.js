@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import pkg from '../../package.json' with { type: 'json' };
 import { sourceExtensions } from '../parser/types.js';
 import { renderHtmlReport } from './report_html.js';
+import { detectLibraries } from './libraries.js';
 import { consequenceOf } from '../finder/consequences.js';
 
 const VER = pkg.version;
@@ -167,7 +168,7 @@ const normalize = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
 // file names of bundles that hold third-party libraries rather than app code
 const BUNDLE_NAMES = new Set(['vendor', 'vendors', 'lib', 'libs', 'libraries', 'thirdparty', 'polyfills', 'chunkvendors', 'vendorbundle', 'externals', 'deps', 'dependencies']);
 // banner names that differ from the npm package name
-const LIBRARY_ALIASES = { angularjs: 'angular', 'jquery ui': 'jquery-ui' };
+const LIBRARY_ALIASES = { angularjs: 'angular', 'jquery ui': 'jquery-ui', 'underscore.js': 'underscore', 'vue.js': 'vue', 'chart.js': 'chart.js' };
 
 /**
  * A copy of a third-party library, e.g. js/jquery.js starting with "jQuery JavaScript Library v2.1.1 ... MIT license":
@@ -177,7 +178,8 @@ const LIBRARY_ALIASES = { angularjs: 'angular', 'jquery ui': 'jquery-ui' };
  */
 export function vendoredLibrary(file, head) {
   if (!/\.[cm]?js$/i.test(file)) return undefined;
-  const stem = path.basename(file).replace(/\.[cm]?js$/i, '').replace(/([.-](min|umd|bundle|dist|debug|prod|production|slim))+$/i, '').replace(/[.-]v?\d+(\.\d+)*$/, '');
+  // _0123abcd: the query string of a script captured from a server (angular.min_0123abcd.js)
+  const stem = path.basename(file).replace(/\.[cm]?js$/i, '').replace(/_[0-9a-f]{8}$/, '').replace(/([.-](min|umd|bundle|dist|debug|prod|production|slim))+$/i, '').replace(/[.-]v?\d+(\.\d+)*$/, '');
   const name = normalize(stem);
   if (name.length < 3) return undefined;
   try {
@@ -195,6 +197,10 @@ export function vendoredLibrary(file, head) {
     return { name: LIBRARY_ALIASES[library] || library, version: banner[2], bundle: true };
   }
   if (!normalize(header).includes(name)) return undefined;
+  // the banner or version string of a known library names it the way npm does (purify.js is dompurify) and carries the
+  // right version (lodash's banner also credits Underscore.js 1.8.3)
+  const known = detectLibraries(head);
+  if (known.length === 1) return known[0];
   const version = (header.match(/\bv?(\d+\.\d+\.\d+(?:-[\w.]+)?)\b/) || header.match(/\bv?(\d+\.\d+)\b/) || [])[1];
   return { name: stem.toLowerCase(), version };
 }
@@ -206,7 +212,7 @@ export function isVendoredLibrary(file, head) {
 function readHead(file) {
   const fd = fs.openSync(file, 'r');
   try {
-    const buffer = Buffer.alloc(2048);
+    const buffer = Buffer.alloc(16384);
     return buffer.toString('utf8', 0, fs.readSync(fd, buffer, 0, buffer.length, 0));
   } finally {
     fs.closeSync(fd);

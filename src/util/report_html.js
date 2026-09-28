@@ -53,6 +53,68 @@ function findingRow(issue, index) {
       </tr>`;
 }
 
+// The dependency table: one row per package or library version found
+const SUPPORT_LABELS = { supported: 'Supported', unsupported: 'Unsupported', outdated: 'Older major', current: 'Latest major', unknown: 'Unknown' };
+const npmUrl = (name, version) => `https://www.npmjs.com/package/${name.split('/').map(encodeURIComponent).join('/')}${version ? `/v/${encodeURIComponent(version)}` : ''}`;
+
+function advisoryList(row) {
+  if (row.advisoryError) return '<span class="muted">lookup failed</span>';
+  if (row.advisories.length === 0) return '<span class="muted">none known</span>';
+  const counts = {};
+  for (const a of row.advisories) counts[a.severity || 'UNRATED'] = (counts[a.severity || 'UNRATED'] || 0) + 1;
+  const summary = Object.entries(counts).map(([level, n]) => `<span class="adv adv-${level.toLowerCase()}">${n} ${level.toLowerCase()}</span>`).join(' ');
+  const items = row.advisories.map(a => `<li><a href="https://osv.dev/vulnerability/${encodeURIComponent(a.id)}" target="_blank" rel="noopener noreferrer">${escapeHtml(a.cves.length ? a.cves.join(', ') : a.id)}</a>${a.severity ? ` <span class="adv adv-${a.severity.toLowerCase()}">${a.severity.toLowerCase()}</span>` : ''} ${escapeHtml(a.summary)}${a.fixed ? ` <span class="muted">(fixed in ${escapeHtml(a.fixed)})</span>` : ' <span class="muted">(no fixed version)</span>'}</li>`).join('');
+  const fix = row.fixedIn ? `<div class="muted">All fixed in ${escapeHtml(row.fixedIn)}</div>` : row.fixedIn === null ? '<div class="muted">Not all have a fix</div>' : '';
+  return `<details><summary>${summary}</summary><ul class="advlist">${items}</ul></details>${fix}`;
+}
+
+function behind(row) {
+  if (row.versionsBehind === undefined) return '<span class="muted">?</span>';
+  if (row.versionsBehind === 0) return 'Up to date';
+  return `${row.versionsBehind} release${row.versionsBehind === 1 ? '' : 's'}${row.majorsBehind ? `<div class="muted">${row.majorsBehind} major${row.majorsBehind === 1 ? '' : 's'}</div>` : ''}`;
+}
+
+function dependencySection(deps) {
+  if (!deps || !deps.rows || deps.rows.length === 0) return '';
+  const rows = deps.rows;
+  const vulnerable = rows.filter(r => r.advisories.length > 0).length;
+  const unsupported = rows.filter(r => r.support.status === 'unsupported').length;
+  const outdated = rows.filter(r => r.versionsBehind > 0).length;
+  const body = rows.map(r => {
+    const issue = r.advisories.length > 0 || r.support.status === 'unsupported' || r.support.status === 'outdated';
+    const where = [r.kinds.join(', '), r.direct ? 'direct' : '', r.dev ? 'dev' : ''].filter(Boolean).join(' · ');
+    const files = r.files.length ? `<div class="muted files">${r.files.map(escapeHtml).join('<br>')}</div>` : '';
+    return `
+      <tr class="dep" data-issue="${issue ? 1 : 0}" data-text="${escapeHtml([r.name, r.version, r.kinds.join(' '), r.files.join(' ')].join(' ').toLowerCase())}">
+        <td><a class="pkg" href="${npmUrl(r.name)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.name)}</a><div class="muted">${escapeHtml(where)}</div>${files}</td>
+        <td class="mono">${escapeHtml(r.version)}${r.known === false ? '<div class="muted">not on npm</div>' : ''}</td>
+        <td class="nowrap">${escapeHtml(r.released || '?')}</td>
+        <td class="mono">${escapeHtml(r.latest || '?')}${r.latestInMajor && r.latestInMajor !== r.version && r.latestInMajor !== r.latest ? `<div class="muted">${escapeHtml(r.latestInMajor)} in this major</div>` : ''}</td>
+        <td class="nowrap">${escapeHtml(r.latestReleased || '?')}</td>
+        <td>${behind(r)}</td>
+        <td><span class="support support-${r.support.status}">${SUPPORT_LABELS[r.support.status]}</span><div class="muted">${escapeHtml(r.support.detail)}</div></td>
+        <td>${r.support.supported && r.support.supported.length ? escapeHtml(r.support.supported.join(', ')) : '<span class="muted">?</span>'}${r.support.policy && safeUrl(r.support.policy) ? `<div><a class="muted" href="${escapeHtml(r.support.policy)}" target="_blank" rel="noopener noreferrer">policy</a></div>` : ''}</td>
+        <td>${advisoryList(r)}</td>
+      </tr>`;
+  }).join('');
+  return `
+  <h2 id="dependencies">Dependencies (${rows.length})</h2>
+  <p class="note">Every package and library found: npm packages (lockfile or node_modules), library copies and bundles recognized by their banners, and the Electron runtime. Release dates and versions come from the npm registry, support windows from <a href="https://endoflife.date" target="_blank" rel="noopener noreferrer">endoflife.date</a> where the project publishes one, and advisories from <a href="https://osv.dev" target="_blank" rel="noopener noreferrer">OSV</a>.${deps.offline ? ' <b>Scanned with --offline: nothing was looked up.</b>' : ''}${deps.errors && deps.errors.length ? ` ${deps.errors.length} lookup${deps.errors.length === 1 ? '' : 's'} failed.` : ''}</p>
+  <div class="depsummary"><span><b>${vulnerable}</b> with known vulnerabilities</span><span><b>${unsupported}</b> unsupported</span><span><b>${outdated}</b> not on the latest version</span></div>
+  <div class="toolbar">
+    <input type="search" id="depsearch" placeholder="Filter by package, version or file" aria-label="Filter dependencies">
+    <label><input type="checkbox" id="depissues"> Only vulnerable, unsupported or older major</label>
+    <span class="count" id="depcount"></span>
+  </div>
+  <div class="table-wrap">
+    <table class="deps">
+      <thead><tr><th>Package</th><th>Version found</th><th>Released</th><th>Latest</th><th>Latest released</th><th>Behind</th><th>Support</th><th>Supported versions</th><th>Known vulnerabilities</th></tr></thead>
+      <tbody>${body}
+      </tbody>
+    </table>
+  </div>`;
+}
+
 /**
  * @param {Array} issues findings, as returned by run()
  * @param {Object} meta { version, input, electronVersion, filesScanned, globalChecks, atomicChecks, errors, generatedAt }
@@ -234,6 +296,18 @@ export function renderHtmlReport(allIssues, meta) {
   .route-content { color: var(--high); } .route-escalation { color: var(--medium); } .route-network { color: var(--accent); }
   .route-local, .route-info, .route-other { color: var(--muted); } .route-dependency { color: var(--low); }
   .linkish { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .mono, .deps .pkg { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+  .nowrap { white-space: nowrap; font-size: 12px; }
+  .deps td { font-size: 13px; }
+  .deps .files { overflow-wrap: anywhere; max-width: 260px; }
+  .support { font-weight: 600; font-size: 12px; white-space: nowrap; }
+  .support-unsupported { color: var(--high); } .support-outdated { color: var(--medium); } .support-unknown { color: var(--muted); }
+  .support-supported, .support-current { color: #2e7d32; }
+  .adv { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 5px; white-space: nowrap; border: 1px solid currentColor; }
+  .adv-critical, .adv-high { color: var(--high); } .adv-medium { color: var(--medium); } .adv-low { color: var(--low); } .adv-unrated { color: var(--muted); }
+  .advlist { margin: 6px 0 0; padding-left: 18px; min-width: 280px; } .advlist li { margin-bottom: 4px; font-size: 12px; }
+  .depsummary { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 4px 0; color: var(--muted); } .depsummary b { color: var(--text); }
   .loc { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; min-width: 180px; }
   .pos { white-space: nowrap; }
   details summary { cursor: pointer; color: var(--accent); }
@@ -248,7 +322,7 @@ export function renderHtmlReport(allIssues, meta) {
     thead { display: none; }
     table, tbody, tr, td { display: block; width: 100%; }
     tr.finding { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; padding: 4px 0; }
-    tr.finding[hidden] { display: none; }
+    tr.finding[hidden], tr.dep[hidden] { display: none; }
     td { border: 0; padding: 4px 12px; }
     .loc { min-width: 0; }
   }
@@ -304,6 +378,7 @@ ${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check=
     </table>
     <div class="empty" id="empty"${sorted.length === 0 ? '' : ' hidden'}>${sorted.length === 0 ? 'No issues found.' : 'No findings match the current filters.'}</div>
   </div>
+${dependencySection(meta.dependencies)}
 ${errors.length > 0 ? `
   <h2>Files that could not be analyzed (${errors.length})</h2>
   <ul class="errors">${errors.map(e => `<li>${escapeHtml(e.file)}: ${escapeHtml(e.message)}</li>`).join('')}</ul>` : ''}
@@ -351,6 +426,22 @@ ${errors.length > 0 ? `
     apply();
   }));
   [search, confidence, manual, route].forEach(el => el.addEventListener('input', apply));
+  const depRows = [...document.querySelectorAll('tr.dep')];
+  const depSearch = document.getElementById('depsearch');
+  const depIssues = document.getElementById('depissues');
+  function applyDeps() {
+    const q = depSearch.value.trim().toLowerCase();
+    let visible = 0;
+    for (const row of depRows) {
+      row.hidden = !((!depIssues.checked || row.dataset.issue === '1') && (!q || row.dataset.text.includes(q)));
+      if (!row.hidden) visible++;
+    }
+    document.getElementById('depcount').textContent = visible + ' of ' + depRows.length + ' packages';
+  }
+  if (depSearch) {
+    [depSearch, depIssues].forEach(el => el.addEventListener('input', applyDeps));
+    applyDeps();
+  }
   expand.addEventListener('click', () => {
     const open = expand.textContent.startsWith('Expand');
     document.querySelectorAll('tr.finding:not([hidden]) details.code').forEach(d => { d.open = open; });

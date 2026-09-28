@@ -76,8 +76,9 @@ function safeRelative(value, fallbackExtension) {
     .map(part => part.replace(/[^\w.@~+-]/g, '_').slice(0, 80));
   if (parts.length === 0) parts.push('index');
   let file = parts.join('/');
-  if (query) file += `_${crypto.createHash('sha256').update(query).digest('hex').slice(0, 8)}`;
   if (fallbackExtension && !/\.(m?[jt]sx?|html?|vue|json)$/i.test(file)) file += fallbackExtension;
+  // the query (usually a cache buster, angular.min.js?v=3) goes before the extension, so the file keeps its name
+  if (query) file = file.replace(/(\.[\w]+)?$/, (ext) => `_${crypto.createHash('sha256').update(query).digest('hex').slice(0, 8)}${ext}`);
   return file;
 }
 
