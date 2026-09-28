@@ -7,6 +7,9 @@ import { sourceExtensions } from '../parser/types.js';
 import { renderHtmlReport } from './report_html.js';
 import { detectLibraries } from './libraries.js';
 import { consequenceOf, validationHint } from '../finder/consequences.js';
+import { cycloneDx } from '../report/cyclonedx.js';
+import { renderDocx } from '../report/docx.js';
+import { scores } from '../report/scores.js';
 
 const VER = pkg.version;
 const MANIFEST_FILES = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'electron-builder.json', 'electron-builder.yml', 'electron-builder.yaml'];
@@ -219,10 +222,11 @@ function readHead(file) {
   }
 }
 
-export const OUTPUT_FORMATS = ['csv', 'sarif', 'html', 'htm', 'json'];
+export const OUTPUT_FORMATS = ['csv', 'sarif', 'html', 'htm', 'json', 'docx'];
 
 export function outputFormat(filename, isSarif) {
   if (isSarif) return 'sarif';
+  if (/\.cdx\.json$/i.test(String(filename))) return 'cyclonedx';
   const ext = extension(filename);
   if (ext === 'htm') return 'html';
   return OUTPUT_FORMATS.includes(ext) ? ext : 'csv';
@@ -242,6 +246,7 @@ function jsonReport(result, meta) {
     tool: 'Electronegativity',
     ...meta,
     summary,
+    scores: scores(result),
     issues: result.map(issue => ({
       id: issue.id,
       severity: issue.severity.name,
@@ -256,6 +261,7 @@ function jsonReport(result, meta) {
       consequence: consequenceOf(issue.id)?.text,
       validation: issue.validation,
       howToValidate: issue.manualReview && !issue.validation ? validationHint(issue.id) : undefined,
+      notes: issue.notes,
       reference: issue.shortenedURL,
       properties: reportProperties(issue.properties)
     }))
@@ -273,6 +279,14 @@ export function writeIssues(root, isRelative, filename, result, isSarif, meta = 
   }
   if (format === 'json') {
     fs.writeFileSync(filename, jsonReport(result, { ...meta, errors: (meta.errors || []).map(({ file, message, tolerable }) => ({ file, message, tolerable })) }));
+    return;
+  }
+  if (format === 'cyclonedx') {
+    fs.writeFileSync(filename, JSON.stringify(cycloneDx(meta), null, 2));
+    return;
+  }
+  if (format === 'docx') {
+    fs.writeFileSync(filename, renderDocx(result, meta));
     return;
   }
   isSarif = format === 'sarif';

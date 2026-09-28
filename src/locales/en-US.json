@@ -227,5 +227,7 @@
 	"HARDCODED_SECRET": "A secret is hard-coded in the app package",
 	"CODE_SIGNING": "Code signature of the packaged executable",
 	"installerUnpacked": "Unpacked the {{kind}} {{{file}}}: scanning the app inside it",
-	"installerNoApp": "No Electron app (resources/app.asar or resources/app) was found in the package"
+	"installerNoApp": "No Electron app (resources/app.asar or resources/app) was found in the package",
+	"nvdOptionDescription": "don't look up the Chromium CVEs of the app's Electron version in NVD (slow without an NVD_API_KEY)",
+	"findingNotesOptionDescription": "a JSON file with your own notes per check or family (explanation, steps, impact, recommendation), shown in the HTML and Word reports; see docs/finding-notes.example.json"
 }

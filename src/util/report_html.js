@@ -1,5 +1,7 @@
 // Self-contained HTML report: no external resources, so it can be archived, attached to tickets or opened offline.
 import { ROUTES, consequenceOf, validationHint } from '../finder/consequences.js';
+import { NOTE_FIELDS } from '../report/notes.js';
+import { scores } from '../report/scores.js';
 
 const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const CONFIDENCES = ['CERTAIN', 'FIRM', 'TENTATIVE'];
@@ -27,6 +29,16 @@ function sampleBlock(sample) {
 }
 
 const VALIDATION_LABELS = { confirmed: 'Confirmed at runtime', observed: 'Seen at runtime', safe: 'Ruled out at runtime' };
+// your own notes on the finding (--finding-notes)
+function notesBlock(notes) {
+  if (!notes) return '';
+  const fields = NOTE_FIELDS.filter(([key]) => notes[key]).map(([key, label]) => {
+    const value = notes[key];
+    return `<div><b>${escapeHtml(label)}:</b> ${Array.isArray(value) ? `<ul>${value.map(v => `<li>${escapeHtml(v)}</li>`).join('')}</ul>` : escapeHtml(value)}</div>`;
+  });
+  return fields.length ? `<details class="howto" open><summary>Notes</summary>${fields.join('')}</details>` : '';
+}
+
 function validationBlock(issue) {
   if (issue.validation) return `<div class="validation v-${escapeHtml(issue.validation.status)}"><b>${escapeHtml(VALIDATION_LABELS[issue.validation.status] || 'Validation')}</b> ${escapeHtml(issue.validation.text.replace(/^(Confirmed|Seen|Checked) at runtime: /, ''))}</div>`;
   const hint = issue.manualReview ? validationHint(issue.id) : undefined;
@@ -53,6 +65,7 @@ function findingRow(issue, index) {
           <div class="desc">${escapeHtml(issue.description)}</div>
           ${consequence ? `<div class="consequence"><span class="route route-${route}" title="Who can exploit it">${escapeHtml(consequence.label)}</span> ${escapeHtml(consequence.text)}</div>` : ''}
           ${validationBlock(issue)}
+          ${notesBlock(issue.notes)}
           ${issue.sample ? sampleBlock(issue.sample) : ''}
           ${advisories ? `<div class="advisories">${advisoryLinks(advisories)}</div>` : ''}
           ${url ? `<a class="ref" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Reference</a>` : ''}
@@ -85,17 +98,39 @@ function advisoryList(row) {
   if (row.advisories.length === 0) return '<span class="muted">none known</span>';
   const counts = {};
   for (const a of row.advisories) counts[a.severity || 'UNRATED'] = (counts[a.severity || 'UNRATED'] || 0) + 1;
-  const summary = Object.entries(counts).map(([level, n]) => `<span class="adv adv-${level.toLowerCase()}">${n} ${level.toLowerCase()}</span>`).join(' ');
+  const kev = row.advisories.filter(a => a.kev).length;
+  const summary = Object.entries(counts).map(([level, n]) => `<span class="adv adv-${level.toLowerCase()}">${n} ${level.toLowerCase()}</span>`).join(' ') +
+    (kev ? ` <span class="adv adv-critical">${kev} exploited (KEV)</span>` : '') + (row.malicious ? ' <span class="adv adv-critical">malicious</span>' : '');
   const items = row.advisories.map(a => {
     const cves = a.cves.map(cve => link(`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve)}`, cve)).join(', ');
     const sources = [link(`https://osv.dev/vulnerability/${encodeURIComponent(a.id)}`, a.cves.length ? a.id : `${a.id} (OSV)`)];
     if (/^GHSA-/.test(a.id)) sources.push(link(`https://github.com/advisories/${encodeURIComponent(a.id)}`, 'GitHub advisory'));
     for (const ref of a.references || []) if (safeUrl(ref.url) && !sources.some(s => s.includes(escapeHtml(ref.url)))) sources.push(link(ref.url, REFERENCE_LABELS[ref.type] || 'reference'));
     const fixed = a.fixed ? ` <span class="muted">(fixed in ${link(npmUrl(row.name, a.fixed), a.fixed)})</span>` : ' <span class="muted">(no fixed version)</span>';
-    return `<li>${cves ? `${cves} ` : ''}${a.severity ? `<span class="adv adv-${a.severity.toLowerCase()}">${a.severity.toLowerCase()}</span> ` : ''}${escapeHtml(a.summary)}${fixed}<div class="refs">${sources.join(' · ')}</div></li>`;
+    const exploited = a.kev ? ` <span class="adv adv-critical" title="CISA Known Exploited Vulnerabilities, added ${escapeHtml(a.kev.added || '?')}">exploited in the wild (KEV)${a.kev.ransomware ? ', ransomware' : ''}</span>` : '';
+    const epss = a.epss ? ` <span class="muted" title="FIRST EPSS: probability of exploitation in the next 30 days">EPSS ${escapeHtml((a.epss.epss * 100).toFixed(1))}%</span>` : '';
+    return `<li>${cves ? `${cves} ` : ''}${a.severity ? `<span class="adv adv-${a.severity.toLowerCase()}">${a.severity.toLowerCase()}</span> ` : ''}${escapeHtml(a.summary)}${exploited}${epss}${fixed}<div class="refs">${sources.join(' · ')}</div></li>`;
   }).join('');
   const fix = row.fixedIn ? `<div class="muted">All fixed in ${escapeHtml(row.fixedIn)}</div>` : row.fixedIn === null ? '<div class="muted">Not all have a fix</div>' : '';
   return `<details><summary>${summary}</summary><ul class="advlist">${items}</ul></details>${fix}`;
+}
+
+// Chromium CVEs fixed upstream after the Chromium build in this Electron, minus Electron's backports
+function chromiumSection(chromium) {
+  if (!chromium) return '';
+  if (!chromium.checked) return `
+  <h3>Chromium advisories</h3>
+  <p class="note">Chromium ${escapeHtml(chromium.chromium || '?')}: ${escapeHtml(chromium.note || 'not checked')}.</p>`;
+  const rows = chromium.top.map(r => `
+      <tr><td>${link(`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(r.id)}`, r.id)}${r.kev ? ' <span class="adv adv-critical">KEV</span>' : ''}</td><td><span class="adv adv-${escapeHtml(r.severity)}">${escapeHtml(r.severity)}</span>${r.score ? ` ${escapeHtml(r.score)}` : ''}</td><td>${escapeHtml(r.fixedIn || '?')}</td><td>${escapeHtml(r.electronFix || '?')}</td><td>${escapeHtml(r.summary || '')}</td></tr>`).join('');
+  return `
+  <h3 id="chromium">Chromium advisories (Chromium ${escapeHtml(chromium.chromium)})</h3>
+  <p class="note"><b>${escapeHtml(chromium.total)}</b> Chromium CVEs were fixed upstream after this build (${Object.entries(chromium.counts).filter(([, n]) => n).map(([level, n]) => `${escapeHtml(n)} ${escapeHtml(level)}`).join(', ')}), <b>${escapeHtml(chromium.kev)}</b> of them exploited in the wild (CISA KEV)${chromium.backportsChecked ? `; ${escapeHtml(chromium.backported)} more were backported into this Electron version and are not counted` : '; Electron\'s backports were not checked, so this is an upper bound'}. NVD lists Chrome CVEs as affecting every earlier version; backports missing from Electron's release notes are not subtracted.${chromium.partial ? ' <b>NVD returned part of the list.</b>' : ''}</p>
+  <div class="table-wrap"><table class="surface">
+    <thead><tr><th>CVE</th><th>Severity</th><th>Fixed in Chromium</th><th>First Electron with the fix</th><th>Summary</th></tr></thead>
+    <tbody>${rows}
+    </tbody>
+  </table></div>`;
 }
 
 function behind(row) {
@@ -116,7 +151,7 @@ function dependencySection(deps) {
     const files = r.files.length ? `<div class="muted files">${r.files.map(escapeHtml).join('<br>')}</div>` : '';
     return `
       <tr class="dep" data-issue="${issue ? 1 : 0}" data-text="${escapeHtml([r.name, r.version, r.kinds.join(' '), r.files.join(' ')].join(' ').toLowerCase())}">
-        <td><a class="pkg" href="${npmUrl(r.name)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.name)}</a><div class="muted">${escapeHtml(where)}</div>${files}</td>
+        <td><a class="pkg" href="${npmUrl(r.name)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.name)}</a>${r.malicious ? ` <span class="adv adv-critical">malicious version (${escapeHtml(r.malicious.id)})</span>` : ''}<div class="muted">${escapeHtml(where)}</div>${files}</td>
         <td class="mono">${r.known ? link(npmUrl(r.name, r.version), r.version) : escapeHtml(r.version)}${r.known === false ? '<div class="muted">not on npm</div>' : ''}</td>
         <td class="nowrap">${escapeHtml(r.released || '?')}</td>
         <td class="mono">${r.latest ? link(npmUrl(r.name, r.latest), r.latest) : '?'}${r.latestInMajor && r.latestInMajor !== r.version && r.latestInMajor !== r.latest ? `<div class="muted">${link(npmUrl(r.name, r.latestInMajor), r.latestInMajor)} in this major</div>` : ''}${projectLinks(r)}</td>
@@ -130,7 +165,7 @@ function dependencySection(deps) {
   return `
   <h2 id="dependencies">Dependencies (${rows.length})</h2>
   <p class="note">Every package and library found: npm packages (lockfile or node_modules), library copies and bundles recognized by their banners, and the Electron runtime. Release dates and versions come from the npm registry, support windows from <a href="https://endoflife.date" target="_blank" rel="noopener noreferrer">endoflife.date</a> where the project publishes one, and advisories from <a href="https://osv.dev" target="_blank" rel="noopener noreferrer">OSV</a>.${deps.offline ? ' <b>Scanned with --offline: nothing was looked up.</b>' : ''}${deps.errors && deps.errors.length ? ` ${deps.errors.length} lookup${deps.errors.length === 1 ? '' : 's'} failed.` : ''}</p>
-  <div class="depsummary"><span><b>${vulnerable}</b> with known vulnerabilities</span><span><b>${unsupported}</b> unsupported</span><span><b>${outdated}</b> not on the latest version</span></div>
+  <div class="depsummary"><span><b>${vulnerable}</b> with known vulnerabilities</span>${deps.intel && deps.intel.checked ? `<span><b>${deps.intel.kev}</b> with vulnerabilities exploited in the wild (CISA KEV)</span>` : ''}${deps.intel && deps.intel.malicious ? `<span class="risk"><b>${deps.intel.malicious}</b> malicious</span>` : ''}<span><b>${unsupported}</b> unsupported</span><span><b>${outdated}</b> not on the latest version</span></div>
   <div class="toolbar">
     <input type="search" id="depsearch" placeholder="Filter by package, version or file" aria-label="Filter dependencies">
     <label><input type="checkbox" id="depissues"> Only vulnerable, unsupported or older major</label>
@@ -142,7 +177,7 @@ function dependencySection(deps) {
       <tbody>${body}
       </tbody>
     </table>
-  </div>`;
+  </div>${chromiumSection(deps.chromium)}`;
 }
 
 /**
@@ -417,6 +452,8 @@ export function renderHtmlReport(allIssues, meta) {
   <div class="cards" role="group" aria-label="Filter by severity">
 ${SEVERITIES.map(s => `    <button type="button" class="card sev-${s.toLowerCase()}" data-sev="${s}" aria-pressed="true"><div class="n">${counts[s]}</div><div class="l">${s === 'INFORMATIONAL' ? 'Info' : s.toLowerCase()}</div></button>`).join('\n')}
     <div class="card"><div class="n">${manual}</div><div class="l">Need manual review</div></div>
+    <div class="card" title="Every distinct finding, weighted by severity and confidence, with diminishing returns"><div class="n">${scores(issues).risk}</div><div class="l">Risk score</div></div>
+    <div class="card" title="Only what someone other than the user can exploit: shared content, anyone with the app, the network, other users through the server, third parties, the supply chain, known vulnerabilities"><div class="n">${scores(issues).external}</div><div class="l">External-only score</div></div>
   </div>
 
 ${attackSurface(windows, apis, runtime, !!meta.runtime)}${meta.traffic ? `

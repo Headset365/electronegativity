@@ -62,6 +62,8 @@ async function main() {
     .option('--canary <password>', __('canaryOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--search-dir <dir>', __('searchDirOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--show-secrets', __('showSecretsOptionDescription'))
+    .option('--no-nvd', __('nvdOptionDescription'))
+    .option('--finding-notes <file>', __('findingNotesOptionDescription'))
     .option('--diagnostics <file>', __('diagnosticsOptionDescription'))
     .option('--redact <terms>', __('redactOptionDescription'))
     .parse(process.argv);
@@ -97,8 +99,10 @@ async function main() {
   const scope = (options.scope || []).flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
 
   if (options.output) {
-    options.fileFormat = options.output.split('.').pop().toLowerCase();
-    if (!OUTPUT_FORMATS.includes(options.fileFormat)) {
+    // several outputs at once: -o report.html,report.json,report.docx,report.cdx.json
+    const outputs = options.output.split(',').map(o => o.trim()).filter(Boolean);
+    options.fileFormat = outputs.length === 1 ? outputs[0].split('.').pop().toLowerCase() : 'multiple';
+    if (outputs.some(o => !OUTPUT_FORMATS.includes(o.split('.').pop().toLowerCase()))) {
       console.error(chalk.red(__('fileFormatError')));
       program.outputHelp();
       process.exit(1);
@@ -134,6 +138,8 @@ async function main() {
     canaries: options.canary || [],
     searchDirs: options.searchDir || [],
     reveal: !!options.showSecrets,
+    nvd: options.nvd !== false,
+    findingNotes: options.findingNotes,
   };
 
   try {

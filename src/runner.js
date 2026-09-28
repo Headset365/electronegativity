@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import cliProgress from 'cli-progress';
 import Table from 'cli-table3';
@@ -26,6 +27,8 @@ import { secretSources, scanSecrets } from './secrets/scan.js';
 import { linkCredentialStores } from './finder/checks/AtomicChecks/StorageChecks.js';
 import { analyzeBinary } from './binary/index.js';
 import { installerIssues } from './unpack/findings.js';
+import { loadFindingNotes, applyFindingNotes } from './report/notes.js';
+import { enrichDependencies, chromiumAdvisories, electronReleases, chromiumOf, kevCatalog } from './intel/index.js';
 
 export default async function run(options, forCli = false) {
   // --offline only applies to this scan
@@ -267,10 +270,21 @@ async function scan(options, forCli) {
 
   // the dependency table of HTML and JSON reports (online lookups of release dates, support and advisories)
   let dependencies;
-  if (options.dependencies ?? (options.output && ['html', 'json'].includes(outputFormat(options.output, options.isSarif)))) {
+  // one or more outputs: -o report.html,report.json,report.cdx.json,report.docx
+  const outputs = [].concat(options.output || []).flatMap(o => String(o).split(',')).map(o => o.trim()).filter(Boolean);
+  if (options.dependencies ?? outputs.some(o => ['html', 'json', 'cyclonedx', 'docx'].includes(outputFormat(o, options.isSarif)))) {
     for (const issue of inventory) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
     dependencies = await dependencyTable(inventory, filenames, loader, electronVersion, options.input);
     endPhase('dependencies');
+    // exploited in the wild (CISA KEV), exploit probability (EPSS), malicious versions; the Chromium CVEs of this build
+    dependencies.intel = await enrichDependencies(dependencies);
+    if (!dependencies.offline && options.nvd !== false && electronVersion) {
+      const releases = await electronReleases();
+      const chromium = chromiumOf(releases, electronVersion) || chromiumFromBinary(options.input);
+      dependencies.chromium = await chromiumAdvisories({ electron: electronVersion, chromium, releases, kev: await kevCatalog() });
+    }
+    endPhase('intel');
+    issues.push(...intelIssues(dependencies));
   }
 
   // Adjust visibility
@@ -371,8 +385,11 @@ async function scan(options, forCli) {
   // file outputs and --fail-on honor the same severity/confidence thresholds as the CLI table
   const reported = issues.filter(issue => issue.severity.value >= options.severitySet.value && issue.confidence.value >= options.confidenceSet.value);
 
-  if (options.output) {
-    writeIssues(options.input, options.isRelative, options.output, reported, options.isSarif, {
+  if (options.findingNotes) applyFindingNotes(reported, loadFindingNotes(options.findingNotes));
+  const manifest = topManifest(filenames, loader) || {};
+  for (const output of outputs) {
+    writeIssues(options.input, options.isRelative, output, reported, options.isSarif && outputs.length === 1, {
+      app: { name: manifest.productName || manifest.name, version: manifest.version },
       suppressedByBaseline: suppressed.length,
       electronVersion: electronVersion || null,
       filesScanned: filenames.length,
@@ -453,6 +470,39 @@ async function scan(options, forCli) {
     binary: binary && binary.summary,
     installer: options.installer && { kind: options.installer.kind, ...options.installer.installer }
   };
+}
+
+// the Chromium version written into a packaged app's executable (its user agent string)
+function chromiumFromBinary(input) {
+  const binary = packagedBinaryFor(input);
+  if (!binary) return undefined;
+  try {
+    const match = fs.readFileSync(binary).toString('latin1').match(/Chrome\/(\d+\.\d+\.\d+\.\d+)/);
+    return match ? match[1] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const intelIssue = (id, file, sev, conf, description, properties, reference) => ({ file, sample: '', location: { line: 0, column: 0 }, id, description, properties,
+  shortenedURL: reference, severity: sev, confidence: conf, manualReview: false,
+  visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: 'Runtime' });
+
+// findings from the dependency intel: malicious package versions, and the Chromium advisories of the bundled build
+function intelIssues(dependencies) {
+  const out = [];
+  for (const row of dependencies.rows.filter(r => r.malicious))
+    out.push(intelIssue('MALICIOUS_DEPENDENCY', (row.files && row.files[0]) || 'node_modules', severity.HIGH, confidence.CERTAIN,
+      `${row.name}@${row.version} is a known malicious or sabotaged package version (${row.malicious.id}, ${row.malicious.source}): remove it and check what it could have done`,
+      { name: row.name, version: row.version, advisory: row.malicious.id }, row.malicious.source === 'OSV' ? `https://osv.dev/vulnerability/${row.malicious.id}` : 'https://osv.dev'));
+  const chromium = dependencies.chromium;
+  if (chromium && chromium.checked && chromium.total > 0) {
+    const sev = chromium.kev > 0 || chromium.counts.critical > 0 ? severity.HIGH : chromium.counts.high > 0 ? severity.MEDIUM : severity.LOW;
+    out.push(intelIssue('CHROMIUM_ADVISORIES', `Chromium ${chromium.chromium}`, sev, confidence.FIRM,
+      `The Chromium ${chromium.chromium} in this Electron version misses ${chromium.total} upstream security fixes (${chromium.counts.critical} critical, ${chromium.counts.high} high)${chromium.kev ? `, ${chromium.kev} of them for vulnerabilities exploited in the wild (CISA KEV: ${chromium.top.filter(r => r.kev).slice(0, 5).map(r => r.id).join(', ')})` : ''}${chromium.backportsChecked ? `; ${chromium.backported} backported fixes are already subtracted` : ''}. Upgrade Electron.`,
+      { chromium: chromium.chromium, total: chromium.total, counts: chromium.counts, kev: chromium.kev, backported: chromium.backported }, 'https://www.electronjs.org/docs/latest/tutorial/security#16-use-a-current-version-of-electron'));
+  }
+  return out;
 }
 
 // The app's own package.json (the one closest to the top of the scanned code), or undefined

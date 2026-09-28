@@ -1,0 +1,21 @@
+{
+  "_comment": "Your own notes, shown in the HTML and Word reports (--finding-notes). Keys under 'rules' are check ids (e.g. 'OPEN_EXTERNAL_JS_CHECK') or families ending in '*' (e.g. 'TRAFFIC_*', 'RUNTIME_MARKER_*'); an exact id wins over a family. Every field is optional; lists are shown as bullet points. Keys under 'fuses' are fuse names; their text is the impact of the PACKAGED_FUSES and FUSES findings for that fuse.",
+  "rules": {
+    "TRAFFIC_*": {
+      "about": "Your explanation of this family of findings.",
+      "confirm": "How your team confirms or detects this."
+    },
+    "OPEN_EXTERNAL_JS_CHECK": {
+      "about": "Your explanation of this finding.",
+      "preconditions": ["Your first precondition."],
+      "steps": ["Your first step.", "Your second step."],
+      "impact": "Your description of the impact.",
+      "reachability": "Your note on how reachable this is in practice.",
+      "confirm": "How to confirm or detect it.",
+      "recommendation": "What to change."
+    }
+  },
+  "fuses": {
+    "RunAsNode": "Your impact text for this fuse."
+  }
+}

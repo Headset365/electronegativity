@@ -227,5 +227,7 @@
 	"HARDCODED_SECRET": "Hay un secreto codificado en el paquete de la aplicación",
 	"CODE_SIGNING": "Firma de código del ejecutable empaquetado",
 	"installerUnpacked": "Se ha desempaquetado {{kind}} {{{file}}}: se analiza la aplicación que contiene",
-	"installerNoApp": "No se encontró ninguna aplicación Electron (resources/app.asar o resources/app) en el paquete"
+	"installerNoApp": "No se encontró ninguna aplicación Electron (resources/app.asar o resources/app) en el paquete",
+	"nvdOptionDescription": "no buscar en NVD los CVE de Chromium de la versión de Electron de la aplicación (lento sin NVD_API_KEY)",
+	"findingNotesOptionDescription": "un archivo JSON con sus propias notas por comprobación o familia (explicación, pasos, impacto, recomendación), que se muestran en los informes HTML y Word; vea docs/finding-notes.example.json"
 }

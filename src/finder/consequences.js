@@ -121,6 +121,8 @@ const CONSEQUENCES = {
   CODE_SIGNING: ['supply', 'Without a valid signature, users and the operating system cannot tell the genuine app from a modified copy (a repackaged download, a replaced file).'],
   BINARY_HARDENING: ['escalation', 'Exploit mitigations (ASLR, DEP/NX, CFG) make memory corruption bugs harder to exploit; without them an exploit is easier to write.'],
   UPDATE_SECURITY_PACKAGED: ['network', 'The updater configuration shipped with the app: updates fetched without TLS or signature checks can be replaced in transit, which is code execution for someone on the network path.'],
+  MALICIOUS_DEPENDENCY: ['dependency', 'The app ships a package version that was published with malicious code (a compromised maintainer account, a backdoor, sabotage): it runs with the app\'s privileges.'],
+  CHROMIUM_ADVISORIES: ['dependency', 'The browser engine inside the app misses security fixes; the renderer bugs among them are exploitable by any web content the app shows, and those in CISA\'s KEV list are exploited in the wild.'],
   INSTALLER_FILE_HANDLER: ['content', 'Deep links and file associations the installer registers: any web page, email or shared file can start the app with data it chooses.'],
   STORAGE_SECRET_AT_REST: ['local', 'A secret sits unencrypted in the app\'s profile folder: other programs running as the user, malware, backups and anyone with the disk can read it.'],
   STORAGE_COOKIE_AT_REST: ['local', 'Session cookies are stored without the operating system\'s encryption: whoever reads the profile folder can take over the session.'],
