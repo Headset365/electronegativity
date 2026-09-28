@@ -9,6 +9,7 @@
 //   network    - needs a position on the network path (Wi-Fi, proxy, a compromised server or CDN)
 //   local      - needs access to the user's device: to its files, to start the app, or to the keyboard
 //   dependency - known vulnerabilities in outdated software; how they are exploited depends on each advisory
+//   anyone     - anyone who downloads the app and looks inside it
 //   server     - another user of the same service, through its server API (authorization gaps, data it hands out)
 //   thirdparty - a third-party service the app sends data to (analytics, CDNs, trackers)
 //   info       - inventory and coverage, nothing to fix by itself
@@ -16,6 +17,7 @@ export const ROUTES = {
   content: 'Shared content',
   escalation: 'Raises impact',
   network: 'Network',
+  anyone: 'Anyone with the app',
   server: 'Other users (server)',
   thirdparty: 'Third parties',
   local: 'Local access',
@@ -108,6 +110,11 @@ const CONSEQUENCES = {
   TRAFFIC_WS_HTML_MESSAGE: ['content', 'The server pushes HTML to the app over a WebSocket, often content another user wrote: rendered as HTML without sanitizing, it runs as script (XSS).'],
   TRAFFIC_WS_SECRET_IN_MESSAGE: ['server', 'A secret is sent in WebSocket messages, where it can be logged or read by whoever receives them.'],
   TRAFFIC: ['info', 'Traffic observed from the app.'],
+  HARDCODED_SECRET: ['anyone', 'A secret ships inside the app: anyone who downloads it can unpack it and use the key or token, e.g. against the service it belongs to. Rotate it and fetch credentials per user at runtime.'],
+  SECRET_FILE_WRITE: ['local', 'A secret is written to disk in plaintext: other programs running as the user, malware and backups can read it.'],
+  ELECTRON_STORE_ENCRYPTION: ['local', 'The store is a readable JSON file in the profile folder (a constant encryptionKey only obfuscates it): anything stored there is readable by other programs.'],
+  COOKIE_FLAGS: ['escalation', 'A cookie without HttpOnly can be read by script injected into the page; without Secure (or for an http URL) it can travel unencrypted.'],
+  CREDENTIAL_ACCESS: ['info', 'Where the code keeps and reads credentials, and whether the operating system protects them.'],
   STORAGE_SECRET_AT_REST: ['local', 'A secret sits unencrypted in the app\'s profile folder: other programs running as the user, malware, backups and anyone with the disk can read it.'],
   STORAGE_COOKIE_AT_REST: ['local', 'Session cookies are stored without the operating system\'s encryption: whoever reads the profile folder can take over the session.'],
   STORAGE_CREDENTIAL_AT_REST: ['local', 'The password the app remembers is kept in plaintext or a reversible encoding: whoever reads the file gets the user\'s password, often reused elsewhere.'],

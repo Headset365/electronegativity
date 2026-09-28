@@ -149,7 +149,28 @@ function dependencySection(deps) {
  * @param {Array} issues findings, as returned by run()
  * @param {Object} meta { version, input, electronVersion, filesScanned, globalChecks, atomicChecks, errors, generatedAt }
  */
-const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'RUNTIME_WINDOW_SUMMARY', 'RUNTIME_IPC', 'RUNTIME_COVERAGE', 'RUNTIME_WINDOW_COVERAGE'];
+const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'RUNTIME_WINDOW_SUMMARY', 'RUNTIME_IPC', 'RUNTIME_COVERAGE', 'RUNTIME_WINDOW_COVERAGE', 'CREDENTIAL_ACCESS_JS_CHECK'];
+
+// Where the code reads and writes credentials, unprotected first, and what the data-at-rest review and the --canary
+// trace found on disk
+function savedCredentials(rows, atRest) {
+  const trace = atRest && atRest.credentialTrace;
+  if (rows.length === 0 && !trace) return '';
+  const order = { read: 0, write: 1, delete: 2 };
+  const sorted = [...rows].sort((a, b) => Number(a.properties.protected !== false) - Number(b.properties.protected !== false) ||
+    (order[a.properties.op] ?? 3) - (order[b.properties.op] ?? 3) || String(a.file).localeCompare(String(b.file)) || a.location.line - b.location.line).slice(0, 500);
+  const protection = (value) => value === true ? 'OS-protected' : value === false ? '<span class="risk">not protected</span>' : '<span class="unknown">check</span>';
+  return `
+  <h2>Saved credentials</h2>
+  <p class="note">Every place the app's code reads, writes or deletes a credential-like value (matched by key and path names: password, remember, credential, token, auth, ...), and whether the operating system protects it. The read rows show where a remembered password is loaded from.</p>${sorted.length > 0 ? `
+  <div class="table-wrap"><table class="surface">
+    <thead><tr><th>Operation</th><th>API</th><th>Key</th><th>Store</th><th>Protection</th><th>At</th></tr></thead>
+    <tbody>${sorted.map(r => { const p = r.properties; return `
+      <tr><td>${escapeHtml(p.op)}</td><td><code>${escapeHtml(p.api)}</code></td><td>${escapeHtml(p.key || '')}</td><td>${escapeHtml(p.store)}</td><td>${protection(p.protected)}</td><td class="loc">${escapeHtml(place(r))}</td></tr>`; }).join('')}
+    </tbody>
+  </table></div>` : ''}${trace ? `
+  <p class="note"><b>Test password trace (--canary):</b> ${trace.locations.length > 0 ? `<span class="risk">found in ${escapeHtml(trace.locations.length)} location(s)</span>: ${trace.locations.map(l => `<code>${escapeHtml(l)}</code>`).join(' ')}` : 'not found in plaintext or a common encoding'}; ${escapeHtml(trace.files)} files and ${escapeHtml(trace.leveldbStores)} LevelDB stores searched${trace.credentialManagerNew.length ? `; new Credential Manager entries: ${trace.credentialManagerNew.map(t => escapeHtml(t)).join(', ')}` : ''}.</p>` : ''}`;
+}
 const place = (issue) => `${issue.file}${issue.location && issue.location.line ? ':' + issue.location.line : ''}`;
 
 // What page script could reach in each window, if content it renders were ever to run as code
@@ -333,7 +354,7 @@ export function renderHtmlReport(allIssues, meta) {
   .route { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-right: 4px; border: 1px solid currentColor; white-space: nowrap; }
   .route-content { color: var(--high); } .route-escalation { color: var(--medium); } .route-network { color: var(--accent); }
   .route-local, .route-info, .route-other { color: var(--muted); } .route-dependency { color: var(--low); }
-  .route-server { color: var(--high); } .route-thirdparty { color: var(--medium); }
+  .route-server, .route-anyone { color: var(--high); } .route-thirdparty { color: var(--medium); }
   .linkish { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
   .validation { margin: 2px 0 6px; font-size: 13px; padding: 4px 8px; border-radius: 6px; }
   .validation b { margin-right: 4px; }
@@ -398,7 +419,7 @@ ${SEVERITIES.map(s => `    <button type="button" class="card sev-${s.toLowerCase
   </div>
 
 ${attackSurface(windows, apis, runtime, !!meta.runtime)}${meta.traffic ? `
-  <h2>Captured traffic</h2>${trafficNote(meta.traffic, `in ${meta.traffic.files} capture file(s)`)}` : ''}
+  <h2>Captured traffic</h2>${trafficNote(meta.traffic, `in ${meta.traffic.files} capture file(s)`)}` : ''}${savedCredentials(allIssues.filter(i => i.id === 'CREDENTIAL_ACCESS_JS_CHECK'), meta.atRest)}
   <h2>Findings by check</h2>
   <div class="checks">
 ${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check="${escapeHtml(id)}"><span class="badge sev-${e.severity.name.toLowerCase()}" style="min-width:0">${e.count}</span> ${escapeHtml(id)}</button>`).join('\n')}

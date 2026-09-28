@@ -22,6 +22,8 @@ import { detectLibraries } from './util/libraries.js';
 import { analyzeCaptures } from './traffic/ingest.js';
 import { reconcileTraffic } from './traffic/reconcile.js';
 import { reviewDataAtRest, appNames } from './storage/index.js';
+import { secretSources, scanSecrets } from './secrets/scan.js';
+import { linkCredentialStores } from './finder/checks/AtomicChecks/StorageChecks.js';
 
 export default async function run(options, forCli = false) {
   // --offline only applies to this scan
@@ -123,6 +125,9 @@ async function scan(options, forCli) {
   const readBinaryFuses = (options.customScan.length === 0 || options.customScan.includes('fusesglobalcheck')) &&
     !(options.excludeFromScan || []).map(c => c.toLowerCase()).includes('fusesglobalcheck');
   options.excludeFromScan = (options.excludeFromScan || []).map(c => c.toLowerCase());
+  // the hard-coded secret scan: -l HardcodedSecretsCheck to run it alone, -x HardcodedSecretsCheck to leave it out
+  const SECRET_SCAN = ['hardcodedsecretscheck', 'hardcoded_secret'];
+  const runSecretScan = (options.customScan.length === 0 || options.customScan.some(c => SECRET_SCAN.includes(c))) && !options.excludeFromScan.some(c => SECRET_SCAN.includes(c));
 
   // Parser options initialization
   const parser = new Parser(false, true);
@@ -246,6 +251,12 @@ async function scan(options, forCli) {
   const inventory = issues.filter(i => i.id === 'DEPENDENCY_INVENTORY_LOCK_CHECK');
   issues = await globalChecker.getResults(issues, options.output);
   endPhase('globalChecks');
+  // hard-coded secrets in everything that ships: code, configuration files, native modules and helper binaries
+  if (runSecretScan) {
+    issues.push(...scanSecrets(secretSources(options.input, filenames, (file) => loader.load_buffer(file), { allFiles: !!options.allFiles })));
+    endPhase('secrets');
+  }
+  linkCredentialStores(issues);
   errors.push(...globalChecker.checkErrors);
   if (forCli) for (const error of globalChecker.checkErrors) console.error(chalk.red(error.message));
 

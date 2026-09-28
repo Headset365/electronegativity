@@ -219,5 +219,10 @@
 	"userDataOptionDescription": "revisar la carpeta de perfil de la aplicación (su userData: cookies, Local y Session Storage, IndexedDB) en busca de secretos guardados en claro, solo lectura; 'auto' la busca por el nombre de la aplicación. El modo de observación la revisa tras la sesión",
 	"canaryOptionDescription": "una contraseña de prueba única que escribió en la aplicación con 'recordarme' marcado: se busca en sus carpetas (y en sus claves del registro en Windows), en claro y en codificaciones habituales; con --watch, también se compara lo que escribió la sesión. Se puede repetir",
 	"searchDirOptionDescription": "otra carpeta donde buscar la contraseña de --canary; se puede repetir",
-	"showSecretsOptionDescription": "mantener en el informe los valores completos de los secretos encontrados en reposo (ya están en esta máquina: no comparta ese informe)"
+	"showSecretsOptionDescription": "mantener en el informe los valores completos de los secretos encontrados en reposo (ya están en esta máquina: no comparta ese informe)",
+	"SECRET_FILE_WRITE_JS_CHECK": "Se escribe un secreto en un archivo sin cifrar",
+	"ELECTRON_STORE_ENCRYPTION_JS_CHECK": "electron-store guarda sus datos sin cifrar",
+	"COOKIE_FLAGS_JS_CHECK": "Se establece una cookie en el código sin sus atributos de seguridad",
+	"CREDENTIAL_ACCESS_JS_CHECK": "Almacenamiento de credenciales",
+	"HARDCODED_SECRET": "Hay un secreto codificado en el paquete de la aplicación"
 }

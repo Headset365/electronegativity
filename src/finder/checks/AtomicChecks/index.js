@@ -62,6 +62,8 @@ import CommandInjectionJSCheck from './CommandInjectionJSCheck.js';
 import DownloadJSCheck from './DownloadJSCheck.js';
 import { UpdateSecurityJSCheck, UpdateSecurityJSONCheck } from './UpdateSecurityChecks.js';
 import PlaintextSecretsJSCheck from './PlaintextSecretsJSCheck.js';
+import HardcodedSecretsCheck from './HardcodedSecretsCheck.js';
+import { SecretFileWriteJSCheck, ElectronStoreEncryptionJSCheck, CookieFlagsJSCheck, CredentialAccessJSCheck } from './StorageChecks.js';
 
 const CHECKS = [
   AffinityHTMLCheck,
@@ -144,6 +146,11 @@ const CHECKS = [
   UpdateSecurityJSCheck,
   UpdateSecurityJSONCheck,
   PlaintextSecretsJSCheck,
+  SecretFileWriteJSCheck,
+  ElectronStoreEncryptionJSCheck,
+  CookieFlagsJSCheck,
+  CredentialAccessJSCheck,
+  HardcodedSecretsCheck,
 ];
 
 export { CHECKS };
