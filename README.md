@@ -193,6 +193,8 @@ $ electronegativity -h
 | --finding-notes <file> | your own notes per check or family, shown in the HTML, JSON and Word reports (see `docs/finding-notes.example.json`) |
 | --suppress <file> | accepted risks by fingerprint, check or file, with a reason, owner and expiry date (see `docs/suppressions.example.json`) |
 | --compare <report> | an earlier JSON report: mark each finding new, unchanged or changed, and list what was fixed |
+| --share <file> | write the findings redacted for sharing (Markdown, or JSON for `.json`), see [Sharing findings](#sharing-findings); with `--app`, one per step |
+| --share-code | include each finding's code in the `--share` report, strings and comments masked |
 | --diagnostics <file> | write a sanitized troubleshooting report, see [Diagnostics](#diagnostics) |
 | --redact <terms> | extra terms to remove from the diagnostics report, comma separated |
 | -h, --help   | output usage information                          |
@@ -328,6 +330,18 @@ It lists what was scanned (files by type), what was skipped and why (tests, bund
 It never contains code, finding descriptions or data that passed through the app. The app's name (from `package.json` and the folder name, in its `-`, `_`, space and joined forms), the user name, the machine name and the home folder are replaced, as are the extra terms given with `--redact`; hosts in URLs are replaced by stable pseudonyms. Review the file before sharing it.
 
 A check that crashes on a file no longer stops the other checks on that file: the failure is reported with the files that couldn't be analyzed, with or without `--diagnostics`.
+
+### Sharing findings
+
+To get help triaging a report without handing over the app, write a redacted copy of the findings:
+
+```
+$ electronegativity -i ./my-app -o report.html --share findings-share.md --redact "Acme,acme.internal"
+```
+
+It keeps what judging a finding needs: the check, severity and confidence, who can exploit it and what the victim has to do, whether a watch session confirmed it, the file (relative to the app) and line, the description and the check-specific details (IPC channel, capabilities, gate, library...). Findings are grouped by check, most severe first; the inventories (windows, exposed APIs, IPC handlers, document parsers) follow, and other informational findings are only counted.
+
+Removed: the app, product and author names from `package.json`, the app folder name, your user and machine names, the `--redact` terms, the home and user folders, hosts (replaced by stable pseudonyms such as `host-1a2b3c4d`), query strings, e-mail and IP addresses (loopback excepted) and anything matching a secret pattern. Code is left out; `--share-code` adds each finding's line with string literals and comments masked (short lowercase code tokens such as channel names, flags and file names stay). The redaction is pattern-based: read the file before sending it, and add names it missed to `--redact`.
 
 ### Ignoring Lines or Files
 

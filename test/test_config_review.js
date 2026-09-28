@@ -9,6 +9,7 @@ import { readCacheEntry, reviewCaches } from '../src/storage/at_rest.js';
 import { sourceMapIssues } from '../src/production/sourcemaps.js';
 import { interactionOf, consequenceOf } from '../src/finder/consequences.js';
 import { splitOutputs, unwritableOutput } from '../src/util/file.js';
+import { maskCode } from '../src/report/share.js';
 
 chaiShould();
 await _i18n();
@@ -304,6 +305,56 @@ module.exports = { unzip, unzipSafe };` });
     it('finds an output folder that cannot be written before the scan starts', () => {
       (unwritableOutput([path.join(tmp('eng-out-'), 'r.html')]) === undefined).should.equal(true);
       unwritableOutput([path.join(os.tmpdir(), 'no-such-folder-eng', 'r.html')]).reason.should.equal('ENOENT');
+    });
+  });
+
+  describe('Shareable report (--share)', () => {
+    const TOKEN = ['ghp_', 'Zq8Lm2Vt9Rk4Zp8Wn3Yb6Hs7Tx4Wv1Yp8Nb2Qm'].join('');
+    const files = {
+      'package.json': '{"name":"acmematters","productName":"Acme Matters","main":"main.js","devDependencies":{"electron":"30.0.0"},"author":"Contoso Legal"}',
+      'main.js': `
+const { BrowserWindow, ipcMain, shell } = require('electron');
+const { exec } = require('child_process');
+const win = new BrowserWindow({ webPreferences: { nodeIntegration: true } });
+win.loadURL('https://portal.acmematters.example/app?tenant=contoso-legal');
+ipcMain.handle('open-in-word', (event, name) => { exec(\`start winword "\${name}"\`); });
+ipcMain.handle('link', (event, url) => shell.openExternal(url));
+const support = 'jane.doe@contoso.example';
+const token = '${TOKEN}';
+const server = 'http://10.20.30.40:8080/api';
+fetch('http://10.20.30.40:8080/api');`,
+    };
+
+    it('keeps what judging a finding needs and removes what identifies the app', async () => {
+      const dir = tmp('eng-share-');
+      const app = path.join(dir, 'AcmeMatters');
+      fs.mkdirSync(app);
+      for (const [name, content] of Object.entries(files)) fs.writeFileSync(path.join(app, name), content);
+      const md = path.join(dir, 'share.md');
+      const json = path.join(dir, 'share.json');
+      await run({ input: app, offline: true, share: md, redact: ['Contoso'] });
+      await run({ input: app, offline: true, share: json, shareCode: true, redact: ['Contoso'] });
+      for (const file of [md, json]) {
+        const text = fs.readFileSync(file, 'utf8');
+        for (const leak of ['acmematters', 'Acme Matters', 'AcmeMatters', 'Contoso', 'contoso', 'portal.', 'tenant=', 'jane.doe', '10.20.30.40', TOKEN, dir])
+          text.should.not.include(leak, `${path.basename(file)} leaks ${leak}`);
+      }
+      const markdown = fs.readFileSync(md, 'utf8');
+      markdown.should.match(/### WORD_LAUNCH_JS_CHECK/);
+      markdown.should.match(/`main\.js:6`/);
+      markdown.should.not.include('```js'); // code only with --share-code
+      const report = JSON.parse(fs.readFileSync(json, 'utf8'));
+      const word = report.findings.find(f => f.id === 'WORD_LAUNCH_JS_CHECK');
+      word.should.include({ severity: 'HIGH', file: 'main.js', line: 6, exploitableBy: 'Shared content' });
+      word.code.should.equal('ipcMain.handle(\'open-in-word\', (event, name) => { exec(`start winword "${name}"`); });');
+      report.counts.total.should.equal(report.findings.length);
+    });
+
+    it('masks strings that could carry data in code, keeping code tokens', () => {
+      const same = (text) => text;
+      maskCode("store.get('Acme'); ipcMain.handle('open-doc', f)", same).should.equal("store.get('<str>'); ipcMain.handle('open-doc', f)");
+      maskCode('x = `Hello ${name}, from Jane` // note', same).should.equal('x = `… ${name}… from …`');
+      maskCode("const t = 'Zq8Lm2Vt9Rk4Zp8Wn3Yb6Hs7Tx4W'", same).should.equal("const t = '<str>'");
     });
   });
 });

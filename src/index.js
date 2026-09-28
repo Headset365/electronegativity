@@ -70,6 +70,8 @@ async function main() {
     .option('--compare <report>', __('compareOptionDescription'))
     .option('--diagnostics <file>', __('diagnosticsOptionDescription'))
     .option('--redact <terms>', __('redactOptionDescription'))
+    .option('--share <file>', __('shareOptionDescription'))
+    .option('--share-code', __('shareCodeOptionDescription'))
     .parse(process.argv);
 
   const options = program.opts();
@@ -116,7 +118,14 @@ async function main() {
       process.exit(1);
     }
     // before a scan or a watch session that can take a while: the reports must be writable where they go
-    const unwritable = unwritableOutput(outputs);
+    const unwritable = unwritableOutput(options.share ? [...outputs, options.share] : outputs);
+    if (unwritable) {
+      console.error(chalk.red(__('outputNotWritable', unwritable)));
+      process.exit(2);
+    }
+  }
+  if (options.share && !options.output && !options.app) {
+    const unwritable = unwritableOutput([options.share]);
     if (unwritable) {
       console.error(chalk.red(__('outputNotWritable', unwritable)));
       process.exit(2);
@@ -152,6 +161,7 @@ async function main() {
     canaries: options.canary || [],
     searchDirs: options.searchDir || [],
     reveal: !!options.showSecrets,
+    shareCode: !!options.shareCode,
     nvd: options.nvd !== false,
     findingNotes: options.findingNotes,
     suppress: options.suppress,
@@ -219,8 +229,10 @@ async function main() {
       extraInputs: remote.extraInputs,
       remoteDiagnostics: remote.remoteDiagnostics,
       diagnostics: options.diagnostics,
+      share: options.share,
       watchDiagnostics: session && session.watchDiagnostics,
     }, forCli);
+    if (options.share && !forCli) console.log(chalk.gray(__('shareWritten', { file: options.share })));
     // CI gate: fail when a reported finding reaches the given severity
     if (failOn) {
       const failing = result.reported.filter(issue => issue.severity.value >= failOn.value);
@@ -311,8 +323,10 @@ async function guided(options, common, { watchArgs, headers, capture, traffic, s
   const step = async (name, extra) => {
     const output = path.join(outDir, `${name}.html`);
     const diagnostics = path.join(outDir, `${name}-diag.json`);
-    const result = await run({ ...common, input: located.code, output, diagnostics, ...extra }, false);
-    written.push(output, diagnostics);
+    // --share: a redacted findings report per step, next to the others
+    const share = options.share ? path.join(outDir, `${name}-share${/\.json$/i.test(options.share) ? '.json' : '.md'}`) : undefined;
+    const result = await run({ ...common, input: located.code, output, diagnostics, share, ...extra }, false);
+    written.push(output, diagnostics, ...(share ? [share] : []));
     for (const error of result.errors.filter(e => !e.tolerable).slice(0, 5)) console.error(chalk.yellow(`${error.file}: ${error.message}`));
     console.log(chalk.green(__('appStepDone', { file: output, ...countBySeverity(result.reported) })));
     return result;

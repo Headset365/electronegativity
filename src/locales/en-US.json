@@ -208,7 +208,7 @@
 	"appAskFirstSession": "Start watch session {{n}}? The app opens: log in, go through its features, then close it completely. [Enter = start, s = skip]",
 	"appAskNextSession": "Start watch session {{n}} (for example as a second account)? [Enter = start, s = finish]",
 	"appStepDone": "{{{file}}}: {{high}} high, {{medium}} medium, {{low}} low, {{info}} informational",
-	"appDone": "Done. Reports are in {{{dir}}}. Send back only the *-diag.json files, after reading them; keep the .html reports:",
+	"appDone": "Done. Reports are in {{{dir}}}. Share only the *-diag.json files (and the *-share files, with --share), after reading them; keep the .html reports:",
 	"diagnosticsOptionDescription": "write a sanitized diagnostics report to share for troubleshooting: what was scanned or skipped, errors, check timings, watch mode status; no code or findings text",
 	"redactOptionDescription": "extra comma-separated terms to replace in the diagnostics report (company, product or host names); the app name, user name and machine name are always replaced",
 	"diagnosticsWritten": "Diagnostics written to {{{file}}}: review it before sharing",
@@ -246,5 +246,8 @@
 	"DOCUMENT_PIPELINE_JS_CHECK": "Document pipeline",
 	"SOURCE_MAP_SHIPPED": "Source maps ship with the app",
 	"watchScreenshotsOptionDescription": "in watch mode, save a screenshot of the window as evidence when the marker comes back as live HTML, script is inserted into a page or a navigation carries the marker (to this folder, default ./screenshots; pages can show confidential data)",
-	"outputNotWritable": "Can't write the report {{{output}}}: the folder {{{dir}}} is not writable ({{{reason}}}). Run from a folder you can write to (e.g. cd to your Documents) or give a full path with -o."
+	"outputNotWritable": "Can't write the report {{{output}}}: the folder {{{dir}}} is not writable ({{{reason}}}). Run from a folder you can write to (e.g. cd to your Documents) or give a full path with -o.",
+	"shareOptionDescription": "write the findings redacted for sharing (to get help triaging them without handing over the app): names, hosts, user folders, query strings, e-mail and IP addresses, secrets and code are removed; Markdown, or JSON for a .json file. With --app, one per step in the results folder. Review it before sending",
+	"shareCodeOptionDescription": "include each finding's code in the --share report, with its strings and comments masked",
+	"shareWritten": "Redacted findings for sharing written to {{{file}}}: review it before sending"
 }

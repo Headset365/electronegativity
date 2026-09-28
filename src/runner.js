@@ -27,6 +27,7 @@ import { secretSources, scanSecrets } from './secrets/scan.js';
 import { linkCredentialStores } from './finder/checks/AtomicChecks/StorageChecks.js';
 import { analyzeBinary } from './binary/index.js';
 import { sourceMapIssues } from './production/sourcemaps.js';
+import { writeShare } from './report/share.js';
 import { installerIssues } from './unpack/findings.js';
 import { loadFindingNotes, applyFindingNotes } from './report/notes.js';
 import { loadSuppressions, applySuppressions, compareWithReport } from './util/triage.js';
@@ -430,6 +431,13 @@ async function scan(options, forCli) {
       installer: options.installer && { kind: options.installer.kind, file: options.installer.target, sha256: options.installer.installer.sha256, size: options.installer.installer.size, nsis: options.installer.installer.nsis },
       dependencies
     });
+  }
+
+  // the same findings, redacted for sharing (--share): names, hosts, paths, secrets and code removed
+  if (options.share) {
+    writeShare(options.share, { input: options.input, issues: reported, suppressed, electronVersion, bundled: dependencies && dependencies.bundled,
+      runtime: options.runtime && options.runtime.summary, redact: options.redact || [], code: !!options.shareCode, version: pkg.version });
+    if (forCli) console.log(chalk.gray(__('shareWritten', { file: options.share })));
   }
 
   if (forCli) {
