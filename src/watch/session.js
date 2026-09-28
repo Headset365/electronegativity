@@ -69,7 +69,13 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     } else console.error(chalk.yellow(__('watchFusesUnreadable', { file: fuses.binary })));
     watchDiagnostics.fusesRead = fuses.read;
   }
-  if (!runtime.summary.started) console.error(chalk.yellow(__('watchNoHook')));
+  if (!runtime.summary.started && !(watch && injection && injection.loaded)) console.error(chalk.yellow(__('watchNoHook')));
+  // the observer was in, but the app never opened a window: usually another copy of it was still running (a second
+  // instance hands over to the first and exits), or it closed on its own
+  else if (watch && runtime.summary.windows === 0) {
+    console.error(chalk.yellow(__('watchNoWindows')));
+    watchDiagnostics.noWindows = true;
+  }
   return { runtime, watchDiagnostics, watchLog: log, staticInput };
 }
 

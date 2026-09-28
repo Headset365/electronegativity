@@ -188,6 +188,7 @@
 	"watchLogSaved": "Session log saved to {{{file}}} (reuse it with --watch-log)",
 	"watchNoHook": "The app did not load the watch mode observer, so nothing was observed. A packaged app loads it through the Node inspector, which builds with the EnableNodeCliInspectArguments fuse off don't allow: use a test build with that fuse on, or run the app folder with Electron installed. The diagnostics file (--diagnostics) records what went wrong.",
 	"watchInspectFuseOff": "This build has the EnableNodeCliInspectArguments fuse off, so the watch mode observer can't be loaded into it and the session would record nothing. Use a test build with that fuse on (the static scan still covers the app's code).",
+	"watchNoWindows": "The app opened no windows during this session, so there is nothing to report for it. Usually another copy of the app was still running (check the tray and Task Manager, close it, then run the session again), or the app closed on its own.",
 	"watchFusesUnreadable": "No Electron fuse configuration was found in {{{file}}}, so the fuses of the packaged app could not be checked",
 	"watchCaptureOptionDescription": "in watch mode, do not download the scripts and templates pages load for the static scan",
 	"remoteOptionDescription": "also scan the front end served at this URL (its page, scripts, source maps and templates); can be repeated",
