@@ -118,3 +118,12 @@ the limits that remain, so the boundaries of the analysis stay clear.
   watch mode downloads with the app's own session. Templates or chunks guessed from the code are fetched without the
   session after a watch session unless `--remote-header` is given.
 - **Minified code without source maps.** Scanned as is; the data-flow checks follow it less well than original sources.
+
+## Requested, not implemented
+
+- **Sending the marker request automatically.** Requested: when the validation assistant spots a save request (for
+  example `PUT /api/matters/{id}/documents` carrying HTML), it would show exactly what it proposes to send (each field
+  and the marker value it would put there, and the target URL) and ask `Y/N` before sending it itself, instead of asking
+  the tester to resend it through the app or a proxy. Not built into this tool; it is being handled outside it. Today the
+  assistant names the endpoint and the fields to change, and confirms automatically when a request carrying the marker
+  is seen, however it was sent.
