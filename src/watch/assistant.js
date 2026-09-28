@@ -116,12 +116,14 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
   function askAndSend(request) {
     const { key, r, route, html, text } = request;
     const channel = state.channel;
-    if (!channel || !channel.confirm || !channel.send) return manualFor(request);
-    const fill = r.fields.map(f => ({ name: f.name, html: !!f.html }));
-    const shown = fill.map(f => `${f.name}=${f.html ? forms.html : forms.text}`);
+    // the marker goes only into the fields that carried markup, never into every field: sending it in a title, an id or
+    // a status would overwrite data unrelated to the stored-content test
+    const fill = r.fields.filter(f => f.html).map(f => ({ name: f.name, html: true }));
+    if (!channel || !channel.confirm || !channel.send || fill.length === 0) return manualFor(request);
+    const shown = fill.map(f => `${f.name}=${forms.html}`);
     say.next(`Saw ${key}${html.length ? ` carrying HTML in: ${listNames(html)}` : ''}${text.length ? `${html.length ? '; text in' : ' with fields'}: ${listNames(text)}` : ''}. I can re-send it for you, through the app's own session, with the marker in: ${listNames(fill.map(f => f.name))} — ${shown.slice(0, 8).join('; ')}${shown.length > 8 ? '; …' : ''}.`);
     state.confirming = true;
-    Promise.resolve(channel.confirm(`[validate] Send ${key} with the marker now? [Y/n] `))
+    Promise.resolve(channel.confirm(`[validate] Send ${key} with the marker now? [y/N] `))
       .then(yes => {
         if (yes) {
           channel.send({ kind: 'send-marker', replay: r.replay, method: r.method, route, fields: fill });
@@ -173,8 +175,9 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
           state.asked.set(key, { html, text });
           const request = { key, r, route, html, text };
           const channel = state.channel;
-          // if the tool can re-send the request itself, show exactly what it would send and ask before doing it
-          if (channel && channel.confirm && channel.send && r.replay !== undefined) {
+          // offer to re-send only when we can and the request carried HTML: then the marker goes into those content
+          // fields alone. A plain-text save gets manual instructions, so the tester chooses the field to mark.
+          if (channel && channel.confirm && channel.send && r.replay !== undefined && html.length > 0) {
             if (state.confirming) {
               // a question is already open: wait our turn instead of falling back to manual instructions
               if (!state.queued.has(key)) { state.queued.add(key); state.queue.push(request); }
@@ -317,6 +320,15 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
   // the start of a session that can do this (an interactive terminal, a marker) and cleared when it ends.
   function useChannel(channel) { state.channel = channel || undefined; }
   function clearChannel() {
+    // cancel a question left open when the app closed, so it stops reading the keyboard (otherwise the next prompt,
+    // e.g. "start session 2?", shares the input and one Enter answers both). A cancelled question is treated as no.
+    if (state.channel && state.channel.cancel) {
+      try {
+        state.channel.cancel();
+      } catch {
+        // best effort
+      }
+    }
     // nothing we were about to ask about should silently vanish: tell the tester how to send each one by hand
     for (const request of state.queue) manualFor(request);
     state.queue = [];

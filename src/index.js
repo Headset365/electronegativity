@@ -188,24 +188,37 @@ function generateMarker() {
   return 'ENG' + [...crypto.randomBytes(6)].map(b => alphabet[b % alphabet.length]).join('');
 }
 
-async function ask(question) {
+async function ask(question, signal) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return (await rl.question(question)).trim().toLowerCase();
+    return (await rl.question(question, signal ? { signal } : undefined)).trim().toLowerCase();
   } finally {
     rl.close();
   }
 }
 
 // A Y/N confirmation for the validation assistant (used only to re-send the marker request), enabled only when the
-// terminal is interactive. An empty answer means yes. Returns undefined when there is no interactive terminal, so the
-// assistant falls back to telling the tester to send the request themselves.
+// terminal is interactive. The default is no: only an explicit "y" sends, so an accidental Enter (meant for the next
+// prompt) never sends. Returns undefined when there is no interactive terminal, so the assistant falls back to telling
+// the tester to send the request themselves. The returned function carries a cancel() that aborts an open question
+// (used when the app closes with a question still waiting), which resolves it as no.
 function interactiveConfirm() {
   if (!process.stdin.isTTY) return undefined;
-  return async (question) => {
-    const answer = await ask(question);
-    return answer === '' || /^y/.test(answer);
+  let active;
+  const confirm = async (question) => {
+    const controller = new AbortController();
+    active = controller;
+    try {
+      const answer = await ask(question, controller.signal);
+      return /^y/.test(answer); // empty answer (a bare Enter) means no
+    } catch {
+      return false; // cancelled (the session ended) or interrupted: treat as no
+    } finally {
+      if (active === controller) active = undefined;
+    }
   };
+  confirm.cancel = () => { if (active) active.abort(); };
+  return confirm;
 }
 
 function countBySeverity(issues) {

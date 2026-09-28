@@ -57,7 +57,8 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     if (marker && confirm && assistant.useChannel) {
       commandsFile = path.join(logDir, 'commands.jsonl');
       fs.writeFileSync(commandsFile, '');
-      assistant.useChannel({ confirm, send: (command) => { try { fs.appendFileSync(commandsFile, JSON.stringify(command) + '\n'); } catch { /* best effort */ } } });
+      assistant.useChannel({ confirm, cancel: typeof confirm.cancel === 'function' ? () => confirm.cancel() : undefined,
+        send: (command) => { try { fs.appendFileSync(commandsFile, JSON.stringify(command) + '\n'); } catch { /* best effort */ } } });
     }
     const stopFollowing = followLog(logFile, record => assistant.handle(record));
     try {

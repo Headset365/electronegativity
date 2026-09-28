@@ -57,10 +57,11 @@ describe('Validation assistant', () => {
     assistant.useChannel({ confirm: async () => true, send: (command) => commands.push(command) });
     assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/matters/12/documents', status: 200, replay: 7,
       fields: [{ name: 'title', html: false, marker: false }, { name: 'body', html: true, marker: false }] });
-    lines[0].should.match(/I can re-send it for you, through the app's own session, with the marker in: title, body/);
+    // the marker goes only into the HTML field (body), not the plain title
+    lines[0].should.match(/I can re-send it for you, through the app's own session, with the marker in: body —/);
     await new Promise(resolve => setImmediate(resolve));
     commands.should.deep.equal([{ kind: 'send-marker', replay: 7, method: 'PUT', route: 'https://srv.test/api/matters/{id}/documents',
-      fields: [{ name: 'title', html: false }, { name: 'body', html: true }] }]);
+      fields: [{ name: 'body', html: true }] }]);
     lines.some(l => /Sending PUT .* with the marker/.test(l)).should.equal(true);
   });
 
@@ -128,9 +129,22 @@ describe('Validation assistant', () => {
     const { assistant, lines } = assistantWith();
     assistant.useChannel({ confirm: (q) => new Promise(resolve => gate.push({ q, resolve })), send: () => {} });
     assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/a', status: 200, replay: 1, fields: [{ name: 'body', html: true, marker: false }] });
-    assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/b', status: 200, replay: 2, fields: [{ name: 'title', html: false, marker: false }] });
+    assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/b', status: 200, replay: 2, fields: [{ name: 'body', html: true, marker: false }] });
     assistant.clearChannel();
     lines.some(l => /Send it again with the marker/.test(l) && /api\/b/.test(l)).should.equal(true);
+  });
+
+  it('cancels an open question when the session ends, and falls back to manual for it', async () => {
+    let reject;
+    const { assistant, lines } = assistantWith();
+    const confirm = () => new Promise((resolve, r) => { reject = r; });
+    confirm.cancel = () => reject(new Error('cancelled'));
+    assistant.useChannel({ confirm, send: () => {}, cancel: confirm.cancel });
+    assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/a', status: 200, replay: 1, fields: [{ name: 'body', html: true, marker: false }] });
+    lines.some(l => /Send it again with the marker/.test(l)).should.equal(false, 'the question is still open, no manual yet');
+    assistant.clearChannel();
+    await new Promise(resolve => setImmediate(resolve));
+    lines.some(l => /Send it again with the marker/.test(l) && /api\/a/.test(l)).should.equal(true);
   });
 
   it('reports a request it re-sent itself, and does not announce the same one twice', () => {

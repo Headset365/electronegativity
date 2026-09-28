@@ -106,19 +106,23 @@ the limits that remain, so the boundaries of the analysis stay clear.
 ### 10. Sending the marker request automatically
 
 - **What it does:** when the validation assistant spots a save request that carries HTML (for example
-  `PUT /api/matters/{id}/documents`), it shows exactly what it proposes to send — each field and the marker value it
-  would put there (`ENG…` in text fields, `<span data-ENG…="1">ENG…</span>` in HTML fields) and the target endpoint —
-  and asks `Y/N`. On yes, it re-sends the request the app already made, with the marker put into those fields, through
-  that request's own session (so a logged-in test account's cookies apply), and reports the status. The re-sent request
-  is observed like any other, so the marker's onward path (rendering, HTML sinks) is picked up as usual. On no, or when
-  it can't send, it falls back to naming the endpoint and fields for the tester to send by hand or replay from a proxy.
+  `PUT /api/matters/{id}/documents`), it shows exactly what it proposes to send — the HTML fields and the marker value it
+  would put there (`<span data-ENG…="1">ENG…</span>`) and the target endpoint — and asks `y/N` (the default is no, so an
+  Enter meant for the next prompt never sends). On yes, it re-sends the request the app already made, with the marker put
+  into those fields, through that request's own session (so a logged-in test account's cookies apply), and reports the
+  status. The re-sent request is observed like any other, so the marker's onward path (rendering, HTML sinks) is picked
+  up as usual. On no, or when it can't send, it falls back to naming the endpoint and fields for the tester to send by
+  hand or replay from a proxy. If several save requests arrive at once it asks about them one at a time; a question left
+  open when the app closes is cancelled (counted as no) so it can't be answered by accident at the next prompt.
 - **Why it matters:** it closes the loop the assistant used to leave to the tester — planting the stored content — so
   confirming stored-content injection needs one keypress instead of switching to the app or a proxy to resend.
-- **Remaining limit:** only JSON and urlencoded bodies are rebuilt (a multipart upload is left for the tester); the
-  request goes through the app's own session, so token-in-header auth that the session doesn't carry isn't reproduced;
-  it needs an interactive terminal (`--watch` or `--app`, not `--watch-log` replay) and Electron 25+ (`session.fetch`);
-  and it is offered once per endpoint. Only the harmless marker is ever put into the body — nothing else is sent, and no
-  request content is written to the log or the diagnostics report.
+- **Remaining limit:** the marker is put only into the fields that carried markup, so a plain-text save is left for the
+  tester (naming a title, an id or a status would overwrite unrelated data); only JSON and urlencoded bodies are rebuilt
+  (a multipart upload is left for the tester); the request goes through the app's own session, so token-in-header auth
+  that the session doesn't carry isn't reproduced; it needs an interactive terminal (`--watch` or `--app`, not
+  `--watch-log` replay) and Electron 25+ (`session.fetch`); and it is offered once per endpoint. Only the harmless marker
+  is ever put into the body — nothing else is sent, and no request content is written to the log or the diagnostics
+  report.
 
 ## Remaining gaps
 
