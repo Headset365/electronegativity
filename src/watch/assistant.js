@@ -64,6 +64,8 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
   const state = {
     platform: process.platform, pageOrigins: new Map(), asked: new Map(), sent: new Map(), rendered: [], sinks: [], links: [],
     paths: [], commands: [], ipc: new Map(), entries: new Set(),
+    // set for the current session when the tool can re-send the marker request itself: { confirm(question)->bool, send(command) }
+    channel: undefined, confirming: false, autoSent: new Set(),
   };
   const review = staticIssues.filter(i => i.manualReview || HTML_REVIEW.has(i.id) || LINK_REVIEW.has(i.id) || i.id === 'OPEN_PATH_JS_CHECK');
   const count = (ids) => review.filter(i => ids.has(i.id)).length;
@@ -112,7 +114,8 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
         const withMarker = r.fields.filter(f => f.marker);
         if (withMarker.length > 0) {
           state.sent.set(key, [...new Set([...(state.sent.get(key) || []), ...withMarker.map(f => f.name)])]);
-          if (first(`sent:${key}:${withMarker.map(f => f.name).join(',')}`)) {
+          // when we sent it ourselves the marker-request result already reported it: don't say it twice
+          if (first(`sent:${key}:${withMarker.map(f => f.name).join(',')}`) && !state.autoSent.has(key)) {
             const asHtml = withMarker.filter(f => f.html).map(f => f.name);
             say.good(`The marker was sent with ${key} in: ${withMarker.map(f => f.name).join(', ')}${asHtml.length ? ` (as HTML in: ${asHtml.join(', ')})` : ''}. Now view that content: reload it here, or open it signed in as the second account.`);
           }
@@ -121,7 +124,44 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
           const text = r.fields.filter(f => !f.html).map(f => f.name);
           state.asked.set(key, { html, text });
           const list = (names) => names.slice(0, 8).join(', ') + (names.length > 8 ? `, and ${names.length - 8} more` : '');
-          say.next(`Saw ${key}${html.length ? ` carrying HTML in: ${list(html)}` : ''}${text.length ? `${html.length ? '; text in' : ' with fields'}: ${list(text)}` : ''}. Send it again with the marker: ${forms.text} in the text fields${html.length ? ` and ${forms.html} in ${list(html)}` : ''}. Use the app (the editor's HTML/source view if it has one), or replay this request from your proxy.`);
+          const manual = () => say.next(`Saw ${key}${html.length ? ` carrying HTML in: ${list(html)}` : ''}${text.length ? `${html.length ? '; text in' : ' with fields'}: ${list(text)}` : ''}. Send it again with the marker: ${forms.text} in the text fields${html.length ? ` and ${forms.html} in ${list(html)}` : ''}. Use the app (the editor's HTML/source view if it has one), or replay this request from your proxy.`);
+          const channel = state.channel;
+          // if the tool can re-send the request itself, show exactly what it would send and ask before doing it
+          if (channel && channel.confirm && channel.send && r.replay !== undefined && !state.confirming) {
+            const fill = r.fields.map(f => ({ name: f.name, html: !!f.html }));
+            const shown = fill.map(f => `${f.name}=${f.html ? forms.html : forms.text}`);
+            say.next(`Saw ${key}${html.length ? ` carrying HTML in: ${list(html)}` : ''}${text.length ? `${html.length ? '; text in' : ' with fields'}: ${list(text)}` : ''}. I can re-send it for you, through the app's own session, with the marker in: ${list(fill.map(f => f.name))} — ${shown.slice(0, 8).join('; ')}${shown.length > 8 ? '; …' : ''}.`);
+            state.confirming = true;
+            Promise.resolve(channel.confirm(`[validate] Send ${key} with the marker now? [Y/n] `))
+              .then(yes => {
+                if (yes) {
+                  channel.send({ kind: 'send-marker', replay: r.replay, method: r.method, route, fields: fill });
+                  say.next(`Sending ${key} with the marker…`);
+                } else {
+                  say.note('Not sending it. To check this endpoint yourself:');
+                  manual();
+                }
+              })
+              .catch(() => manual())
+              .finally(() => { state.confirming = false; });
+          } else {
+            manual();
+          }
+        }
+        break;
+      }
+      case 'marker-request': {
+        // the result of a request the tool re-sent itself, after the tester confirmed it
+        const key = r.route ? `${r.method} ${r.route}` : (r.method ? `${r.method} request` : 'the request');
+        if (r.ok) {
+          state.autoSent.add(key);
+          state.sent.set(key, [...new Set([...(state.sent.get(key) || []), ...(r.fields || [])])]);
+          if (first(`marker-request:${key}`)) {
+            const asHtml = r.html || [];
+            say.good(`Sent ${key} with the marker${r.fields && r.fields.length ? ` in: ${r.fields.join(', ')}` : ''}${asHtml.length ? ` (as HTML in: ${asHtml.join(', ')})` : ''}${r.status ? ` (status ${r.status})` : ''}. Now view that content: reload it here, or open it signed in as the second account.`);
+          }
+        } else if (first(`marker-request-failed:${key}`)) {
+          say.note(`I couldn't send ${key} automatically${r.status ? ` (status ${r.status})` : r.error ? ` (${r.error})` : ''}. Send it through the app, or replay it from your proxy, with the marker in its fields.`);
         }
         break;
       }
@@ -233,7 +273,12 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
     for (const item of items) print(`[validate]   ${icon[item.status]}  ${item.text}`);
   }
 
-  return { intro, handle, summary, printSummary };
+  // The current session's channel for re-sending the marker request: confirm(question)->bool and send(command). Set at
+  // the start of a session that can do this (an interactive terminal, a marker) and cleared when it ends.
+  function useChannel(channel) { state.channel = channel || undefined; }
+  function clearChannel() { state.channel = undefined; }
+
+  return { intro, handle, summary, printSummary, useChannel, clearChannel };
 }
 
 /**

@@ -230,9 +230,18 @@ function markerEvidence(records, add, first, api, issues) {
     if (frame) issues[issues.length - 1].location = { line: frame.line, column: frame.column };
   }
   for (const endpoint of api.filter(e => e.fields.some(f => f.marker))) {
+    if (!first(`marker-sent:${endpoint.method} ${endpoint.route}`)) continue;
     const fields = endpoint.fields.filter(f => f.marker).map(f => f.name);
     add('RUNTIME_MARKER_SENT', endpoint.route, severity.INFORMATIONAL, confidence.CERTAIN,
       `The planted marker was sent with ${endpoint.method} ${endpoint.route} in: ${fields.join(', ')}`, { method: endpoint.method, route: endpoint.route, fields });
+  }
+  // requests the validation assistant re-sent itself (after the tester confirmed): the same evidence, whether the marker
+  // was put in by hand or sent for the tester
+  for (const r of records.filter(r => r.kind === 'marker-request' && r.ok && r.route)) {
+    if (!first(`marker-sent:${r.method} ${r.route}`)) continue;
+    const fields = r.fields || [];
+    add('RUNTIME_MARKER_SENT', r.route, severity.INFORMATIONAL, confidence.CERTAIN,
+      `The planted marker was sent with ${r.method} ${r.route}${fields.length ? ` in: ${fields.join(', ')}` : ''} (re-sent by the validation assistant)`, { method: r.method, route: r.route, fields });
   }
   for (const r of records.filter(r => r.kind === 'shell' && r.marker)) {
     if (r.method === 'openExternal') {

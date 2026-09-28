@@ -129,7 +129,7 @@ async function main() {
     let session;
     if (options.watch || options.watchLog) {
       try {
-        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker, capture });
+        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker, capture, confirm: interactiveConfirm() });
       } catch (error) {
         console.error(chalk.red(error.message));
         process.exit(2);
@@ -197,6 +197,17 @@ async function ask(question) {
   }
 }
 
+// A Y/N confirmation for the validation assistant (used only to re-send the marker request), enabled only when the
+// terminal is interactive. An empty answer means yes. Returns undefined when there is no interactive terminal, so the
+// assistant falls back to telling the tester to send the request themselves.
+function interactiveConfirm() {
+  if (!process.stdin.isTTY) return undefined;
+  return async (question) => {
+    const answer = await ask(question);
+    return answer === '' || /^y/.test(answer);
+  };
+}
+
 function countBySeverity(issues) {
   const counts = { high: 0, medium: 0, low: 0, info: 0 };
   for (const issue of issues) {
@@ -252,7 +263,7 @@ async function guided(options, common, { watchArgs, headers, capture }) {
     }
     let session;
     try {
-      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, capture, assistant });
+      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, capture, assistant, confirm: interactiveConfirm() });
     } catch (error) {
       console.error(chalk.red(error.message));
       break;

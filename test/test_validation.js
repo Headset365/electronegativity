@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { stripVTControlCharacters } from 'node:util';
 import { should as chaiShould } from 'chai';
 import _i18n from '../src/locales/i18n.js';
@@ -14,6 +15,9 @@ import { severity, confidence } from '../src/finder/attributes.js';
 
 chaiShould();
 await _i18n();
+
+// hook.cjs runs no instrumentation when required outside Electron (its top guard is false), so its pure helpers can be tested
+const { fillMarkerBody, canReplayBody } = createRequire(import.meta.url)('../src/watch/hook.cjs');
 
 const M = 'ENGTEST01';
 const strip = (text) => stripVTControlCharacters(text);
@@ -45,6 +49,45 @@ describe('Validation assistant', () => {
     lines[1].should.match(/^\[validate\] ✓ The marker was sent with PUT .* in: title, body \(as HTML in: body\)/);
     assistant.summary().some(i => i.status === 'done' && /title, body/.test(i.text)).should.equal(true);
     assistant.summary().some(i => i.status === 'todo' && /send PUT/.test(i.text)).should.equal(false);
+  });
+
+  it('offers to re-send a save request itself, and sends it on Y', async () => {
+    const commands = [];
+    const { assistant, lines } = assistantWith();
+    assistant.useChannel({ confirm: async () => true, send: (command) => commands.push(command) });
+    assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/matters/12/documents', status: 200, replay: 7,
+      fields: [{ name: 'title', html: false, marker: false }, { name: 'body', html: true, marker: false }] });
+    lines[0].should.match(/I can re-send it for you, through the app's own session, with the marker in: title, body/);
+    await new Promise(resolve => setImmediate(resolve));
+    commands.should.deep.equal([{ kind: 'send-marker', replay: 7, method: 'PUT', route: 'https://srv.test/api/matters/{id}/documents',
+      fields: [{ name: 'title', html: false }, { name: 'body', html: true }] }]);
+    lines.some(l => /Sending PUT .* with the marker/.test(l)).should.equal(true);
+  });
+
+  it('falls back to a manual instruction when the tester declines', async () => {
+    const commands = [];
+    const { assistant, lines } = assistantWith();
+    assistant.useChannel({ confirm: async () => false, send: (command) => commands.push(command) });
+    assistant.handle({ kind: 'api', method: 'POST', url: 'https://srv.test/api/notes', status: 201, replay: 1, fields: [{ name: 'text', html: true, marker: false }] });
+    await new Promise(resolve => setImmediate(resolve));
+    commands.should.have.length(0);
+    lines.some(l => /Send it again with the marker/.test(l)).should.equal(true);
+  });
+
+  it('reports a request it re-sent itself, and does not announce the same one twice', () => {
+    const { assistant, lines } = assistantWith();
+    assistant.handle({ kind: 'marker-request', ok: true, status: 200, method: 'PUT', route: 'https://srv.test/api/matters/{id}/documents', fields: ['title', 'body'], html: ['body'] });
+    lines[0].should.match(/^\[validate\] ✓ Sent PUT .* in: title, body \(as HTML in: body\) \(status 200\)/);
+    // the same request, once observed carrying the marker, is not announced a second time
+    assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/matters/12/documents', status: 200, fields: [{ name: 'title', html: false, marker: true }, { name: 'body', html: true, marker: true }] });
+    lines.should.have.length(1);
+    assistant.summary().some(i => i.status === 'done' && /title, body/.test(i.text)).should.equal(true);
+  });
+
+  it('notes when it could not re-send a request', () => {
+    const { assistant, lines } = assistantWith();
+    assistant.handle({ kind: 'marker-request', ok: false, status: 403, method: 'POST', route: 'https://srv.test/api/notes' });
+    lines[0].should.match(/couldn't send POST .* automatically \(status 403\)/);
   });
 
   it('ties an HTML sink hit to the static finding at that line', () => {
@@ -166,6 +209,43 @@ describe('Marker evidence', () => {
     const frames = mapFrames(dir, [{ url: 'https://srv.test/app.js', line: 1, column: 45 }, { url: 'https://srv.test/other.js', line: 1, column: 1 }]);
     frames[0].original.should.deep.equal({ file: 'https://srv.test/app.js (source: src/viewer.js)', line: 3, column: 1 });
     (frames[1].original === undefined).should.equal(true);
+  });
+});
+
+describe('Marker request body', () => {
+  it('puts the marker into the named JSON fields and leaves the others intact', () => {
+    const out = fillMarkerBody(JSON.stringify({ title: 'hi', body: '<p>x</p>', keep: 'me', n: 5 }), M, [{ name: 'title', html: false }, { name: 'body', html: true }]);
+    out.contentType.should.equal('application/json');
+    const parsed = JSON.parse(out.body);
+    parsed.title.should.equal(M);
+    parsed.body.should.equal(markerForms(M).html);
+    parsed.keep.should.equal('me');
+    parsed.n.should.equal(5);
+  });
+
+  it('reaches nested and array fields by the names the body inspection reports', () => {
+    const out = fillMarkerBody(JSON.stringify({ doc: { blocks: [{ text: 'a' }, { text: 'b' }] } }), M, [{ name: 'doc.blocks[].text', html: false }]);
+    JSON.parse(out.body).doc.blocks.map(b => b.text).should.deep.equal([M, M]);
+  });
+
+  it('fills urlencoded fields', () => {
+    const out = fillMarkerBody('title=hi&body=x', M, [{ name: 'body', html: false }]);
+    out.contentType.should.equal('application/x-www-form-urlencoded');
+    const parsed = new URLSearchParams(out.body);
+    parsed.get('body').should.equal(M);
+    parsed.get('title').should.equal('hi');
+  });
+
+  it('returns null for a multipart body, or when none of the named fields are present', () => {
+    (fillMarkerBody('------x\r\nContent-Disposition: form-data; name="f"\r\n\r\nv\r\n------x--', M, [{ name: 'f', html: false }]) === null).should.equal(true);
+    (fillMarkerBody(JSON.stringify({ a: 1 }), M, [{ name: 'missing', html: false }]) === null).should.equal(true);
+    (fillMarkerBody('{"a":1}', M, []) === null).should.equal(true);
+  });
+
+  it('canReplayBody accepts JSON and urlencoded bodies, not multipart', () => {
+    canReplayBody('{"title":"x"}').should.equal(true);
+    canReplayBody('a=1&b=2').should.equal(true);
+    canReplayBody('------x\r\nContent-Disposition: form-data; name="f"').should.equal(false);
   });
 });
 

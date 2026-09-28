@@ -103,6 +103,23 @@ the limits that remain, so the boundaries of the analysis stay clear.
   evidence is tied to the kind of finding, not to one call site; and the IPC sender check itself still has to be read in
   the handler.
 
+### 10. Sending the marker request automatically
+
+- **What it does:** when the validation assistant spots a save request that carries HTML (for example
+  `PUT /api/matters/{id}/documents`), it shows exactly what it proposes to send — each field and the marker value it
+  would put there (`ENG…` in text fields, `<span data-ENG…="1">ENG…</span>` in HTML fields) and the target endpoint —
+  and asks `Y/N`. On yes, it re-sends the request the app already made, with the marker put into those fields, through
+  that request's own session (so a logged-in test account's cookies apply), and reports the status. The re-sent request
+  is observed like any other, so the marker's onward path (rendering, HTML sinks) is picked up as usual. On no, or when
+  it can't send, it falls back to naming the endpoint and fields for the tester to send by hand or replay from a proxy.
+- **Why it matters:** it closes the loop the assistant used to leave to the tester — planting the stored content — so
+  confirming stored-content injection needs one keypress instead of switching to the app or a proxy to resend.
+- **Remaining limit:** only JSON and urlencoded bodies are rebuilt (a multipart upload is left for the tester); the
+  request goes through the app's own session, so token-in-header auth that the session doesn't carry isn't reproduced;
+  it needs an interactive terminal (`--watch` or `--app`, not `--watch-log` replay) and Electron 25+ (`session.fetch`);
+  and it is offered once per endpoint. Only the harmless marker is ever put into the body — nothing else is sent, and no
+  request content is written to the log or the diagnostics report.
+
 ## Remaining gaps
 
 - **The server.** Static and runtime analysis see the client. Watch mode lists the API endpoints pages called and those
@@ -121,9 +138,5 @@ the limits that remain, so the boundaries of the analysis stay clear.
 
 ## Requested, not implemented
 
-- **Sending the marker request automatically.** Requested: when the validation assistant spots a save request (for
-  example `PUT /api/matters/{id}/documents` carrying HTML), it would show exactly what it proposes to send (each field
-  and the marker value it would put there, and the target URL) and ask `Y/N` before sending it itself, instead of asking
-  the tester to resend it through the app or a proxy. Not built into this tool; it is being handled outside it. Today the
-  assistant names the endpoint and the fields to change, and confirms automatically when a request carrying the marker
-  is seen, however it was sent.
+Nothing outstanding: the last request here — sending the marker request automatically — is now built in (see
+["Sending the marker request automatically"](#10-sending-the-marker-request-automatically) above).

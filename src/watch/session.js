@@ -26,7 +26,7 @@ export function parseHeaders(list = []) {
  * session log `watchLog`, and analyzes it. Returns { runtime, watchDiagnostics, watchLog, staticInput }.
  * @throws when the app can't be started or the log can't be read
  */
-export async function observeSession({ watch, watchLog, args = [], marker, capture = true, assistant, staticIssues = [] }) {
+export async function observeSession({ watch, watchLog, args = [], marker, capture = true, assistant, staticIssues = [], confirm }) {
   let log = watchLog;
   let packagedApp;
   let injection;
@@ -51,12 +51,21 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
       assistant.intro();
     }
     fs.writeFileSync(logFile, '');
+    // when the terminal is interactive and there is a marker, let the assistant re-send the marker request itself
+    // (after a Y/N): it writes a command here and the hook, reading it, replays the request through the app's session
+    let commandsFile;
+    if (marker && confirm && assistant.useChannel) {
+      commandsFile = path.join(logDir, 'commands.jsonl');
+      fs.writeFileSync(commandsFile, '');
+      assistant.useChannel({ confirm, send: (command) => { try { fs.appendFileSync(commandsFile, JSON.stringify(command) + '\n'); } catch { /* best effort */ } } });
+    }
     const stopFollowing = followLog(logFile, record => assistant.handle(record));
     try {
-      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture, log: logFile,
+      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture, log: logFile, commands: commandsFile,
         onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
       stopFollowing();
+      if (assistant.clearChannel) assistant.clearChannel();
     }
     assistant.printSummary();
     console.log(chalk.gray(__('watchLogSaved', { file: log })));

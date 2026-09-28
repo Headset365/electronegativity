@@ -56,6 +56,82 @@ if (logFile && process.versions.electron && process.type === 'browser') {
   });
 }
 
+// The one active, harmless value the validation assistant proposes putting into a saved field: the marker on its own for
+// a plain field, or the marker wrapped in a <span data-...> element for a rich-text/HTML field.
+function markerFormValue(html, marker) {
+  return html ? '<span data-' + marker + '="1">' + marker + '</span>' : marker;
+}
+
+// Whether a captured request body is one we can rebuild with the marker put in: JSON and urlencoded bodies only. A
+// multipart or otherwise-shaped body is left for the tester to resend through the app.
+function canReplayBody(text) {
+  const trimmed = String(text == null ? '' : text).trim();
+  if (/^[[{]/.test(trimmed)) {
+    try {
+      JSON.parse(trimmed);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return /^[\w.%[\]-]+=/.test(trimmed) && !/\s/.test(trimmed.slice(0, 200));
+}
+
+/**
+ * Rebuilds a captured request body with the harmless marker placed into the named fields, so the assistant can re-send
+ * the same request the app made with the marker in it. Only JSON and urlencoded bodies are rebuilt (canReplayBody);
+ * every other field keeps its original value. Returns { body, contentType } or null when the body can't be rebuilt or
+ * none of the named fields were found. Exported for tests.
+ * @param {string} text the original request body
+ * @param {string} marker the planted marker token
+ * @param {Array<{ name: string, html?: boolean }>} fields the fields to put the marker into (field names as bodyFields reports them)
+ */
+function fillMarkerBody(text, marker, fields) {
+  if (!marker || !Array.isArray(fields) || fields.length === 0) return null;
+  const want = new Map();
+  for (const field of fields) if (field && typeof field.name === 'string') want.set(field.name, !!field.html);
+  if (want.size === 0) return null;
+  const trimmed = String(text == null ? '' : text).trim();
+  if (/^[[{]/.test(trimmed)) {
+    let root;
+    try {
+      root = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+    let matched = false;
+    const walk = (value, name, depth) => {
+      if (depth > 6) return value;
+      if (Array.isArray(value)) return value.map(item => walk(item, `${name}[]`, depth + 1));
+      if (value && typeof value === 'object') {
+        const out = {};
+        for (const key of Object.keys(value)) out[key] = walk(value[key], name ? `${name}.${key}` : key, depth + 1);
+        return out;
+      }
+      const leaf = name || '(body)';
+      if (want.has(leaf) && typeof value === 'string') {
+        matched = true;
+        return markerFormValue(want.get(leaf), marker);
+      }
+      return value;
+    };
+    const rebuilt = walk(root, '', 0);
+    return matched ? { body: JSON.stringify(rebuilt), contentType: 'application/json' } : null;
+  }
+  if (/^[\w.%[\]-]+=/.test(trimmed) && !/\s/.test(trimmed.slice(0, 200))) {
+    const out = new URLSearchParams();
+    let matched = false;
+    for (const [name, value] of new URLSearchParams(trimmed)) {
+      if (want.has(name)) {
+        out.append(name, markerFormValue(want.get(name), marker));
+        matched = true;
+      } else out.append(name, value);
+    }
+    return matched ? { body: out.toString(), contentType: 'application/x-www-form-urlencoded' } : null;
+  }
+  return null;
+}
+
 function instrument(electron, late) {
   const fs = require('fs');
   const path = require('path');
@@ -248,7 +324,14 @@ function instrument(electron, late) {
   // API requests pages make (fetch/XHR), for server-side testing: the endpoints the app talks to, and which of them were
   // sent HTML in the request body. Only whether the body looks like markup and its size are kept, never the content.
   const MARKUP = /<\s*[a-z][\w-]*[\s>/]|&lt;\s*[a-z][\w-]*|\\u003c\s*[a-z]/i;
+  const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH']);
   const requestBodies = new Map();
+  // requests the validation assistant can offer to re-send with the marker in them. The full URL and the raw body are
+  // kept in memory only (never written to the log or diagnostics), keyed by a replay id the api record carries, and are
+  // re-sent through the request's own session so a logged-in account's cookies apply. Bounded, oldest evicted.
+  const replayable = new Map();
+  const MAX_REPLAYS = 200;
+  let replayCounter = 0;
   // the names of the fields a request body carries (JSON paths, form fields), each with whether its value looks like
   // markup and whether it holds the marker: the validation assistant asks for the marker in them. Values are not kept.
   const bodyFields = (text) => {
@@ -278,7 +361,7 @@ function instrument(electron, late) {
     for (const [, name, value] of trimmed.matchAll(/name="([^"]{1,100})"(?:; filename="[^"]*")?\r?\n(?:[^\r\n]+\r?\n)*\r?\n([\s\S]*?)\r?\n--/g)) add(name, value);
     return fields;
   };
-  const inspectBody = (details) => {
+  const inspectBody = (details, ses) => {
     if (details.resourceType !== 'xhr' || !Array.isArray(details.uploadData) || details.uploadData.length === 0) return;
     let bytes = 0;
     let text = '';
@@ -293,7 +376,14 @@ function instrument(electron, late) {
     } catch {
       // unreadable body
     }
-    requestBodies.set(details.id, { bytes, html: MARKUP.test(text), fields, marker: hasMarker(text) });
+    // a write request with named fields and a body we can rebuild: keep what it takes to re-send with the marker
+    let replay;
+    if (WRITE_METHODS.has(String(details.method).toUpperCase()) && fields.length > 0 && /^https?:/i.test(details.url) && canReplayBody(text)) {
+      replay = ++replayCounter;
+      replayable.set(replay, { method: String(details.method).toUpperCase(), url: details.url, text, ses });
+      if (replayable.size > MAX_REPLAYS) replayable.delete(replayable.keys().next().value);
+    }
+    requestBodies.set(details.id, { bytes, html: MARKUP.test(text), fields, marker: hasMarker(text), replay });
     if (requestBodies.size > 5000) requestBodies.delete(requestBodies.keys().next().value);
   };
   const recordApi = (details) => {
@@ -302,7 +392,7 @@ function instrument(electron, late) {
     requestBodies.delete(details.id);
     write('api', { method: details.method, url: redact(details.url), status: details.statusCode, webContents: details.webContentsId,
       bodyBytes: body ? body.bytes : 0, htmlBody: !!(body && body.html), fields: body && body.fields.length ? body.fields : undefined,
-      marker: !!(body && body.marker) });
+      marker: !!(body && body.marker), replay: body && body.replay });
   };
 
   // webRequest allows one listener per event and session: ours observes, then hands over to the app's own listener,
@@ -347,7 +437,7 @@ function instrument(electron, late) {
       recordApi(details);
       capture(details, ses);
     };
-    chainListener(request, 'onBeforeRequest', inspectBody);
+    chainListener(request, 'onBeforeRequest', (details) => inspectBody(details, ses));
     chainListener(request, 'onHeadersReceived', record);
 
     // permission requests and the answers; without a handler of the app's own, Electron grants everything
@@ -580,8 +670,67 @@ function instrument(electron, late) {
     }
   });
 
+  // Command channel: the CLI's validation assistant, after asking the tester Y/N, appends a send-marker command here.
+  // We rebuild the request the app already made with the marker put into the named fields and re-send it through that
+  // request's own session (so a logged-in account's cookies apply), then report the outcome. Nothing else is sent, and
+  // only the harmless marker goes into the body. The channel is polled like the log is followed, one line at a time.
+  const COMMANDS = process.env.ELECTRONEGATIVITY_WATCH_COMMANDS;
+  if (COMMANDS) safely(() => {
+    const runCommand = (cmd) => {
+      if (!cmd || cmd.kind !== 'send-marker') return;
+      const done = (data) => write('marker-request', { route: cmd.route, method: cmd.method, ...data });
+      const entry = replayable.get(cmd.replay);
+      if (!entry) return done({ ok: false, error: 'the request is no longer available to re-send' });
+      const built = fillMarkerBody(entry.text, MARKER, cmd.fields || []);
+      if (!built) return done({ ok: false, method: entry.method, error: 'could not rebuild the request body with the marker' });
+      const ses = entry.ses || (electron.session && electron.session.defaultSession);
+      if (!ses || typeof ses.fetch !== 'function') return done({ ok: false, method: entry.method, error: 'session.fetch is unavailable (needs Electron 25+)' });
+      const names = (cmd.fields || []).map(f => f.name);
+      const htmlNames = (cmd.fields || []).filter(f => f.html).map(f => f.name);
+      replayable.delete(cmd.replay); // re-sent once
+      ses.fetch(entry.url, { method: entry.method, headers: { 'content-type': built.contentType }, body: built.body })
+        .then(response => done({ ok: !!response.ok, status: response.status, method: entry.method, fields: names, html: htmlNames }))
+        .catch(error => done({ ok: false, method: entry.method, fields: names, error: String(error && error.message) }));
+    };
+    let offset = 0;
+    let rest = '';
+    const poll = () => {
+      try {
+        const size = fs.statSync(COMMANDS).size;
+        if (size <= offset) return;
+        const fd = fs.openSync(COMMANDS, 'r');
+        try {
+          const buffer = Buffer.alloc(size - offset);
+          fs.readSync(fd, buffer, 0, buffer.length, offset);
+          offset = size;
+          const lines = (rest + buffer.toString('utf8')).split('\n');
+          rest = lines.pop();
+          for (const line of lines) {
+            if (!line) continue;
+            let cmd;
+            try {
+              cmd = JSON.parse(line);
+            } catch {
+              continue;
+            }
+            safely(() => runCommand(cmd));
+          }
+        } finally {
+          fs.closeSync(fd);
+        }
+      } catch {
+        // not written yet
+      }
+    };
+    const timer = setInterval(poll, 500);
+    if (timer.unref) timer.unref();
+  });
+
   return wrappedModule;
 }
+
+// exported for tests; requiring this file outside Electron runs no instrumentation (the guard at the top is false)
+if (typeof module !== 'undefined' && module.exports) module.exports = { fillMarkerBody, canReplayBody };
 
 // A Proxy of the electron module whose BrowserWindow/BrowserView/WebContentsView constructors are wrapped to record the
 // preload script (and other webPreferences) each window is built with. The exports are getter-backed but not
