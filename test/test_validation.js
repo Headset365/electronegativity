@@ -360,3 +360,24 @@ describe('Validation in the report', () => {
       validationHint(id).should.be.a('string', id);
   });
 });
+
+describe('Findings grouped by type', () => {
+  const meta = { version: '2.0.0', input: '/app', electronVersion: '34.5.8', filesScanned: 1, atomicChecks: 1, globalChecks: 1, generatedAt: 'now', errors: [] };
+  const finding = (overrides) => ({ id: 'XSS_SINK_JS_CHECK', file: 'app.js', location: { line: 3, column: 2 }, sample: '', description: 'HTML is built from dynamic data',
+    severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true, shortenedURL: 'https://example.com', ...overrides });
+
+  it('shows each type once with what it is, its implication, its impact and where it was found', () => {
+    const html = renderHtmlReport([
+      finding(), finding({ file: 'b.js', validation: { status: 'confirmed', text: 'Confirmed at runtime: x' } }),
+      finding({ id: 'DEVTOOLS_JS_CHECK', severity: severity.LOW, description: 'DevTools can be opened' }),
+    ], meta);
+    html.should.include('Findings by type (2)');
+    const card = html.slice(html.indexOf('<details class="group"'), html.indexOf('</details>', html.indexOf('<details class="group"')));
+    card.should.include('XSS_SINK_JS_CHECK').and.include('×2').and.include('1 confirmed at runtime').and.include('1 to review');
+    card.should.include('<dt>What it is</dt>').and.include('<dt>Implication</dt>').and.include('<dt>Impact</dt>').and.include('Worst case:');
+    card.should.include('Reachable without access to the device');
+    card.should.include('data-check="XSS_SINK_JS_CHECK"');
+    // the most severe, content-reachable types come first
+    html.indexOf('<span class="gid">XSS_SINK_JS_CHECK</span>').should.be.below(html.indexOf('<span class="gid">DEVTOOLS_JS_CHECK</span>'));
+  });
+});
