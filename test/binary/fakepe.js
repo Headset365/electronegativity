@@ -89,7 +89,7 @@ function buildRsrc(resources, rva) {
  * @param {{ payload?: Buffer, resources?: Array, dllCharacteristics?: number, signature?: Buffer }} options
  *   dllCharacteristics: 0x8160 = high-entropy VA, ASLR, DEP, terminal-server aware; add 0x4000 for CFG
  */
-export function buildPe({ payload = Buffer.from('payload'), resources = [], dllCharacteristics = 0x8160, signature } = {}) {
+export function buildPe({ payload = Buffer.from('payload'), resources = [], dllCharacteristics = 0x8160, signature, machine = 0x8664 } = {}) {
   const fileAlign = 0x200;
   const sectionAlign = 0x1000;
   const headersSize = 0x400;
@@ -102,7 +102,7 @@ export function buildPe({ payload = Buffer.from('payload'), resources = [], dllC
   const dos = Buffer.alloc(64);
   dos.write('MZ', 0, 'latin1');
   dos.writeUInt32LE(0x40, 0x3c);
-  const coff = Buffer.concat([u16(0x8664), u16(sections), u32(0x5f000000), u32(0), u32(0), u16(240), u16(0x22)]);
+  const coff = Buffer.concat([u16(machine), u16(sections), u32(0x5f000000), u32(0), u32(0), u16(240), u16(0x22)]);
   const opt = Buffer.alloc(240);
   opt.writeUInt16LE(0x20b, 0);
   opt.writeUInt32LE(dataRva, 16);

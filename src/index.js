@@ -15,6 +15,7 @@ import readline from 'node:readline/promises';
 import { locateApp } from './watch/locate.js';
 import { observeSession, collectRemote, parseHeaders } from './watch/session.js';
 import { createAssistant, writeMarkerFiles } from './watch/assistant.js';
+import { isPackage, unpackTarget } from './unpack/index.js';
 
 async function main() {
 
@@ -166,9 +167,28 @@ async function main() {
       process.exit(1);
     }
 
+    // an installer or package (NSIS, Squirrel, .7z, .zip, .nupkg): unpacked to a temporary folder, whose app is scanned
+    let installer;
+    if (isPackage(options.input)) {
+      try {
+        installer = unpackTarget(options.input);
+      } catch (error) {
+        console.error(chalk.red(error.message));
+        process.exit(2);
+      }
+      process.once('exit', () => installer.cleanup());
+      if (forCli) console.log(chalk.green(__('installerUnpacked', { kind: installer.kind, file: options.input })));
+      for (const warning of installer.warnings) console.error(chalk.yellow(warning));
+      if (!installer.code) {
+        console.error(chalk.red(__('installerNoApp')));
+        process.exit(2);
+      }
+    }
+
     const result = await run({
       ...common,
-      input: scanTarget(options.input),
+      installer,
+      input: installer ? installer.code : scanTarget(options.input),
       output: options.output,
       isSarif: options.fileFormat === 'sarif',
       runtimeElectronVersion: session && session.watchDiagnostics.electron,

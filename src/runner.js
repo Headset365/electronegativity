@@ -25,6 +25,7 @@ import { reviewDataAtRest, appNames } from './storage/index.js';
 import { secretSources, scanSecrets } from './secrets/scan.js';
 import { linkCredentialStores } from './finder/checks/AtomicChecks/StorageChecks.js';
 import { analyzeBinary } from './binary/index.js';
+import { installerIssues } from './unpack/findings.js';
 
 export default async function run(options, forCli = false) {
   // --offline only applies to this scan
@@ -307,6 +308,11 @@ async function scan(options, forCli) {
     binary = analyzeBinary(options.input);
     issues.push(...binary.issues);
   }
+  // an installer the scan unpacked: its own signature, and the protocols and file types it registers
+  if (options.installer) {
+    issues.push(...installerIssues(options.installer, { signing: runBinaryChecks }));
+    for (const warning of options.installer.warnings || []) errors.push({ file: options.installer.target, message: warning, tolerable: true });
+  }
 
   // Data at rest: the app's profile (--user-data, and after a watch session) and where a remembered test password went
   // (--canary)
@@ -377,6 +383,7 @@ async function scan(options, forCli) {
       traffic: traffic && traffic.summary,
       atRest: atRest && atRest.summary,
       binary: binary && binary.summary.executable ? binary.summary : undefined,
+      installer: options.installer && { kind: options.installer.kind, file: options.installer.target, sha256: options.installer.installer.sha256, size: options.installer.installer.size, nsis: options.installer.installer.nsis },
       dependencies
     });
   }
@@ -443,7 +450,8 @@ async function scan(options, forCli) {
     staleBaselineEntries: stale,
     traffic: traffic && traffic.summary,
     atRest: atRest && atRest.summary,
-    binary: binary && binary.summary
+    binary: binary && binary.summary,
+    installer: options.installer && { kind: options.installer.kind, ...options.installer.installer }
   };
 }
 

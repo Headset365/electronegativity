@@ -405,7 +405,7 @@ export function renderHtmlReport(allIssues, meta) {
 <main>
   <h1>Electronegativity report</h1>
   <div class="meta">
-    <span>Target: <b>${escapeHtml(meta.input)}</b></span>
+    <span>Target: <b>${escapeHtml(meta.installer ? meta.installer.file : meta.input)}</b>${meta.installer ? ` (${escapeHtml(meta.installer.kind)}, SHA-256 ${escapeHtml(meta.installer.sha256)}; the app inside was unpacked to ${escapeHtml(meta.input)})` : ''}</span>
     <span>Electron: <b>${escapeHtml(meta.electronVersion || 'not detected (oldest defaults assumed)')}</b></span>
     <span>Files scanned: <b>${escapeHtml(meta.filesScanned)}</b></span>
     <span>Checks: <b>${escapeHtml(meta.atomicChecks)}</b> atomic, <b>${escapeHtml(meta.globalChecks)}</b> global</span>

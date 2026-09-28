@@ -154,6 +154,9 @@ export function analyzeBinary(input, { executable = appExecutableFor(input), pla
         { status: signature.status, signer: signature.signer, verifiedBy: signature.verifiedBy }, SIGNING_DOCS));
   }
 
+  // --- the updater configuration shipped next to the app (electron-updater's resources/app-update.yml) ---
+  issues.push(...updateConfigIssues(path.dirname(archive || path.resolve(input)), { signed: signature.status !== NOT_SIGNED && !!signature.format }));
+
   // --- exploit mitigations ---
   const built = mitigations(executable);
   if (built) {
@@ -163,4 +166,33 @@ export function analyzeBinary(input, { executable = appExecutableFor(input), pla
         { format: built.format, missing: built.missing }, 'https://learn.microsoft.com/en-us/cpp/build/reference/dynamicbase-use-address-space-layout-randomization'));
   }
   return { issues, summary };
+}
+
+/**
+ * resources/app-update.yml, which electron-updater reads: a feed over plain http, and no publisherName while the app is
+ * unsigned (nothing to check a downloaded update's signature against on Windows).
+ */
+export function updateConfigIssues(resources, { signed = false } = {}) {
+  const file = path.join(resources, 'app-update.yml');
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return [];
+  }
+  const out = [];
+  const url = (text.match(/^\s*url:\s*['"]?(\S+?)['"]?\s*$/m) || [])[1];
+  const lineOf = (pattern) => text.split('\n').findIndex(line => pattern.test(line)) + 1;
+  const reference = 'https://www.electron.build/auto-update';
+  if (url && /^http:/i.test(url)) {
+    const entry = issue('UPDATE_SECURITY_PACKAGED', file, severity.HIGH, confidence.CERTAIN,
+      `The app looks for updates over unencrypted http (${url}): someone on the network path can serve a malicious update`, { url }, reference);
+    entry.location = { line: lineOf(/^\s*url:/), column: 0 };
+    entry.sample = `url: ${url}`;
+    out.push(entry);
+  }
+  if (!/^\s*publisherName:/m.test(text) && !signed)
+    out.push(issue('UPDATE_SECURITY_PACKAGED', file, severity.MEDIUM, confidence.FIRM,
+      'app-update.yml names no publisherName and the app is not signed: electron-updater has no signer to check downloaded updates against', {}, reference));
+  return out;
 }

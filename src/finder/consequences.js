@@ -120,6 +120,8 @@ const CONSEQUENCES = {
   ASAR_INTEGRITY: ['supply', 'Whether the app\'s code (app.asar) is still what was built: a changed archive is a tampered app, and without the integrity fuse Electron runs it anyway.'],
   CODE_SIGNING: ['supply', 'Without a valid signature, users and the operating system cannot tell the genuine app from a modified copy (a repackaged download, a replaced file).'],
   BINARY_HARDENING: ['escalation', 'Exploit mitigations (ASLR, DEP/NX, CFG) make memory corruption bugs harder to exploit; without them an exploit is easier to write.'],
+  UPDATE_SECURITY_PACKAGED: ['network', 'The updater configuration shipped with the app: updates fetched without TLS or signature checks can be replaced in transit, which is code execution for someone on the network path.'],
+  INSTALLER_FILE_HANDLER: ['content', 'Deep links and file associations the installer registers: any web page, email or shared file can start the app with data it chooses.'],
   STORAGE_SECRET_AT_REST: ['local', 'A secret sits unencrypted in the app\'s profile folder: other programs running as the user, malware, backups and anyone with the disk can read it.'],
   STORAGE_COOKIE_AT_REST: ['local', 'Session cookies are stored without the operating system\'s encryption: whoever reads the profile folder can take over the session.'],
   STORAGE_CREDENTIAL_AT_REST: ['local', 'The password the app remembers is kept in plaintext or a reversible encoding: whoever reads the file gets the user\'s password, often reused elsewhere.'],

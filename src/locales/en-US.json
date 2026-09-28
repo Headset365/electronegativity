@@ -225,5 +225,7 @@
 	"COOKIE_FLAGS_JS_CHECK": "A cookie is set in code without its security attributes",
 	"CREDENTIAL_ACCESS_JS_CHECK": "Credential storage",
 	"HARDCODED_SECRET": "A secret is hard-coded in the app package",
-	"CODE_SIGNING": "Code signature of the packaged executable"
+	"CODE_SIGNING": "Code signature of the packaged executable",
+	"installerUnpacked": "Unpacked the {{kind}} {{{file}}}: scanning the app inside it",
+	"installerNoApp": "No Electron app (resources/app.asar or resources/app) was found in the package"
 }
