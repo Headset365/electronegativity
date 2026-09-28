@@ -41,7 +41,7 @@ const isFile = (file) => {
   }
 };
 
-function walk(dir, { skip = () => false } = {}) {
+export function walk(dir, { skip = () => false } = {}) {
   let entries;
   try {
     entries = fs.readdirSync(dir, { recursive: true, withFileTypes: true });

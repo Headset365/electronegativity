@@ -6,7 +6,7 @@ import pkg from '../../package.json' with { type: 'json' };
 import { sourceExtensions } from '../parser/types.js';
 import { renderHtmlReport } from './report_html.js';
 import { detectLibraries } from './libraries.js';
-import { consequenceOf, validationHint } from '../finder/consequences.js';
+import { consequenceOf, validationHint, interactionOf } from '../finder/consequences.js';
 import { cycloneDx } from '../report/cyclonedx.js';
 import { renderDocx } from '../report/docx.js';
 import { scores } from '../report/scores.js';
@@ -270,6 +270,7 @@ function jsonReport(result, meta) {
       description: issue.description,
       exploitableBy: consequenceOf(issue.id)?.label,
       consequence: consequenceOf(issue.id)?.text,
+      interaction: interactionOf(issue.id),
       validation: issue.validation,
       howToValidate: issue.manualReview && !issue.validation ? validationHint(issue.id) : undefined,
       notes: issue.notes,

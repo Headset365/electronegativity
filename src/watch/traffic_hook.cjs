@@ -249,6 +249,39 @@ function createTrafficObserver({ write, scope = [] }) {
         mod[method] = wrapped;
       }
     }
+    instrumentUndici();
+  }
+  // Node's global fetch (undici) doesn't go through http/https: its diagnostics channels report each request and the
+  // response headers. Headers come as 'name: value\r\n' text or as a flat [name, value, ...] array of strings or Buffers.
+  function instrumentUndici() {
+    let dc;
+    try {
+      dc = require('diagnostics_channel');
+    } catch {
+      return;
+    }
+    const pairs = (raw) => {
+      if (typeof raw === 'string') return raw.split('\r\n').filter(Boolean).map(line => { const i = line.indexOf(':'); return [line.slice(0, i).trim(), line.slice(i + 1).trim()]; });
+      if (!Array.isArray(raw)) return headerPairs(raw);
+      const out = [];
+      for (let i = 0; i + 1 < raw.length; i += 2) out.push([String(raw[i]), String(raw[i + 1])]);
+      return out;
+    };
+    const pending = new WeakMap();
+    const subscribe = (name, fn) => safely(() => (typeof dc.subscribe === 'function' ? dc.subscribe(name, fn) : dc.channel(name).subscribe(fn)));
+    subscribe('undici:request:create', (message) => safely(() => {
+      const request = message && message.request;
+      if (!request) return;
+      pending.set(request, { method: request.method || 'GET', url: `${String(request.origin || '').replace(/\/$/, '')}${request.path || '/'}`, headers: pairs(request.headers) });
+    }));
+    subscribe('undici:request:headers', (message) => safely(() => {
+      const request = message && message.request;
+      const seen = request && pending.get(request);
+      if (!seen) return;
+      pending.delete(request);
+      const response = message.response || {};
+      feed({ method: seen.method, url: seen.url, requestHeaders: seen.headers, status: response.statusCode, responseHeaders: pairs(response.headers), source: 'node-fetch' }, 'node');
+    }));
   }
   function requestUrl(scheme, args, req) {
     const first = args[0];

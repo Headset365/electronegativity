@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { createRequire } from 'node:module';
 import { readStore } from './leveldb.js';
 
@@ -183,7 +184,92 @@ export function reviewCookies(profile, { cookieEncryption, reveal = false } = {}
   return out;
 }
 
-/** Both reviews of one profile folder. */
+// Chromium's simple disk cache: every entry file (<hash>_0) starts with a 24-byte header (magic, version, key length,
+// key hash) followed by the key, the URL, and then the response body and headers.
+const SIMPLE_MAGIC = Buffer.from('305c72a71b6dfbfc', 'hex'); // 0xfcfb6d1ba7725c30, little-endian
+const MAX_CACHE_FILES = 5000;
+const MAX_CACHE_BYTES = 16 * 1024 * 1024;
+
+export function readCacheEntry(data) {
+  if (!data || data.length < 24 || !data.subarray(0, 8).equals(SIMPLE_MAGIC)) return undefined;
+  const keyLength = data.readUInt32LE(12);
+  if (keyLength === 0 || 24 + keyLength > data.length) return undefined;
+  const key = data.subarray(24, 24 + keyLength).toString('utf8');
+  // HTTP cache keys carry the isolation key before the URL: "1/0/_dk_https://a https://a https://a/path"
+  const url = (key.match(/(https?:\/\/\S+)$/) || [])[1] || key;
+  let body = data.subarray(24 + keyLength);
+  const gzip = body.indexOf(Buffer.from([0x1f, 0x8b, 0x08]));
+  if (gzip !== -1) {
+    try {
+      body = Buffer.concat([body, zlib.gunzipSync(body.subarray(gzip), { finishFlush: zlib.constants.Z_SYNC_FLUSH })]);
+    } catch {
+      // not a whole gzip stream: search the raw bytes
+    }
+  }
+  return { url, body };
+}
+
+const hostOfUrl = (url) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '';
+  }
+};
+const withoutQuery = (url) => String(url).replace(/[?#].*$/, '');
+
+function cacheFiles(dir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { recursive: true, withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries.filter(e => e.isFile() && /^[0-9a-f]{16}_0$/.test(e.name)).map(e => path.join(e.parentPath, e.name)).slice(0, MAX_CACHE_FILES);
+}
+
+/**
+ * Responses kept on disk: the Cache Storage of service workers and the HTTP cache. Documents and API responses stay
+ * there after logout; secrets in their bodies (tokens in JSON responses) are reported like those in web storage.
+ */
+export function reviewCaches(profile, { reveal = false } = {}) {
+  const stores = [
+    { store: 'Cache Storage', dir: path.join(profile, 'Service Worker', 'CacheStorage') },
+    { store: 'HTTP cache', dir: path.join(profile, 'Cache', 'Cache_Data') },
+    { store: 'HTTP cache', dir: path.join(profile, 'Cache') },
+  ];
+  const out = { stores: {}, secrets: [] };
+  const seen = new Set();
+  const done = new Set();
+  for (const { store, dir } of stores) {
+    for (const file of cacheFiles(dir)) {
+      if (done.has(file)) continue;
+      done.add(file);
+      let data;
+      try {
+        if (fs.statSync(file).size > MAX_CACHE_BYTES) continue;
+        data = fs.readFileSync(file);
+      } catch {
+        continue;
+      }
+      const entry = readCacheEntry(data);
+      if (!entry) continue;
+      const summary = out.stores[store] || (out.stores[store] = { entries: 0, hosts: {} });
+      summary.entries++;
+      const host = hostOfUrl(entry.url);
+      if (host) summary.hosts[host] = (summary.hosts[host] || 0) + 1;
+      for (const hit of findSecrets(entry.body.toString('utf8'), { maxHits: 20 })) {
+        if (seen.has(hit.value)) continue;
+        seen.add(hit.value);
+        out.secrets.push({ store, url: withoutQuery(entry.url), kind: hit.kind, shown: show(hit.value, reveal) });
+      }
+    }
+  }
+  return out;
+}
+
+/** The reviews of one profile folder. */
 export function reviewProfile(profile, { cookieEncryption, reveal = false } = {}) {
-  return { profile, revealed: reveal, webStorage: reviewWebStorage(profile, { reveal }), cookies: reviewCookies(profile, { cookieEncryption, reveal }) };
+  return { profile, revealed: reveal, webStorage: reviewWebStorage(profile, { reveal }), cookies: reviewCookies(profile, { cookieEncryption, reveal }),
+    caches: reviewCaches(profile, { reveal }) };
 }

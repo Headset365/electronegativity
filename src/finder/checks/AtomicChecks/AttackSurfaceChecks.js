@@ -2,7 +2,8 @@ import { gte, coerce } from 'semver';
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, keyName, isProperty, isWindowConstructor, webPreferencesOf, findProperty, resolveIdentifier, finding } from '../helpers.js';
-import { constantValue, isCall, resolveLocal } from '../analysis.js';
+import { constantValue, isCall, resolveLocal, handlerFunction } from '../analysis.js';
+import { capabilities } from './IpcHandlerChecks.js';
 
 const SETTINGS = ['nodeIntegration', 'contextIsolation', 'sandbox', 'webSecurity', 'nodeIntegrationInSubFrames', 'webviewTag', 'allowRunningInsecureContent'];
 
@@ -43,15 +44,20 @@ export class WindowSummaryJSCheck {
     const preloadProperty = findProperty(prefs, 'preload');
     const preload = preloadProperty ? (constantValue(preloadProperty[1], scope) ?? preloadFileName(preloadProperty[1], scope) ?? 'dynamic path') : undefined;
 
+    // the session the window's content runs in: shared cookies, storage, service workers and permission grants
+    const partitionProperty = findProperty(prefs, 'partition');
+    const sessionProperty = findProperty(prefs, 'session');
+    const partition = partitionProperty ? (constantValue(partitionProperty[1], scope) ?? 'dynamic') : sessionProperty ? 'custom session' : unknownOptions ? 'unknown' : 'default';
     const kind = astNode.callee.type === 'Identifier' ? astNode.callee.name : memberName(astNode.callee);
     const describe = (name) => {
       const { value, source } = settings[name];
       const text = value === true ? 'on' : value === false ? 'off' : value;
       return `${name} ${text}${source === 'default' && value !== 'unknown' ? ' (default)' : ''}`;
     };
-    const summary = ['nodeIntegration', 'contextIsolation', 'sandbox', 'webSecurity'].map(describe).join(', ') + (preload ? `, preload ${preload}` : '');
+    const summary = ['nodeIntegration', 'contextIsolation', 'sandbox', 'webSecurity'].map(describe).join(', ') + (preload ? `, preload ${preload}` : '') +
+      (partition !== 'default' && partition !== 'unknown' ? `, session ${partition}` : '');
     return [finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
-      description: `${this.description}: ${kind} (${summary})`, properties: { window: kind, settings, preload } })];
+      description: `${this.description}: ${kind} (${summary})`, properties: { window: kind, settings, preload, partition } })];
   }
 }
 
@@ -72,20 +78,25 @@ function preloadFileName(node, scope, depth = 0) {
   return undefined;
 }
 
-// Names of the members of an exposed object: { openFile: ..., settings: { get, set } } -> ['openFile', 'settings.get', 'settings.set']
-function memberNames(node, scope, prefix = '', depth = 0) {
+// The members of an exposed object: { openFile: ..., settings: { get, set } } -> [['openFile', node], ['settings.get', node], ...]
+function memberEntries(node, scope, prefix = '', depth = 0) {
   node = resolveIdentifier(node, scope);
   if (!node || node.type !== 'ObjectExpression' || depth > 2) return [];
-  const names = [];
+  const entries = [];
   for (const property of node.properties) {
-    if (!isProperty(property)) continue;
+    if (!isProperty(property)) {
+      // object methods: { openFile(path) { ... } }
+      const name = property.key && keyName(property.key);
+      if (name && (property.type === 'ObjectMethod' || property.method)) entries.push([`${prefix}${name}`, property]);
+      continue;
+    }
     const name = keyName(property.key);
     if (!name) continue;
     const value = resolveIdentifier(property.value, scope);
-    if (value && value.type === 'ObjectExpression') names.push(...memberNames(value, scope, `${prefix}${name}.`, depth + 1));
-    else names.push(`${prefix}${name}`);
+    if (value && value.type === 'ObjectExpression') entries.push(...memberEntries(value, scope, `${prefix}${name}.`, depth + 1));
+    else entries.push([`${prefix}${name}`, property.value]);
   }
-  return names;
+  return entries;
 }
 
 // What preload scripts expose to web content: contextBridge.exposeInMainWorld('api', { ... })
@@ -97,7 +108,7 @@ export class ExposedApiJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/security#20-do-not-expose-electron-apis-to-untrusted-web-content";
   }
 
-  match(astNode, astHelper, scope) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (!isCall(astNode) || astNode.type === 'NewExpression') return null;
     const method = memberName(astNode.callee);
     if (method !== 'exposeInMainWorld' && method !== 'exposeInIsolatedWorld') return null;
@@ -105,9 +116,22 @@ export class ExposedApiJSCheck {
     const key = constantValue(astNode.arguments[offset], scope);
     const api = astNode.arguments[offset + 1];
     if (typeof key !== 'string' || !api) return null;
-    const members = memberNames(api, scope);
+    const entries = memberEntries(api, scope);
+    const members = entries.map(([name]) => name);
+    // what each member can do: files, processes, shell, network, windows, clipboard, credentials, and the IPC channels it uses
+    const uses = {};
+    const channels = new Set();
+    for (const [name, value] of entries) {
+      const fn = handlerFunction(value, scope, context.ancestors);
+      if (!fn) continue;
+      const found = capabilities(fn, [...context.ancestors, astNode]);
+      if (found.list.length) uses[name] = found.list;
+      found.channels.forEach(c => channels.add(c));
+    }
+    const kinds = [...new Set(Object.values(uses).flat())];
     const shown = members.length > 0 ? members.join(', ') : (resolveIdentifier(api, scope).type === 'ObjectExpression' ? '(empty)' : 'value that can\'t be listed statically');
+    const usage = kinds.length ? `; uses ${kinds.map(k => k === 'ipc' && channels.size ? `ipc (${[...channels].map(c => c === '*' ? 'any channel' : c).join(', ')})` : k).join(', ')}` : '';
     return [finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: members.length > 0 ? confidence.CERTAIN : confidence.FIRM,
-      description: `${this.description}: window.${key} (${shown})`, properties: { world: key, members } })];
+      description: `${this.description}: window.${key} (${shown})${usage}`, properties: { world: key, members, capabilities: uses, channels: [...channels] } })];
   }
 }

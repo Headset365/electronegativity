@@ -12,7 +12,7 @@ const path = require('path');
 if (process.env.TRAFFIC_APP_PROFILE) app.setPath('userData', process.env.TRAFFIC_APP_PROFILE);
 // the test password typed into the login with "remember me" ticked: the app keeps it base64-encoded, not encrypted
 const REMEMBERED = 'Zq7-test-Pw!2026';
-app.commandLine.appendSwitch('host-resolver-rules', 'MAP app.traffic.test 127.0.0.1, MAP tracker.other.test 127.0.0.1');
+app.commandLine.appendSwitch('host-resolver-rules', 'MAP app.traffic.test 127.0.0.1, MAP tracker.other.test 127.0.0.1, MAP landing.elsewhere.test 127.0.0.1');
 const TOKEN = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
 
 function sendWsText(socket, text) {
@@ -36,6 +36,19 @@ app.whenReady().then(async () => {
       response.setHeader('content-type', 'application/json');
       return response.end(JSON.stringify({ ok: true, token: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlLXZhbHVlLTEyMzQ1Ng' }));
     }
+    // a redirect to another origin: will-navigate never sees it
+    if (url.pathname === '/go') {
+      response.statusCode = 302;
+      response.setHeader('location', `http://landing.elsewhere.test:${server.address().port}/landing`);
+      return response.end();
+    }
+    if (url.pathname === '/landing') return response.end('<!doctype html><title>Landing</title>');
+    // a cacheable API response holding a token: it stays in the HTTP cache on disk
+    if (url.pathname === '/api/profile') {
+      response.setHeader('content-type', 'application/json');
+      response.setHeader('cache-control', 'private, max-age=600');
+      return response.end(JSON.stringify({ user: 'alice', apiToken: 'sk_live_' + 'Cz9Lm2Vt9Rk4Zp8Wn3Yb6Hs7Tx' }));
+    }
     if (url.pathname.startsWith('/api/')) {
       response.setHeader('content-type', 'application/json');
       return response.end('{"id":1234}');
@@ -54,6 +67,8 @@ app.whenReady().then(async () => {
           new WebSocket('ws://app.traffic.test:' + port + '/socket').onerror = () => {};
           new WebSocket('ws://127.0.0.1:' + port + '/socket').onmessage = () => {};
           console.log('debug token ${TOKEN}');
+          await fetch('/api/profile').then(r => r.text());
+          document.body.insertAdjacentHTML('beforeend', '<img alt="" src="data:," onerror="void 0">');
           localStorage.setItem('authToken', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlLXZhbHVlLTEyMzQ1Ng');
           const s = document.createElement('script'); s.textContent = 'window.inlineRan = 1'; document.body.appendChild(s);
           setTimeout(() => { throw new Error('traffic-app page failure'); }, 0);
@@ -74,9 +89,16 @@ app.whenReady().then(async () => {
   // the main process calls the backend itself, with a key in the URL
   http.get({ host: '127.0.0.1', port, path: '/api/status?api_key=Tr4ff1cK3yM41nPr0c3ss99' }, (res) => res.resume()).on('error', () => {});
   console.log('main process token', TOKEN);
+  // Node's global fetch (undici) from the main process, with a key in the URL
+  if (typeof fetch === 'function') fetch(`http://127.0.0.1:${port}/api/fetched?client_secret=Tr4ff1cF3tchM41nPr0c3ss7`).then(r => r.text()).catch(() => {});
 
   fs.writeFileSync(path.join(app.getPath('userData'), 'settings.json'), JSON.stringify({ user: 'alice', remembered: Buffer.from(REMEMBERED).toString('base64') }));
   const win = new BrowserWindow({ show: false });
   await win.loadURL(`http://app.traffic.test:${port}/`);
+  // a second window with a preload, in the same (default) session, that follows a redirect to another origin
+  fs.writeFileSync(path.join(app.getPath('userData'), 'preload.js'), '');
+  const second = new BrowserWindow({ show: false, webPreferences: { preload: path.join(app.getPath('userData'), 'preload.js') } });
+  await second.loadURL(`http://app.traffic.test:${port}/landing`).catch(() => {});
+  await second.loadURL(`http://app.traffic.test:${port}/go`).catch(() => {});
   setTimeout(() => { server.close(); app.quit(); }, 3000);
 });

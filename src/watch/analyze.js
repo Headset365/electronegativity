@@ -119,6 +119,48 @@ export function analyzeWatchLog(records) {
       add('RUNTIME_WEBVIEW', r.src, sev, confidence.CERTAIN, `A <webview> was attached for ${r.src}${prefs.nodeIntegration === true ? ' with Node.js integration' : prefs.preload ? ` with the preload script ${prefs.preload}` : ''}`, undefined, `${DOCS}#12-verify-webview-options-before-creation`);
   }
 
+  // a page from another origin than the window started on, still running the window's preload: the preload's APIs are
+  // exposed to that site (a sign-in provider, a link target, a redirect)
+  const firstOrigin = new Map();
+  for (const page of pages) {
+    if (!firstOrigin.has(page.id)) { firstOrigin.set(page.id, origin(page.url)); continue; }
+    const preload = (page.prefs || {}).preload || preloadByContents.get(page.id);
+    if (preload && origin(page.url) !== firstOrigin.get(page.id) && /^https?:/i.test(page.url) && !LOCAL_HOSTS.test(hostOf(page.url)) && first(`preload-foreign:${page.id}:${origin(page.url)}`))
+      add('RUNTIME_PRELOAD_FOREIGN_ORIGIN', page.url, severity.MEDIUM, confidence.CERTAIN,
+        `A page from ${origin(page.url)} ran in a window that started on ${firstOrigin.get(page.id)}, with its preload ${preload}: everything the preload exposes is available to that site`,
+        { preload, origin: origin(page.url), windowOrigin: firstOrigin.get(page.id) }, `${DOCS}#20-do-not-expose-electron-apis-to-untrusted-web-content`);
+  }
+
+  // server redirects the app followed to another origin (will-navigate never sees these)
+  for (const r of records.filter(r => r.kind === 'will-redirect' && !r.prevented && /^https?:/i.test(r.url || ''))) {
+    if (origin(r.url) === origin(r.from) || !first(`redirect:${r.id}:${origin(r.url)}`)) continue;
+    add('RUNTIME_REDIRECT', r.url, r.marker ? severity.HIGH : severity.MEDIUM, r.marker ? confidence.CERTAIN : confidence.FIRM,
+      `A window followed a server redirect from ${r.from} to ${origin(r.url)}${r.marker ? ' carrying the planted marker' : ''}; will-navigate allowlists don't see redirects, will-redirect does`,
+      { from: r.from, marker: !!r.marker }, 'https://www.electronjs.org/docs/latest/api/web-contents#event-will-redirect');
+  }
+
+  // windows of different privilege sharing one session: cookies, storage and permission grants are common
+  const bySession = new Map();
+  for (const page of pages.filter(p => p.session)) {
+    if (!bySession.has(page.session)) bySession.set(page.session, new Map());
+    const prefs = page.prefs || {};
+    const privileged = prefs.nodeIntegration === true || prefs.contextIsolation === false || prefs.sandbox === false || !!(prefs.preload || preloadByContents.get(page.id));
+    const windows = bySession.get(page.session);
+    windows.set(page.id, { privileged: (windows.get(page.id) || {}).privileged || privileged, url: page.url });
+  }
+  for (const [session, windows] of bySession) {
+    if (windows.size < 2) continue;
+    const strong = [...windows.values()].filter(w => w.privileged);
+    const weak = [...windows.values()].filter(w => !w.privileged);
+    const name = session === 'default' ? 'the default session' : `session '${session}'`;
+    if (strong.length && weak.length)
+      add('RUNTIME_WINDOW_SESSION', weak[0].url, severity.LOW, confidence.CERTAIN,
+        `Windows without privileges (${weak.map(w => origin(w.url)).join(', ')}) shared ${name} with privileged ones (${strong.map(w => origin(w.url)).join(', ')}): cookies, storage and permission grants are common`,
+        { session, privileged: strong.map(w => w.url), unprivileged: weak.map(w => w.url) }, 'https://www.electronjs.org/docs/latest/api/session');
+    else
+      add('RUNTIME_WINDOW_SESSION', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN, `${windows.size} windows shared ${name}`, { session, windows: [...windows.values()].map(w => w.url) });
+  }
+
   // what the app opened outside itself
   for (const r of records.filter(r => r.kind === 'shell')) {
     if (!first(`shell:${r.method}:${r.target}`)) continue;
@@ -224,7 +266,13 @@ export function analyzeWatchLog(records) {
   consoleAndErrors(records, add, first, issues);
 
   const paths = records.filter(r => r.kind === 'paths').pop();
-  return { issues, summary: { started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic,
+  // evidence screenshots (--watch-screenshots), attached to the findings about the same page
+  const screenshots = records.filter(r => r.kind === 'screenshot').map(r => ({ reason: r.reason, url: r.url, file: r.file }));
+  for (const issue of issues) {
+    const shot = screenshots.find(s => s.url === issue.file);
+    if (shot) issue.properties = { ...(issue.properties || {}), screenshot: shot.file };
+  }
+  return { issues, summary: { screenshots, started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic,
     userData: paths && paths.userData } };
 }
 

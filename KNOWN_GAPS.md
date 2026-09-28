@@ -150,8 +150,19 @@ the limits that remain, so the boundaries of the analysis stay clear.
 - **Operating system checks.** Signature verification (`Get-AuthenticodeSignature`, `codesign`), credential lookups
   (`cmdkey`, `security`, `secret-tool`) and registry reads (`reg query`) have been tested with mocked command output
   only, not on real Windows and macOS hosts.
-- **Main-process traffic.** Watch mode records requests from Node's `http`/`https` modules and the renderer, but only
-  the headers of main-process responses, and requests made with Node's global `fetch` (undici) are not seen.
+- **Main-process traffic.** Watch mode records requests from Node's `http`/`https` modules, Node's global `fetch`
+  (undici) and the renderer, but only the headers of main-process responses, not their bodies.
+- **Active testing.** The tool observes and reads; it does not send test payloads into the app (script, navigations,
+  IPC arguments, crafted documents). Checks that need them are not automated: whether injected script actually runs and
+  what it reaches, IPC argument fuzzing, forced navigations and pop-ups, CSP bypass attempts, external resource loading
+  from documents, malicious or malformed DOCX handling and JSON property fuzzing. The only thing it sends is the harmless
+  marker, after confirmation.
+- **Judgment calls.** The inventories (exposed APIs, IPC capabilities and channel map, window sessions, CSP directives,
+  document parsers, how Word is launched) state the facts; whether an API surface is the minimum needed, which pages
+  render untrusted documents and should get a stricter CSP, and the organization's patching policy stay with the tester.
+- **Reachability of dependency advisories.** Advisories are listed per package with the process a parser runs in, but
+  whether the vulnerable function is reachable from a document is not worked out.
+- **Links built from data.** `href={value}` with a `javascript:` URL in React is still not reported (see above).
 - **No interception certificate.** `--ingest` reads captures from Burp or a HAR file; the tool does not install its own
   CA or proxy traffic itself. Runtime file writes by the app are found by the canary search, not observed as they happen.
 - **Chromium advisories.** Looked up from NVD by Chromium version; without `NVD_API_KEY` the lookup is rate-limited and

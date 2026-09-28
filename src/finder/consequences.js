@@ -63,6 +63,18 @@ const CONSEQUENCES = {
   HTTP_RESOURCES_WITH_NODE_INTEGRATION: ['network', 'Plain http content is loaded into a window with Node.js: someone on the network path gets code execution on the machine.'],
   IFRAME_SANDBOX: ['content', 'Embedded frames without a sandbox can run script and navigate the app window; with Node.js integration they can reach Node.js.'],
   INSECURE_CONTENT: ['network', 'Pages served over https may load scripts over http, which the network path can modify.'],
+  IPC_FILE_ACCESS: ['escalation', 'The main process reads, writes or deletes a file at a path a page chose: script injected into the page (XSS), or a crafted deep link, can reach files outside the app\'s folder, and a UNC path (\\\\host\\share) sends the user\'s Windows credentials to that host.'],
+  IPC_HANDLER: ['escalation', 'What a page can make the main process do through this channel: script injected into a window that can reach it inherits these capabilities.'],
+  IPC_RENDERER_CHANNEL: ['info', 'An IPC channel renderer code uses.'],
+  IPC_CHANNEL_MAP: ['info', 'Which windows can reach each IPC channel, through which preload.'],
+  NAVIGATION_REDIRECT: ['content', 'The navigation allowlist does not see server redirects: a link to an allowed site that redirects (an open redirect) takes the window, and its preload, to any origin.'],
+  WINDOW_SESSION: ['escalation', 'Windows sharing a session share cookies, storage and permission grants: content in the less trusted window acts with the other window\'s login.'],
+  CSP_DIRECTIVES: ['escalation', 'Parts of the Content Security Policy that decide where injected content can send data or what it can embed (frames, connections, images, styles, forms).'],
+  DEVELOPMENT_CODE: ['local', 'Development behavior left in the shipped app, or switched on by an environment variable or flag: someone who can start the app (or plant a variable) turns it on; a local dev server URL lets any local program serve the app\'s UI.'],
+  DEBUG_LOGGING: ['local', 'Verbose logs are written in the shipped app: other programs running as the user, malware and support bundles can read the tokens and content they hold.'],
+  WORD_LAUNCH: ['content', 'How the app hands documents to Microsoft Word: a name or URL from content that reaches the command line or an Office URI decides what Word opens, or runs other commands.'],
+  DOCUMENT_PIPELINE: ['content', 'A library that parses documents or archives the user opens: a crafted file reaches it, so its options and version decide what a malicious document can do.'],
+  SOURCE_MAP_SHIPPED: ['anyone', 'The original source code ships with the app: anyone who downloads it reads the code as written, comments included.'],
   IPC_SENDER_VALIDATION: ['escalation', 'The IPC handler does not check which page sent the message: script injected into any window, or a foreign page the window navigated to, can call it with the app\'s privileges.'],
   LIMIT_NAVIGATION: ['content', 'Windows can be navigated to any site (e.g. by a link in shared content); that site then runs inside the app window, with its preload and IPC access.'],
   NAVIGATE_ON_DRAG_DROP: ['content', 'Dropping a link or file on the window navigates it there.'],
@@ -160,6 +172,10 @@ const CONSEQUENCES = {
   RUNTIME_WEBVIEW: ['escalation', 'A <webview> was attached during the session: check its settings.'],
   RUNTIME_WEB_SECURITY: ['escalation', 'A page ran with web security disabled: script in it can read data from any site.'],
   RUNTIME_WINDOW_COVERAGE: ['info', 'Windows defined in the code that the session never opened.'],
+  RUNTIME_PRELOAD_FOREIGN_ORIGIN: ['content', 'A site other than the app ran inside a window with its preload: the preload\'s APIs, and the IPC channels behind them, were available to that site.'],
+  RUNTIME_REDIRECT: ['content', 'A window followed a server redirect to another origin: a link to an allowed site that redirects gets past a will-navigate allowlist.'],
+  RUNTIME_WINDOW_SESSION: ['escalation', 'Windows of different privilege shared a session during the run: content in the less trusted one uses the same cookies, storage and permission grants.'],
+  STORAGE_CACHED_RESPONSES: ['local', 'Responses the app fetched (documents, API data) are kept in its caches on disk, readable by anything with access to the user\'s profile folder.'],
   RUNTIME_WINDOW_SUMMARY: ['info', 'A window observed at runtime and its settings.'],
 };
 
@@ -263,4 +279,35 @@ export function consequenceOf(id) {
   if (entry) return { route: entry[0], label: ROUTES[entry[0]], text: entry[1] };
   if (/_(REMOVAL|DEPRECATION|DEFAULT_CHANGE)$/.test(String(id))) return { route: 'info', label: ROUTES.info, text: 'A breaking change to handle when upgrading Electron.' };
   return undefined;
+}
+
+// What the victim has to do for the finding to matter, by route, with the checks where it differs
+const INTERACTION_BY_ROUTE = {
+  content: 'Viewing the content is enough when it runs as script; a click when it is a link',
+  escalation: 'None of its own: it decides how far content that is already injected gets',
+  network: 'None: an attacker on the network path acts while the app talks to its servers',
+  anyone: 'None: the app package is enough',
+  supply: 'Installing or updating the app',
+  server: 'None from the victim: another user of the service',
+  thirdparty: 'None: happens while the app is used',
+  local: 'Access to the user\'s device or account',
+  dependency: 'Depends on each advisory',
+  info: 'Not applicable',
+};
+const INTERACTION = {
+  OPEN_EXTERNAL: 'A click on a crafted link', OPEN_PATH: 'Opening a crafted attachment or file', SHOWITEMINFOLDER: 'Opening a crafted attachment or file',
+  LIMIT_NAVIGATION: 'A click on a crafted link', WINDOW_OPEN_HANDLER: 'A click on a crafted link', AUXCLICK: 'A middle-click on a crafted link', NAVIGATION_REDIRECT: 'A click on a link to an allowed site that redirects',
+  FILE_HANDLER: 'Opening a crafted link, file or deep link', PROTOCOL_HANDLER: 'Opening a crafted deep link', UNTRUSTED_LOAD_URL: 'Opening a crafted deep link or link',
+  DOWNLOAD: 'Visiting content that starts a download', WORD_LAUNCH: 'Opening the document in Word', DOCUMENT_PIPELINE: 'Opening or importing a crafted document',
+  XSS_SINK: 'Viewing the content', ANGULAR_TRUST_HTML: 'Viewing the content', ANGULAR_BIND_HTML_UNSAFE: 'Viewing the content', RICH_TEXT_EDITOR: 'Opening the document in the editor',
+  SANITIZER_CONFIG: 'Viewing the content', DANGEROUS_FUNCTIONS: 'Viewing the content', COMMAND_INJECTION: 'Whatever sends the data (often a click or a document)',
+  RUNTIME_MARKER: 'Viewing the content (confirmed during the session)', RUNTIME_REDIRECT: 'A click on a link to an allowed site that redirects',
+};
+
+/** What the victim has to do for a finding with this check id to be exploited. */
+export function interactionOf(id) {
+  const own = INTERACTION[id] || INTERACTION[baseId(id)];
+  if (own) return own;
+  const consequence = consequenceOf(id);
+  return consequence ? INTERACTION_BY_ROUTE[consequence.route] : undefined;
 }

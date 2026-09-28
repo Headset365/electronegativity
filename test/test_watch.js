@@ -409,7 +409,8 @@ describe('Watch mode', () => {
       const output = path.join(dir, 'report.json');
       // the app keeps its profile here (app.setPath), and remembers this test password base64-encoded
       const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-traffic-profile-'));
-      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '-r', '--canary', 'Zq7-test-Pw!2026', '-o', output];
+      const shots = path.join(dir, 'shots');
+      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '-r', '--canary', 'Zq7-test-Pw!2026', '--watch-screenshots', shots, '-o', output];
       const env = { ...process.env, TRAFFIC_APP_PROFILE: profile };
       const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8', env }) : spawnSync(process.execPath, cli, { encoding: 'utf8', env });
       command.status.should.equal(0, command.stderr);
@@ -428,6 +429,21 @@ describe('Watch mode', () => {
       JSON.stringify(report).should.not.include('A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8');
       JSON.stringify(report).should.not.include('Zk2Qm9Lr7Tx4Wv1Yp8Nb');
       report.runtime.traffic.sources.debugger.should.be.above(0);
+      // Node's global fetch in the main process (undici) is observed too
+      report.issues.some(i => i.id === 'TRAFFIC_SECRET_IN_URL' && /api\/fetched/.test(i.description)).should.equal(true, 'main-process fetch is observed');
+      JSON.stringify(report).should.not.include('Tr4ff1cF3tchM41nPr0c3ss7');
+      // a server redirect the window followed to another origin, with its preload; two windows of different privilege in one session
+      ids.should.include.members(['RUNTIME_REDIRECT', 'RUNTIME_PRELOAD_FOREIGN_ORIGIN', 'RUNTIME_WINDOW_SESSION']);
+      report.issues.find(i => i.id === 'RUNTIME_WINDOW_SESSION').severity.should.equal('LOW');
+      // the evidence screenshot of the script inserted into the page
+      fs.readdirSync(shots).some(f => /dom-injection\.png$/.test(f)).should.equal(true, 'a screenshot was saved');
+      report.issues.some(i => i.properties && i.properties.screenshot).should.equal(true, 'the screenshot is attached to its finding');
+      // the API response kept in the HTTP cache, with the token in it
+      ids.should.include('STORAGE_CACHED_RESPONSES');
+      report.issues.some(i => i.id === 'STORAGE_SECRET_AT_REST' && i.properties.store === 'HTTP cache' && /api\/profile/.test(i.properties.url)).should.equal(true, 'the cached token is found');
+      JSON.stringify(report).should.not.include('Cz9Lm2Vt9Rk4Zp8Wn3Yb6Hs7Tx');
+      // every finding says what the victim has to do
+      report.issues.filter(i => i.id === 'TRAFFIC_SECRET_IN_URL').every(i => typeof i.interaction === 'string').should.equal(true);
     });
 
     run('observes a real session without disturbing the app', () => {

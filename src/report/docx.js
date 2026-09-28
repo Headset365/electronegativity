@@ -4,7 +4,7 @@
 // Your --finding-notes fill in implication, reproduction steps and recommendations. Written with `-o report.docx`.
 // Modelled on Electron-Dynamic's report/docx_report.py.
 import { Doc } from './ooxml.js';
-import { ROUTES, consequenceOf, validationHint } from '../finder/consequences.js';
+import { ROUTES, consequenceOf, validationHint, interactionOf } from '../finder/consequences.js';
 import { scores } from './scores.js';
 
 const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
@@ -76,10 +76,11 @@ function renderGroup(doc, group, number, appendixIndex) {
   if (notes && notes.impact) bulletsOrText(doc, notes.impact);
   else doc.para(consequence ? consequence.text : 'See the reference below.');
   if (notes && notes.reachability) bulletsOrText(doc, notes.reachability);
+  if (interactionOf(group.id) && (!consequence || consequence.route !== 'info')) doc.para([doc.run('Victim interaction: ', { bold: true }), doc.run(interactionOf(group.id))]);
 
   doc.label('Evidence and reproduction');
   for (const issue of group.issues.slice(0, 5)) {
-    doc.para(doc.run(`${place(issue)}: ${issue.description}`, { size: 9 }));
+    doc.para(doc.run(`${place(issue)}: ${issue.description}${issue.properties && issue.properties.screenshot ? ` (screenshot: ${issue.properties.screenshot})` : ''}`, { size: 9 }));
     if (issue.sample) doc.code(issue.sample);
     for (const line of ((issue.properties && issue.properties.evidence) || []).slice(1, 4)) doc.code(line);
     if (issue.validation) doc.para(doc.run(issue.validation.text, { italic: true }));
@@ -146,7 +147,9 @@ export function renderDocx(issues, meta) {
   const doc = new Doc(`Electronegativity report${app.name ? `: ${app.name}` : ''}`);
   doc.para(doc.run(`Electron security assessment${app.name ? `: ${app.name}${app.version ? ` ${app.version}` : ''}` : ''}`), { style: 'Title' });
   doc.para(`Target: ${meta.installer ? meta.installer.file : meta.input}`);
-  doc.para(`Electron: ${meta.electronVersion || 'not detected'} · Generated ${meta.generatedAt} by Electronegativity ${meta.version}`);
+  const bundled = meta.dependencies && meta.dependencies.bundled;
+  const runtimes = bundled ? [['Chromium', bundled.chromium], ['Node.js', bundled.node], ['V8', bundled.v8], ['OpenSSL', bundled.openssl]].filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(', ') : '';
+  doc.para(`Electron: ${meta.electronVersion || 'not detected'}${runtimes ? ` (${runtimes})` : ''} · Generated ${meta.generatedAt} by Electronegativity ${meta.version}`);
   doc.heading('Contents', 1);
   doc.toc();
   doc.pageBreak();

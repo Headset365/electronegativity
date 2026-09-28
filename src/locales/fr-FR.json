@@ -231,5 +231,19 @@
 	"nvdOptionDescription": "ne pas rechercher dans NVD les CVE Chromium de la version d'Electron de l'application (lent sans NVD_API_KEY)",
 	"findingNotesOptionDescription": "un fichier JSON avec vos propres notes par vérification ou famille (explication, étapes, impact, recommandation), affichées dans les rapports HTML et Word ; voir docs/finding-notes.example.json",
 	"suppressOptionDescription": "un fichier JSON de risques acceptés par empreinte, vérification (TRAFFIC_*) ou fichier, chacun avec une raison et éventuellement un responsable et une date d'expiration : les résultats correspondants sont listés à part et ne comptent ni dans les scores ni pour --fail-on ; voir docs/suppressions.example.json",
-	"compareOptionDescription": "un rapport JSON antérieur de cette application : chaque résultat est marqué nouveau, inchangé ou de gravité modifiée, et ce qui a été corrigé depuis est listé"
+	"compareOptionDescription": "un rapport JSON antérieur de cette application : chaque résultat est marqué nouveau, inchangé ou de gravité modifiée, et ce qui a été corrigé depuis est listé",
+	"IPC_FILE_ACCESS_JS_CHECK": "Un chemin choisi par un renderer, une navigation ou un lien profond atteint le système de fichiers",
+	"IPC_HANDLER_JS_CHECK": "Gestionnaire IPC",
+	"IPC_RENDERER_CHANNEL_JS_CHECK": "Canal IPC utilisé par le code du renderer",
+	"IPC_CHANNEL_MAP_GLOBAL_CHECK": "Canal IPC",
+	"NAVIGATION_REDIRECT_JS_CHECK": "Gestionnaire de redirections",
+	"NAVIGATION_REDIRECT_GLOBAL_CHECK": "La liste d'autorisation de will-navigate ne couvre pas les redirections du serveur : aucun gestionnaire will-redirect, did-start-navigation ou webRequest ne les bloque",
+	"WINDOW_SESSION_GLOBAL_CHECK": "Fenêtres partageant une session",
+	"CSP_DIRECTIVES_GLOBAL_CHECK": "Directives de la Content Security Policy",
+	"DEVELOPMENT_CODE_JS_CHECK": "Code de développement dans l'application distribuée",
+	"DEBUG_LOGGING_JS_CHECK": "Journalisation détaillée dans l'application distribuée",
+	"WORD_LAUNCH_JS_CHECK": "Lancement de Microsoft Word",
+	"DOCUMENT_PIPELINE_JS_CHECK": "Traitement des documents",
+	"SOURCE_MAP_SHIPPED": "Les source maps sont distribuées avec l'application",
+	"watchScreenshotsOptionDescription": "en mode watch, enregistre une capture de la fenêtre comme preuve quand le marqueur revient en HTML actif, qu'un script est inséré dans une page ou qu'une navigation porte le marqueur (dans ce dossier, par défaut ./screenshots ; les pages peuvent afficher des données confidentielles)"
 }

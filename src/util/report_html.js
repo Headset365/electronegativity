@@ -1,5 +1,5 @@
 // Self-contained HTML report: no external resources, so it can be archived, attached to tickets or opened offline.
-import { ROUTES, ROUTE_IMPACT, consequenceOf, validationHint, worstCase } from '../finder/consequences.js';
+import { ROUTES, ROUTE_IMPACT, consequenceOf, validationHint, worstCase, interactionOf } from '../finder/consequences.js';
 import { NOTE_FIELDS } from '../report/notes.js';
 import { scores } from '../report/scores.js';
 
@@ -86,7 +86,8 @@ function findingRow(issue, index) {
         <td>
           <div class="check">${escapeHtml(issue.id)}${issue.manualReview ? ' <span class="review" title="Requires manual review">review</span>' : ''}${issue.comparison === 'new' ? ' <span class="review" title="Not in the previous report">new</span>' : issue.comparison === 'changed' ? ' <span class="review" title="Its severity changed since the previous report">severity changed</span>' : ''}</div>
           <div class="desc">${escapeHtml(issue.description)}</div>
-          ${consequence ? `<div class="consequence"><span class="route route-${route}" title="Who can exploit it">${escapeHtml(consequence.label)}</span> ${escapeHtml(consequence.text)}</div>` : ''}
+          ${consequence ? `<div class="consequence"><span class="route route-${route}" title="Who can exploit it">${escapeHtml(consequence.label)}</span> ${escapeHtml(consequence.text)}${interactionOf(issue.id) && route !== 'info' ? ` <span class="interaction">Victim interaction: ${escapeHtml(interactionOf(issue.id))}.</span>` : ''}</div>` : ''}
+          ${issue.properties && issue.properties.screenshot ? `<div class="evidence">Screenshot: ${escapeHtml(issue.properties.screenshot)}</div>` : ''}
           ${validationBlock(issue)}
           ${notesBlock(issue.notes)}
           ${issue.sample ? sampleBlock(issue.sample) : ''}
@@ -113,6 +114,13 @@ const localDescription = (id) => {
     return undefined;
   }
 };
+
+// Chromium, Node.js, V8 and OpenSSL bundled with the Electron release
+function bundledText(bundled) {
+  if (!bundled) return '';
+  const parts = [['Chromium', bundled.chromium], ['Node.js', bundled.node], ['V8', bundled.v8], ['OpenSSL', bundled.openssl]].filter(([, v]) => v);
+  return parts.length ? ` (${parts.map(([k, v]) => `${k} ${escapeHtml(v)}`).join(', ')})` : '';
+}
 
 function findingGroups(sorted) {
   const groups = new Map();
@@ -481,6 +489,8 @@ export function renderHtmlReport(allIssues, meta) {
   details.code summary { width: fit-content; }
   .cut { color: var(--muted); font-size: 12px; }
   .consequence { margin: 2px 0 6px; padding: 6px 8px; border-left: 3px solid var(--border); background: var(--code); border-radius: 0 6px 6px 0; font-size: 13px; }
+  .consequence .interaction { display: block; margin-top: 3px; color: var(--muted); }
+  .evidence { font-size: 12px; color: var(--muted); margin: 2px 0 6px; }
   .route { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-right: 4px; border: 1px solid currentColor; white-space: nowrap; }
   .route-content { color: var(--high); } .route-escalation { color: var(--medium); } .route-network { color: var(--accent); }
   .route-local, .route-info, .route-other { color: var(--muted); } .route-dependency { color: var(--low); }
@@ -550,7 +560,7 @@ export function renderHtmlReport(allIssues, meta) {
   <h1>${escapeHtml(meta.title || 'Electronegativity report')}</h1>
   <div class="meta">
     <span>Target: <b>${escapeHtml(meta.installer ? meta.installer.file : meta.input)}</b>${meta.installer ? ` (${escapeHtml(meta.installer.kind)}, SHA-256 ${escapeHtml(meta.installer.sha256)}; the app inside was unpacked to ${escapeHtml(meta.input)})` : ''}</span>
-    <span>Electron: <b>${escapeHtml(meta.electronVersion || 'not detected (oldest defaults assumed)')}</b></span>
+    <span>Electron: <b>${escapeHtml(meta.electronVersion || 'not detected (oldest defaults assumed)')}</b>${bundledText(meta.dependencies && meta.dependencies.bundled)}</span>
     <span>Files scanned: <b>${escapeHtml(meta.filesScanned)}</b></span>
     <span>Checks: <b>${escapeHtml(meta.atomicChecks)}</b> atomic, <b>${escapeHtml(meta.globalChecks)}</b> global</span>
     <span>Generated: <b>${escapeHtml(meta.generatedAt)}</b></span>${meta.suppressedByBaseline ? `

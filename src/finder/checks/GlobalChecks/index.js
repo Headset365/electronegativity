@@ -14,6 +14,8 @@ import SandboxGlobalCheck from './SandboxGlobalCheck.js';
 import AuxclickGlobalCheck from './AuxclickGlobalCheck.js';
 import IframeSandboxGlobalCheck from './IframeSandboxGlobalCheck.js';
 import EndOfLifeLibrariesGlobalCheck from './EndOfLifeLibrariesGlobalCheck.js';
+import IpcChannelMapGlobalCheck from './IpcChannelMapGlobalCheck.js';
+import { WindowSessionGlobalCheck, NavigationRedirectGlobalCheck, CSPDirectivesGlobalCheck } from './ConfigReviewGlobalChecks.js';
 
 const GLOBAL_CHECKS = [
   AffinityGlobalCheck,
@@ -31,7 +33,11 @@ const GLOBAL_CHECKS = [
   SandboxGlobalCheck,
   AuxclickGlobalCheck,
   IframeSandboxGlobalCheck,
-  EndOfLifeLibrariesGlobalCheck
+  EndOfLifeLibrariesGlobalCheck,
+  IpcChannelMapGlobalCheck,
+  WindowSessionGlobalCheck,
+  NavigationRedirectGlobalCheck,
+  CSPDirectivesGlobalCheck
 ];
 
 export { GLOBAL_CHECKS };

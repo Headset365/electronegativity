@@ -64,6 +64,10 @@ import { UpdateSecurityJSCheck, UpdateSecurityJSONCheck } from './UpdateSecurity
 import PlaintextSecretsJSCheck from './PlaintextSecretsJSCheck.js';
 import HardcodedSecretsCheck from './HardcodedSecretsCheck.js';
 import PackagedBinaryCheck from './PackagedBinaryCheck.js';
+import { IpcFileAccessJSCheck, IpcHandlerJSCheck, IpcRendererChannelJSCheck } from './IpcHandlerChecks.js';
+import NavigationRedirectJSCheck from './NavigationRedirectJSCheck.js';
+import SourceMapsCheck from './SourceMapsCheck.js';
+import { DevelopmentCodeJSCheck, DebugLoggingJSCheck, WordLaunchJSCheck, DocumentPipelineJSCheck } from './ProductionChecks.js';
 import { SecretFileWriteJSCheck, ElectronStoreEncryptionJSCheck, CookieFlagsJSCheck, CredentialAccessJSCheck } from './StorageChecks.js';
 
 const CHECKS = [
@@ -153,6 +157,15 @@ const CHECKS = [
   CredentialAccessJSCheck,
   HardcodedSecretsCheck,
   PackagedBinaryCheck,
+  IpcFileAccessJSCheck,
+  IpcHandlerJSCheck,
+  IpcRendererChannelJSCheck,
+  NavigationRedirectJSCheck,
+  DevelopmentCodeJSCheck,
+  DebugLoggingJSCheck,
+  WordLaunchJSCheck,
+  DocumentPipelineJSCheck,
+  SourceMapsCheck,
 ];
 
 export { CHECKS };

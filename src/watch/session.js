@@ -28,7 +28,7 @@ export function parseHeaders(list = []) {
  * @throws when the app can't be started or the log can't be read
  */
 export async function observeSession({ watch, watchLog, args = [], marker, capture = true, traffic = true, scope = [], canaries = [], searchDirs = [], userData,
-  assistant, staticIssues = [], confirm }) {
+  assistant, staticIssues = [], confirm, screenshots }) {
   let log = watchLog;
   let packagedApp;
   let injection;
@@ -71,7 +71,7 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     }
     const stopFollowing = followLog(logFile, record => assistant.handle(record));
     try {
-      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture, traffic, scope, log: logFile, commands: commandsFile,
+      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture, traffic, scope, screenshots, log: logFile, commands: commandsFile,
         onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
       stopFollowing();

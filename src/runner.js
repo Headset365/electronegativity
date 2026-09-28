@@ -26,6 +26,7 @@ import { reviewDataAtRest, appNames } from './storage/index.js';
 import { secretSources, scanSecrets } from './secrets/scan.js';
 import { linkCredentialStores } from './finder/checks/AtomicChecks/StorageChecks.js';
 import { analyzeBinary } from './binary/index.js';
+import { sourceMapIssues } from './production/sourcemaps.js';
 import { installerIssues } from './unpack/findings.js';
 import { loadFindingNotes, applyFindingNotes } from './report/notes.js';
 import { loadSuppressions, applySuppressions, compareWithReport } from './util/triage.js';
@@ -134,6 +135,8 @@ async function scan(options, forCli) {
   // the hard-coded secret scan: -l HardcodedSecretsCheck to run it alone, -x HardcodedSecretsCheck to leave it out
   const SECRET_SCAN = ['hardcodedsecretscheck', 'hardcoded_secret'];
   const runSecretScan = (options.customScan.length === 0 || options.customScan.some(c => SECRET_SCAN.includes(c))) && !options.excludeFromScan.some(c => SECRET_SCAN.includes(c));
+  const SOURCE_MAP_SCAN = ['sourcemapscheck', 'source_map_shipped'];
+  const runSourceMapScan = (options.customScan.length === 0 || options.customScan.some(c => SOURCE_MAP_SCAN.includes(c))) && !options.excludeFromScan.some(c => SOURCE_MAP_SCAN.includes(c));
   const runBinaryChecks = (options.customScan.length === 0 || options.customScan.includes('packagedbinarycheck')) && !options.excludeFromScan.includes('packagedbinarycheck');
 
   // Parser options initialization
@@ -263,6 +266,8 @@ async function scan(options, forCli) {
     issues.push(...scanSecrets(secretSources(options.input, filenames, (file) => loader.load_buffer(file), { allFiles: !!options.allFiles })));
     endPhase('secrets');
   }
+  // source maps shipped with a packaged app (in a source checkout they are expected)
+  if (runSourceMapScan) issues.push(...sourceMapIssues(options.input, { packaged: packagedInput || /\.asar$/i.test(options.input) }));
   linkCredentialStores(issues);
   errors.push(...globalChecker.checkErrors);
   if (forCli) for (const error of globalChecker.checkErrors) console.error(chalk.red(error.message));
@@ -279,8 +284,10 @@ async function scan(options, forCli) {
     endPhase('dependencies');
     // exploited in the wild (CISA KEV), exploit probability (EPSS), malicious versions; the Chromium CVEs of this build
     dependencies.intel = await enrichDependencies(dependencies);
+    // the runtimes this Electron release bundles: Chromium, Node.js, V8 and OpenSSL
+    const releases = !dependencies.offline && electronVersion ? await electronReleases().catch(() => []) : [];
+    dependencies.bundled = bundledRuntimes(releases, electronVersion, options.input);
     if (!dependencies.offline && options.nvd !== false && electronVersion) {
-      const releases = await electronReleases();
       const chromium = chromiumOf(releases, electronVersion) || chromiumFromBinary(options.input);
       dependencies.chromium = await chromiumAdvisories({ electron: electronVersion, chromium, releases, kev: await kevCatalog() });
     }
@@ -491,6 +498,15 @@ async function scan(options, forCli) {
     binary: binary && binary.summary,
     installer: options.installer && { kind: options.installer.kind, ...options.installer.installer }
   };
+}
+
+// Chromium, Node.js, V8 and OpenSSL of an Electron release (from its release data, or the Chromium version written into
+// the packaged executable when offline)
+function bundledRuntimes(releases, electronVersion, input) {
+  const release = (releases || []).find(r => r.version === String(electronVersion || '').replace(/^v/, ''));
+  const chromium = (release && release.chrome) || chromiumFromBinary(input);
+  if (!release && !chromium) return undefined;
+  return { electron: electronVersion, chromium, node: release && release.node, v8: release && release.v8, openssl: release && release.openssl };
 }
 
 // the Chromium version written into a packaged app's executable (its user agent string)

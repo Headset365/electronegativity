@@ -75,6 +75,19 @@ export function reviewDataAtRest({ names = [], userData, observedUserData, revie
           `${cookies.weakEncryption} cookie(s) use Chromium's fallback encryption with a fixed key (v10 ${process.platform === 'linux' ? 'without an OS keyring' : 'with the EnableCookieEncryption fuse off'}): effectively cleartext on disk`,
           { weakEncryption: cookies.weakEncryption }, COOKIE_FUSE));
       if (cookies.error) notes.push(`cookie store ${cookies.file}: ${cookies.error}`);
+      // responses kept on disk: service worker Cache Storage and the HTTP cache
+      const caches = data.caches || { stores: {}, secrets: [] };
+      summary.profile.caches = Object.fromEntries(Object.entries(caches.stores).map(([store, s]) => [store, { entries: s.entries, hosts: Object.keys(s.hosts).length }]));
+      for (const c of caches.secrets)
+        issues.push(finding('STORAGE_SECRET_AT_REST', path.join(profile, c.store === 'Cache Storage' ? 'Service Worker/CacheStorage' : 'Cache'), severity.MEDIUM, confidence.FIRM,
+          `${c.kind} in a cached response (${c.store}) from ${c.url}: responses stay on disk after the session ends`,
+          { store: c.store, url: c.url, kind: c.kind }, 'https://cwe.mitre.org/data/definitions/524.html', `${c.kind}: ${c.shown}`));
+      for (const [store, s] of Object.entries(caches.stores)) {
+        const hosts = Object.entries(s.hosts).sort((a, b) => b[1] - a[1]);
+        issues.push(finding('STORAGE_CACHED_RESPONSES', path.join(profile, store === 'Cache Storage' ? 'Service Worker/CacheStorage' : 'Cache'), severity.INFORMATIONAL, confidence.CERTAIN,
+          `${s.entries} response(s) kept in the ${store}${hosts.length ? ` from ${hosts.slice(0, 5).map(([h, n]) => `${h} (${n})`).join(', ')}${hosts.length > 5 ? ', ...' : ''}` : ''}: documents and API responses the app fetched stay on disk; send Cache-Control: no-store for sensitive ones`,
+          { store, entries: s.entries, hosts: Object.fromEntries(hosts) }, 'https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control'));
+      }
     }
   }
 

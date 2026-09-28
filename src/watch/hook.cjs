@@ -245,6 +245,37 @@ function instrument(electron, late) {
     return picked;
   };
 
+  // which session each page runs in: the default one, a persistent partition (by folder name) or an in-memory one
+  const sessionLabels = new WeakMap();
+  let memorySessions = 0;
+  const sessionLabel = (ses) => {
+    if (!ses) return undefined;
+    if (sessionLabels.has(ses)) return sessionLabels.get(ses);
+    let label = 'unknown';
+    try {
+      label = electron.session && ses === electron.session.defaultSession ? 'default' : ses.storagePath ? path.basename(ses.storagePath) : `in-memory-${++memorySessions}`;
+    } catch {
+      // keep 'unknown'
+    }
+    sessionLabels.set(ses, label);
+    return label;
+  };
+  // evidence screenshots (--watch-screenshots): the window as it was when the marker came back live, script was
+  // inserted or a navigation carried the marker. Off unless asked for, as pages can show confidential data.
+  const SHOTS = process.env.ELECTRONEGATIVITY_WATCH_SCREENSHOTS;
+  const shotKeys = new Set();
+  const screenshot = (contents, reason, url) => {
+    if (!SHOTS || shotKeys.size >= 25 || shotKeys.has(`${reason}:${url}`)) return;
+    shotKeys.add(`${reason}:${url}`);
+    const n = shotKeys.size;
+    safely(() => contents.capturePage().then(image => {
+      const file = path.join(SHOTS, `${String(n).padStart(2, '0')}-${reason}.png`);
+      fs.mkdirSync(SHOTS, { recursive: true });
+      fs.writeFileSync(file, image.toPNG());
+      write('screenshot', { id: contents.id, reason, url, file });
+    }).catch(() => {}));
+  };
+
   const { app, ipcMain, shell } = electron;
   // name of the renderer observer's global, different for every session
   const OBSERVER_KEY = `__eng_${require('crypto').randomBytes(6).toString('hex')}`;
@@ -674,7 +705,9 @@ function instrument(electron, late) {
     };
     contents.on('did-finish-load', () => {
       const url = redact(contents.getURL());
-      write('page', { id, type, url, prefs: prefs() });
+      let ses;
+      safely(() => { ses = sessionLabel(contents.session); });
+      write('page', { id, type, url, prefs: prefs(), session: ses });
       // a CSP can also come from a <meta> tag: read it from the page (read-only)
       contents.executeJavaScript(`(() => { const m = document.querySelector('meta[http-equiv="Content-Security-Policy" i]'); return m ? m.getAttribute('content') : null; })()`, false)
         .then(csp => write('page-meta-csp', { id, url, csp }))
@@ -683,6 +716,12 @@ function instrument(electron, late) {
     contents.on('will-navigate', (event, url) => {
       // read after the app's own handlers, which may cancel it
       setImmediate(() => write('will-navigate', { id, url: redact(url), marker: hasMarker(url), prevented: !!event.defaultPrevented }));
+    });
+    contents.on('will-navigate', (event, url) => { if (hasMarker(url)) setImmediate(() => { if (!event.defaultPrevented) screenshot(contents, 'navigation', redact(url)); }); });
+    // server redirects: will-navigate doesn't see them, will-redirect does (read after the app's handlers)
+    contents.on('will-redirect', (event, url, isInPlace, isMainFrame) => {
+      if (isMainFrame === false) return;
+      setImmediate(() => write('will-redirect', { id, url: redact(url), from: redact(contents.getURL()), prevented: !!event.defaultPrevented, marker: hasMarker(url) }));
     });
     contents.on('did-navigate', (event, url) => write('did-navigate', { id, url: redact(url), marker: hasMarker(url) }));
     contents.on('did-create-window', (window, details) => write('child-window', { id, url: redact(details && details.url), disposition: details && details.disposition, marker: hasMarker(details && details.url) }));
@@ -741,6 +780,8 @@ function instrument(electron, late) {
             .then(list => {
               if (list === null) return frame.executeJavaScript(observerCode, false); // not installed yet in this frame
               for (const e of (list || [])) {
+                if ((e.type === 'marker' || e.type === 'sink') && e.live) screenshot(contents, e.type === 'marker' ? 'marker-live' : 'marker-sink', url);
+                else if (e.type === 'event-handler' || e.type === 'javascript-url') screenshot(contents, 'dom-injection', url);
                 if (e.type === 'entry') write('entry', { id, url, detail: e.detail, frame: frameUrl });
                 else if (e.type === 'sink') write('sink', { id, url, frame: frameUrl, sink: e.detail, live: e.live, frames: (e.frames || []).map(f => ({ ...f, url: redact(f.url) })) });
                 else write('dom-observed', { id, url, frame: frameUrl, event: e.type, detail: e.detail, live: e.live });

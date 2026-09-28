@@ -58,6 +58,7 @@ async function main() {
     .option('--ingest <file>', __('ingestOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--scope <domain>', __('scopeOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--no-watch-traffic', __('watchTrafficOptionDescription'))
+    .option('--watch-screenshots [dir]', __('watchScreenshotsOptionDescription'))
     .option('--user-data <dir>', __('userDataOptionDescription'))
     .option('--canary <password>', __('canaryOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--search-dir <dir>', __('searchDirOptionDescription'), (value, previous) => [...(previous || []), value])
@@ -99,6 +100,8 @@ async function main() {
   const capture = options.watchCapture !== false;
   const traffic = options.watchTraffic !== false;
   const scope = (options.scope || []).flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
+  // --watch-screenshots alone: a screenshots folder in the current directory (or the --app results folder)
+  const screenshots = options.watchScreenshots === true ? 'screenshots' : options.watchScreenshots;
 
   if (options.output) {
     // several outputs at once: -o report.html,report.json,report.docx,report.cdx.json
@@ -148,7 +151,7 @@ async function main() {
 
   try {
     if (options.app) {
-      await guided(options, common, { watchArgs, headers, capture, traffic, scope });
+      await guided(options, common, { watchArgs, headers, capture, traffic, scope, screenshots });
       return;
     }
 
@@ -156,7 +159,7 @@ async function main() {
     let session;
     if (options.watch || options.watchLog) {
       try {
-        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker, capture, traffic, scope,
+        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker, capture, traffic, scope, screenshots,
           canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm() });
       } catch (error) {
         console.error(chalk.red(error.message));
@@ -288,7 +291,7 @@ function countBySeverity(issues) {
  * --app <location>: finds the app, scans it statically, then runs as many watch sessions as the user wants (one per
  * account, typically), each with its own report and diagnostics file, all in one results folder.
  */
-async function guided(options, common, { watchArgs, headers, capture, traffic, scope }) {
+async function guided(options, common, { watchArgs, headers, capture, traffic, scope, screenshots }) {
   const located = locateApp(options.app);
   const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
   const outDir = path.resolve(options.out || `electronegativity-results-${stamp}`);
@@ -329,6 +332,7 @@ async function guided(options, common, { watchArgs, headers, capture, traffic, s
     let session;
     try {
       session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, capture, traffic, scope,
+        screenshots: screenshots && (path.isAbsolute(screenshots) ? screenshots : path.join(outDir, screenshots)),
         canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, assistant, confirm: interactiveConfirm() });
     } catch (error) {
       console.error(chalk.red(error.message));
