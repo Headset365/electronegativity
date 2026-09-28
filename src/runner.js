@@ -434,10 +434,12 @@ async function scan(options, forCli) {
   }
 
   // the same findings, redacted for sharing (--share): names, hosts, paths, secrets and code removed
-  if (options.share) {
-    writeShare(options.share, { input: options.input, issues: reported, suppressed, electronVersion, bundled: dependencies && dependencies.bundled,
+  // (one file, or several: --report-dir writes Markdown and JSON)
+  for (const share of [].concat(options.share || [])) {
+    const shared = writeShare(share, { input: options.input, issues: reported, suppressed, electronVersion, bundled: dependencies && dependencies.bundled,
       runtime: options.runtime && options.runtime.summary, redact: options.redact || [], code: !!options.shareCode, version: pkg.version });
-    if (forCli) console.log(chalk.gray(__('shareWritten', { file: options.share })));
+    if (forCli) console.log(chalk.gray(__('shareWritten', { file: share })));
+    if (forCli && shared.audit.finalPassReplacements > 0) console.log(chalk.gray(__('shareAudit', { count: shared.audit.finalPassReplacements })));
   }
 
   if (forCli) {

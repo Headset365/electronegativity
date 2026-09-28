@@ -10,6 +10,7 @@ import { sourceMapIssues } from '../src/production/sourcemaps.js';
 import { interactionOf, consequenceOf } from '../src/finder/consequences.js';
 import { splitOutputs, unwritableOutput } from '../src/util/file.js';
 import { maskCode, buildShare } from '../src/report/share.js';
+import { createReportFolder, reportFolderName, reportFiles } from '../src/util/reportdir.js';
 
 chaiShould();
 await _i18n();
@@ -390,11 +391,80 @@ fetch('http://10.20.30.40:8080/api');`,
       report.findings[0].runtimeEvidence.should.include('host-');
     });
 
+    it('removes client identity that only shows in package.json links, bare domains, UNC paths and ids', async () => {
+      const dir = tmp('eng-share-id-');
+      const app = path.join(dir, 'app');
+      fs.mkdirSync(app);
+      fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'desk', main: 'main.js', devDependencies: { electron: '30.0.0' },
+        author: 'Jo <jo@northwind-legal.com>', homepage: 'https://desk.northwind-legal.com', repository: 'github:northwindlaw/desk-client', build: { copyright: 'Copyright 2024 Northwind Holdings' } }));
+      fs.writeFileSync(path.join(app, 'main.js'), `
+const { BrowserWindow, shell, ipcMain } = require('electron');
+const win = new BrowserWindow({ webPreferences: { nodeIntegration: true } });
+// sign in at sso.northwind-legal.com, cookies for .northwind-legal.com, share \\\\fs01\\cases, id 3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b
+ipcMain.handle('link', (event, url) => shell.openExternal(url));`);
+      const json = path.join(dir, 'share.json');
+      await run({ input: app, offline: true, share: json });
+      const text = fs.readFileSync(json, 'utf8');
+      for (const leak of ['northwind', 'Northwind', 'desk-client', 'fs01', '3f2b8c1e', 'jo@', dir]) text.should.not.include(leak, `leaks ${leak}`);
+      JSON.parse(text).audit.finalPassReplacements.should.be.a('number');
+    });
+
+    it('keeps documentation links and Electron API names that look like domains', () => {
+      const report = buildShare({ input: '/work/demo', version: '2.0.0', issues: [{
+        id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },
+        description: 'see www.electronjs.org and electron.net, then sso.customer-x.com and customer-x.dev' }] });
+      const text = report.findings[0].description;
+      text.should.include('www.electronjs.org').and.include('electron.net');
+      text.should.not.include('customer-x');
+    });
+
+    it('replaces names left in fields no earlier step covers, keeping earlier placeholders whole', () => {
+      const report = buildShare({ input: '/work/AcmeDesk', version: '2.0.0', redact: ['red'], issues: [{
+        id: 'TEST', file: '/work/AcmeDesk/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },
+        description: 'plain text', properties: { source: 'x' } }] });
+      report.audit.finalPassReplacements.should.equal(0);
+      JSON.stringify(report).should.not.include('AcmeDesk');
+      const clean = buildShare({ input: '/work/demo', version: '2.0.0', redact: ['red', 'edac'], issues: [{
+        id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },
+        description: 'a red flag at user@site.example.test' }] });
+      clean.findings[0].description.should.equal('a <redacted> flag at <email>');
+    });
+
     it('masks strings that could carry data in code, keeping code tokens', () => {
       const same = (text) => text;
       maskCode("store.get('Acme'); ipcMain.handle('open-doc', f)", same).should.equal("store.get('<str>'); ipcMain.handle('open-doc', f)");
       maskCode('x = `Hello ${name}, from Jane` // note', same).should.equal('x = `… ${name}… from …`');
       maskCode("const t = 'Zq8Lm2Vt9Rk4Zp8Wn3Yb6Hs7Tx4W'", same).should.equal("const t = '<str>'");
+    });
+  });
+  describe('Report folder (--report-dir)', () => {
+    it('names the folder after the UTC date and time, safe for Windows', () => {
+      reportFolderName(new Date('2026-09-28T14:30:05.123Z')).should.equal('electronegativity-2026-09-28T14-30-05Z');
+    });
+
+    it('creates it inside the given folder, making that folder if needed, and never reuses a folder', () => {
+      const parent = path.join(tmp('eng-reports-'), 'nested', 'reports');
+      const when = new Date('2026-09-28T14:30:05Z');
+      const first = createReportFolder(parent, when);
+      const second = createReportFolder(parent, when);
+      path.dirname(first).should.equal(path.resolve(parent));
+      path.basename(first).should.equal('electronegativity-2026-09-28T14-30-05Z');
+      path.basename(second).should.equal('electronegativity-2026-09-28T14-30-05Z-2');
+      fs.statSync(first).isDirectory().should.equal(true);
+      fs.statSync(second).isDirectory().should.equal(true);
+    });
+
+    it('fails when the parent is a file', () => {
+      const file = path.join(tmp('eng-reports-'), 'file');
+      fs.writeFileSync(file, '');
+      (() => createReportFolder(file)).should.throw();
+    });
+
+    it('lays out the report, shareable report and diagnostics files', () => {
+      const files = reportFiles('/r');
+      files.outputs.map(f => path.basename(f)).should.deep.equal(['report.html', 'report.json']);
+      files.shares.map(f => path.basename(f)).should.deep.equal(['shareable-report.md', 'shareable-report.json']);
+      path.basename(files.diagnostics).should.equal('diagnostics.json');
     });
   });
 });

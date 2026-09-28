@@ -163,6 +163,7 @@ $ electronegativity -h
 | -i, --input  | input (directory, .js, .html, .asar, an installed app's folder or executable, or an installer or package: NSIS or Squirrel `.exe`, `.7z`, `.zip`, `.nupkg`) |
 | --app <location> | guided run: find the app in this install folder (or its executable), scan it, then walk through watch sessions, writing every report to one results folder |
 | --out <dir> | results folder for `--app` (default `electronegativity-results-<date>`) |
+| --report-dir [folder] | put this run's reports in a new folder named `electronegativity-<UTC date and time>`, made inside `folder` (default: the current folder), see [Report folder](#report-folder) |
 | --sessions <count> | number of watch sessions `--app` runs without asking (`0` for the static scan only) |
 | -l, --checks | only run the specified checks, passed in csv format |
 | -x, --exclude-checks <excludedCheckNames> | skip the specified checks list, passed in csv format |
@@ -351,7 +352,26 @@ $ electronegativity -i ./my-app -o report.html --share findings-share.md --redac
 
 It keeps the check, severity, confidence, potential input source, runtime status and evidence, relative file and line, description and check-specific details. Potential input source is a threat model, not a verified attacker capability. The Markdown and JSON reports list all findings, including informational inventories, with full arrays of check details.
 
-Removed: the app, product and author names from `package.json`, the app folder name, your user and machine names, the `--redact` terms, the home and user folders, hosts (replaced by stable pseudonyms such as `host-1a2b3c4d`), query strings, e-mail and IP addresses (loopback excepted) and anything matching a secret pattern. Code is left out; `--share-code` adds each finding's line with string literals and comments masked (short lowercase code tokens such as channel names, flags and file names stay). The redaction is pattern-based: read the file before sending it, and add names it missed to `--redact`.
+Removed: the app, product, author and publisher names from `package.json` and the owner and domain in its homepage, repository, bugs and contact links, the app folder name, your user and machine names, the `--redact` terms, the home and user folders, hosts and bare domain names (replaced by stable pseudonyms such as `host-1a2b3c4d`; Electron and public documentation sites stay), UNC server names, ids (UUIDs), query strings, e-mail and IP addresses (loopback excepted) and anything matching a secret pattern. A final pass over the findings replaces any of these names that survived, and the JSON report's `audit.finalPassReplacements` counts them (normally 0). The Markdown opens with a note telling a reviewer or agent that the identity was removed on purpose. Code is left out; `--share-code` adds each finding's line with string literals and comments masked (short lowercase code tokens such as channel names, flags and file names stay). The redaction is pattern-based: read the file before sending it, and add names it missed to `--redact`.
+
+### Report folder
+
+`--report-dir` gives each run its own folder, so runs never overwrite each other and everything for a run is in one place:
+
+```
+$ electronegativity -i ./my-app --report-dir ./reports --redact "Acme,acme.internal"
+Report folder: /home/me/reports/electronegativity-2026-09-28T14-30-05Z
+```
+
+The folder (created inside the folder you give, made if missing; without a value, inside the current folder) holds:
+
+| File | Content |
+|---|---|
+| `report.html`, `report.json` | the full report, for you (with app names and paths) |
+| `shareable-report.md`, `shareable-report.json` | the findings with client information removed, to send to a reviewer or an AI agent, see [Sharing findings](#sharing-findings) |
+| `diagnostics.json` | sanitized troubleshooting information |
+
+Add `-o` or `--diagnostics` to write those files elsewhere as well. With `--app`, the results folder gets this name, with a Markdown and JSON shareable report per step (`static-share.md`, `session-1-share.json`...); `--report-dir` and `--out` can't be combined. A second run in the same second gets `-2` after the name.
 
 ### Ignoring Lines or Files
 

@@ -209,7 +209,7 @@
 	"appAskFirstSession": "¿Iniciar la sesión de observación {{n}}? La aplicación se abre: inicie sesión, recorra sus funciones y después ciérrela por completo. [Intro = iniciar, s = omitir]",
 	"appAskNextSession": "¿Iniciar la sesión de observación {{n}} (por ejemplo, con una segunda cuenta)? [Intro = iniciar, s = terminar]",
 	"appStepDone": "{{{file}}}: {{high}} altos, {{medium}} medios, {{low}} bajos, {{info}} informativos",
-	"appDone": "Terminado. Los informes están en {{{dir}}}. Comparta solo los archivos *-diag.json (y los *-share, con --share), después de leerlos; conserve los informes .html:",
+	"appDone": "Terminado. Los informes están en {{{dir}}}. Comparta solo los archivos *-diag.json (y los *-share, con --share o --report-dir), después de leerlos; conserve los informes .html:",
 	"diagnosticsOptionDescription": "escribir un informe de diagnóstico saneado para compartir al solucionar problemas: qué se analizó u omitió, errores, tiempos de las comprobaciones y estado del modo de observación; sin código ni texto de los hallazgos",
 	"redactOptionDescription": "términos adicionales separados por comas que se sustituirán en el informe de diagnóstico (nombres de empresa, producto o servidores); el nombre de la aplicación, del usuario y del equipo siempre se sustituyen",
 	"diagnosticsWritten": "Diagnóstico escrito en {{{file}}}: revíselo antes de compartirlo",
@@ -250,5 +250,10 @@
 	"outputNotWritable": "No se puede escribir el informe {{{output}}}: la carpeta {{{dir}}} no admite escritura ({{{reason}}}). Ejecútelo desde una carpeta con permiso de escritura (p. ej. Documentos) o indique una ruta completa con -o.",
 	"shareOptionDescription": "escribir los hallazgos redactados para compartirlos (para pedir ayuda sin entregar la aplicación): se eliminan nombres, hosts, carpetas de usuario, parámetros de consulta, direcciones de correo e IP, secretos y código; Markdown, o JSON para un archivo .json. Con --app, uno por paso en la carpeta de resultados. Revíselo antes de enviarlo",
 	"shareCodeOptionDescription": "incluir el código de cada hallazgo en el informe --share, con sus cadenas y comentarios ocultos",
-	"shareWritten": "Hallazgos redactados para compartir escritos en {{{file}}}: revíselo antes de enviarlo"
+	"shareWritten": "Hallazgos redactados para compartir escritos en {{{file}}}: revíselo antes de enviarlo",
+	"reportDirOptionDescription": "escribir los informes de esta ejecución en su propia carpeta llamada electronegativity-<fecha y hora UTC>, creada dentro de la carpeta indicada (por defecto: la carpeta actual): report.html, report.json, diagnostics.json y shareable-report.md/.json (resultados sin nombres de aplicación, empresa, usuario ni equipo, dominios, direcciones ni secretos, listos para enviar a un revisor o a un agente de IA). Con --app, la carpeta de resultados recibe ese nombre",
+	"reportFolder": "Carpeta de informes: {{{dir}}}",
+	"reportDirFailed": "No se puede crear la carpeta de informes dentro de {{{dir}}} ({{{reason}}}). Indique una carpeta en la que pueda escribir: --report-dir <carpeta>.",
+	"reportDirWithOut": "Use --report-dir (una carpeta nueva llamada electronegativity-<fecha y hora>) o --out (una carpeta a su elección), no ambas.",
+	"shareAudit": "Comprobación de anonimización: se reemplazaron {{{count}}} valor(es) identificativo(s) que los pasos anteriores no habían detectado en el informe para compartir"
 }

@@ -3,10 +3,12 @@
 // has to do, runtime confirmation, the file's place in the app and line, the description) and removes what identifies
 // the app or its users: the app, company and user names (and --redact terms), the home folder and user folders, hosts
 // (stable pseudonyms), query strings, e-mail and IP addresses, and anything that looks like a secret. Code is left out
-// unless asked for (--share-code), and then its strings and comments are masked. Review the file before sending it.
+// unless asked for (--share-code), and then its strings and comments are masked. A last pass over everything written
+// replaces any of the names that survived (its count is in the report's audit). Review the file before sending it.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { createRequire } from 'node:module';
 import { sensitiveTerms, makeSanitizer } from '../util/diagnostics.js';
 import { consequenceOf, interactionOf } from '../finder/consequences.js';
@@ -33,9 +35,20 @@ function extraRedaction(text) {
     .replace(/\b[A-Za-z]:\\Users\\[^\\\s"'<>]+/g, 'C:\\Users\\<user>')
     .replace(/\/(home|Users)\/[^/\s"'<>]+/g, '/$1/<user>')
     .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s'"<>?#]*)[?#][^\s'"<>)]*/gi, '$1')
+    .replace(/\\\\[^\\\s"'<>]+\\/g, '\\\\<server>\\')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<uuid>')
     .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b/g, '<email>')
     .replace(/\b(?!127\.)(\d{1,3}\.){3}\d{1,3}\b/g, '<ip>');
 }
+
+// Domain names written without a scheme (a cookie domain, "sign in at portal.contoso.com"). Only endings that are hardly ever
+// a file extension are matched, and Electron's own names (electron.net, app.dev...) are left alone.
+const TLDS = 'com|net|org|io|dev|app|info|biz|xyz|cloud|online|site|tech|edu|gov|mil|local|internal|corp|lan|intranet|test|example|invalid|eu|uk|us|ca|au|de|fr|nl|jp|cn|ru|br|ch|se|dk|fi|ie|nz|za|mx';
+const BARE_DOMAIN = new RegExp(`(?<![\\w.@/-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:${TLDS})(?![\\w-])(?!\\s*\\()`, 'gi');
+const NOT_DOMAINS = /^(?:electron|app|net|process|window|document|global|module|exports|this|require|remote|shell|dialog|session|navigator|location|console|api)\./i;
+// public documentation sites that name no one
+const PUBLIC_HOSTS = /(?:^|\.)(?:electronjs\.org|nodejs\.org|mozilla\.org|owasp\.org|mitre\.org|github\.com|npmjs\.com|w3\.org|chromium\.org|example\.com|example\.org|example\.net)$/i;
+const hostAlias = (host) => `host-${crypto.createHash('sha256').update(host.toLowerCase()).digest('hex').slice(0, 8)}`;
 
 /** Code with its strings and comments masked: literals that could carry data become <str>, short identifiers stay. */
 export function maskCode(code, clean) {
@@ -67,11 +80,11 @@ export function buildShare(scan) {
   const collect = (value, key = '') => {
     if (typeof value === 'string') {
       for (const match of value.matchAll(/\b[a-z][a-z0-9+.-]*:\/\/[^\s'"<>?#)]+/gi)) {
-        try { const host = new URL(match[0]).hostname; if (host) hosts.set(host.toLowerCase(), `host-${crypto.createHash('sha256').update(host).digest('hex').slice(0, 8)}`); } catch { /* incomplete URL */ }
+        try { const host = new URL(match[0]).hostname; if (host) hosts.set(host.toLowerCase(), hostAlias(host)); } catch { /* incomplete URL */ }
       }
       if (/^(?:host|domain)$/i.test(key) && /^[\w.-]+\.[A-Za-z]{2,}$/.test(value)) {
         const host = value.replace(/^\./, '').toLowerCase();
-        hosts.set(host, `host-${crypto.createHash('sha256').update(host).digest('hex').slice(0, 8)}`);
+        hosts.set(host, hostAlias(host));
       }
     } else if (Array.isArray(value)) value.forEach(v => collect(v, key));
     else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) collect(v, k);
@@ -81,7 +94,8 @@ export function buildShare(scan) {
     let value = String(text ?? '');
     for (const [host, alias] of [...hosts].sort((a, b) => b[0].length - a[0].length))
       value = value.replace(new RegExp(`(^|[^\\w.-])(${host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?=$|[^\\w.-])`, 'gi'), (_all, before) => before + alias);
-    return extraRedaction(sanitize(value));
+    value = extraRedaction(sanitize(value));
+    return value.replace(BARE_DOMAIN, (domain) => NOT_DOMAINS.test(domain) || PUBLIC_HOSTS.test(domain) ? domain : hostAlias(domain));
   };
   const cleanValue = value => typeof value === 'string' ? clean(value) : Array.isArray(value) ? value.map(cleanValue) :
     value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cleanValue(item)])) : value;
@@ -121,7 +135,7 @@ export function buildShare(scan) {
     }));
   const count = (key) => findings.reduce((acc, f) => { const k = f[key] || 'Other'; acc[k] = (acc[k] || 0) + 1; return acc; }, {});
   const bundled = scan.bundled || {};
-  return {
+  const report = {
     about: 'Electronegativity findings, redacted for sharing: app, company and user names (and --redact terms), user folders, hosts (pseudonyms), query strings, e-mail and IP addresses and secret-like values are replaced; code is ' +
       (scan.code ? 'included with its strings and comments masked' : 'left out') + '. Review this file before sending it.',
     tool: scan.version,
@@ -132,12 +146,38 @@ export function buildShare(scan) {
     counts: { total: findings.length, bySeverity: count('severity'), byExploitableBy: count('exploitableBy'), acceptedOrSuppressed: (scan.suppressed || []).length },
     findings,
   };
+  return finalPass(report, terms, [scan.input && path.resolve(scan.input), os.homedir()]);
+}
+
+/**
+ * The last check on everything that will be written: the app, company, user and machine names and the input and home
+ * folders must not appear anywhere, whatever put them there. What is left is replaced; the count says how many were.
+ */
+function finalPass(report, terms, folders) {
+  const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const literals = [...terms, ...folders.filter(folder => folder && folder.length > 1)].sort((a, b) => b.length - a.length).map(escape);
+  let replaced = 0;
+  const scrub = literals.length === 0 ? (value) => value : (() => {
+    // replacements made earlier (<redacted>, host-1a2b3c4d...) are kept: a short term must not eat into them
+    const pattern = new RegExp(`(<[a-z-]+>|host-[0-9a-f]{8})|(${literals.join('|')})`, 'gi');
+    return (text) => text.replace(pattern, (match, kept) => { if (kept) return match; replaced++; return '<redacted>'; });
+  })();
+  const walk = (value) => typeof value === 'string' ? scrub(value) : Array.isArray(value) ? value.map(walk) :
+    value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, walk(item)])) : value;
+  // only what came from the scan: the report's own wording ("redacted for sharing") must not be eaten by a short term
+  const cleaned = { ...report, findings: walk(report.findings) };
+  cleaned.audit = { finalPassReplacements: replaced };
+  return cleaned;
 }
 
 function markdown(report) {
   const lines = [];
   const counts = report.counts;
   lines.push('# Electronegativity findings (redacted for sharing)', '', `> ${report.about}`, '');
+  lines.push('**Reading this report (for a reviewer or an AI agent).** It was made from a scan of an Electron application whose identity has been removed on purpose: ' +
+    'names appear as `<redacted>`, web hosts as `host-xxxxxxxx` (the same host always has the same alias), and addresses, folders and secrets as `<email>`, `<ip>`, `<user>`, `<uuid>` or `<redacted>`. ' +
+    'Do not try to work out who the application or its owner is. Findings are ordered by severity; "Potential input source" is a check-level threat model, not a proven exploit. ' +
+    'Useful replies: which findings to fix first and why, likely false positives, and how to confirm or fix each one.', '');
   lines.push(`- Tool ${report.tool}; Electron ${report.electron}${report.bundled.chromium ? ` (Chromium ${report.bundled.chromium}${report.bundled.node ? `, Node.js ${report.bundled.node}` : ''})` : ''}; ${report.watchSession ? 'includes a watch session' : 'static scan only'}`);
   lines.push(`- ${counts.total} findings: ${SEVERITIES.filter(s => counts.bySeverity[s]).map(s => `${counts.bySeverity[s]} ${s.toLowerCase()}`).join(', ')}${counts.acceptedOrSuppressed ? `; ${counts.acceptedOrSuppressed} accepted/suppressed, not listed` : ''}`);
   lines.push(`- Potential source of input (based on check type): ${Object.entries(counts.byExploitableBy).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`, '');

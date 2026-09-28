@@ -18,6 +18,7 @@ import { createAssistant, writeMarkerFiles } from './watch/assistant.js';
 import { loadCampaign } from './watch/campaign.js';
 import { isPackage, unpackTarget } from './unpack/index.js';
 import { splitOutputs, unwritableOutput } from './util/file.js';
+import { createReportFolder, reportFiles } from './util/reportdir.js';
 
 async function main() {
 
@@ -55,6 +56,7 @@ async function main() {
     .option('--campaign <file>', 'Run a bounded, profile-driven benign payload campaign without per-case prompts')
     .option('--app <location>', __('appOptionDescription'))
     .option('--out <dir>', __('outOptionDescription'))
+    .option('--report-dir [folder]', __('reportDirOptionDescription'))
     .option('--sessions <count>', __('sessionsOptionDescription'))
     .option('--no-watch-capture', __('watchCaptureOptionDescription'))
     .option('--remote <url>', __('remoteOptionDescription'), (value, previous) => [...(previous || []), value])
@@ -104,6 +106,30 @@ async function main() {
     console.log(__('startScan'));
   }
 
+  // --report-dir: this run's own folder, electronegativity-<date and time>, made inside the given folder (default: here)
+  let reportFolder;
+  if (options.reportDir !== undefined) {
+    if (options.out) {
+      console.error(chalk.red(__('reportDirWithOut')));
+      process.exit(2);
+    }
+    const parent = options.reportDir === true ? '.' : options.reportDir;
+    try {
+      reportFolder = createReportFolder(parent);
+    } catch (error) {
+      console.error(chalk.red(__('reportDirFailed', { dir: path.resolve(parent), reason: error.code || error.message })));
+      process.exit(2);
+    }
+    console.log(chalk.gray(__('reportFolder', { dir: reportFolder })));
+    if (!options.app) {
+      // what a scan writes there, unless asked for elsewhere: the report, the findings redacted for sharing, diagnostics
+      const files = reportFiles(reportFolder);
+      options.output = options.output ? `${options.output},${files.outputs.join(',')}` : files.outputs.join(',');
+      options.share = [...(options.share ? [options.share] : []), ...files.shares];
+      options.diagnostics = options.diagnostics || files.diagnostics;
+    }
+  }
+
   const watchArgs = options.watchArgs ? options.watchArgs.split(/\s+/).filter(Boolean) : [];
   const headers = parseHeaders(options.remoteHeader);
   const redact = options.redact ? options.redact.split(',').map(term => term.trim()).filter(Boolean) : [];
@@ -125,14 +151,14 @@ async function main() {
       process.exit(1);
     }
     // before a scan or a watch session that can take a while: the reports must be writable where they go
-    const unwritable = unwritableOutput(options.share ? [...outputs, options.share] : outputs);
+    const unwritable = unwritableOutput([...outputs, ...[].concat(options.share || [])]);
     if (unwritable) {
       console.error(chalk.red(__('outputNotWritable', unwritable)));
       process.exit(2);
     }
   }
   if (options.share && !options.output && !options.app) {
-    const unwritable = unwritableOutput([options.share]);
+    const unwritable = unwritableOutput([].concat(options.share));
     if (unwritable) {
       console.error(chalk.red(__('outputNotWritable', unwritable)));
       process.exit(2);
@@ -177,7 +203,7 @@ async function main() {
 
   try {
     if (options.app) {
-      await guided(options, common, { watchArgs, headers, capture, traffic, scope, screenshots, campaign });
+      await guided(options, common, { reportFolder, watchArgs, headers, capture, traffic, scope, screenshots, campaign });
       return;
     }
 
@@ -239,7 +265,7 @@ async function main() {
       share: options.share,
       watchDiagnostics: session && session.watchDiagnostics,
     }, forCli);
-    if (options.share && !forCli) console.log(chalk.gray(__('shareWritten', { file: options.share })));
+    for (const file of [].concat(options.share || [])) if (!forCli) console.log(chalk.gray(__('shareWritten', { file })));
     // CI gate: fail when a reported finding reaches the given severity
     if (failOn) {
       const failing = result.reported.filter(issue => issue.severity.value >= failOn.value);
@@ -319,10 +345,10 @@ function countBySeverity(issues) {
  * --app <location>: finds the app, scans it statically, then runs as many watch sessions as the user wants (one per
  * account, typically), each with its own report and diagnostics file, all in one results folder.
  */
-async function guided(options, common, { watchArgs, headers, capture, traffic, scope, screenshots, campaign }) {
+async function guided(options, common, { reportFolder, watchArgs, headers, capture, traffic, scope, screenshots, campaign }) {
   const located = locateApp(options.app);
   const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
-  const outDir = path.resolve(options.out || `electronegativity-results-${stamp}`);
+  const outDir = path.resolve(options.out || reportFolder || `electronegativity-results-${stamp}`);
   fs.mkdirSync(outDir, { recursive: true });
   console.log(chalk.green(__('appFound', { name: located.name, executable: located.executable || '-', code: located.code })));
   console.log(chalk.gray(__('appResults', { dir: outDir })));
@@ -331,9 +357,11 @@ async function guided(options, common, { watchArgs, headers, capture, traffic, s
     const output = path.join(outDir, `${name}.html`);
     const diagnostics = path.join(outDir, `${name}-diag.json`);
     // --share: a redacted findings report per step, next to the others
-    const share = options.share ? path.join(outDir, `${name}-share${/\.json$/i.test(options.share) ? '.json' : '.md'}`) : undefined;
-    const result = await run({ ...common, input: located.code, output, diagnostics, share, ...extra }, false);
-    written.push(output, diagnostics, ...(share ? [share] : []));
+    // (--report-dir: both Markdown and JSON)
+    const shareTypes = reportFolder ? ['.md', '.json'] : options.share ? [/\.json$/i.test(options.share) ? '.json' : '.md'] : [];
+    const shares = shareTypes.map(type => path.join(outDir, `${name}-share${type}`));
+    const result = await run({ ...common, input: located.code, output, diagnostics, share: shares.length ? shares : undefined, ...extra }, false);
+    written.push(output, diagnostics, ...shares);
     for (const error of result.errors.filter(e => !e.tolerable).slice(0, 5)) console.error(chalk.yellow(`${error.file}: ${error.message}`));
     console.log(chalk.green(__('appStepDone', { file: output, ...countBySeverity(result.reported) })));
     return result;

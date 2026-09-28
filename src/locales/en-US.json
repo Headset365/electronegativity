@@ -209,7 +209,7 @@
 	"appAskFirstSession": "Start watch session {{n}}? The app opens: log in, go through its features, then close it completely. [Enter = start, s = skip]",
 	"appAskNextSession": "Start watch session {{n}} (for example as a second account)? [Enter = start, s = finish]",
 	"appStepDone": "{{{file}}}: {{high}} high, {{medium}} medium, {{low}} low, {{info}} informational",
-	"appDone": "Done. Reports are in {{{dir}}}. Share only the *-diag.json files (and the *-share files, with --share), after reading them; keep the .html reports:",
+	"appDone": "Done. Reports are in {{{dir}}}. Share only the *-diag.json files (and the *-share files, with --share or --report-dir), after reading them; keep the .html reports:",
 	"diagnosticsOptionDescription": "write a sanitized diagnostics report to share for troubleshooting: what was scanned or skipped, errors, check timings, watch mode status; no code or findings text",
 	"redactOptionDescription": "extra comma-separated terms to replace in the diagnostics report (company, product or host names); the app name, user name and machine name are always replaced",
 	"diagnosticsWritten": "Diagnostics written to {{{file}}}: review it before sharing",
@@ -250,5 +250,10 @@
 	"outputNotWritable": "Can't write the report {{{output}}}: the folder {{{dir}}} is not writable ({{{reason}}}). Run from a folder you can write to (e.g. cd to your Documents) or give a full path with -o.",
 	"shareOptionDescription": "write the findings redacted for sharing (to get help triaging them without handing over the app): names, hosts, user folders, query strings, e-mail and IP addresses, secrets and code are removed; Markdown, or JSON for a .json file. With --app, one per step in the results folder. Review it before sending",
 	"shareCodeOptionDescription": "include each finding's code in the --share report, with its strings and comments masked",
-	"shareWritten": "Redacted findings for sharing written to {{{file}}}: review it before sending"
+	"shareWritten": "Redacted findings for sharing written to {{{file}}}: review it before sending",
+	"reportDirOptionDescription": "write this run's reports to their own folder named electronegativity-<UTC date and time>, made inside the given folder (default: the current folder): report.html, report.json, diagnostics.json and shareable-report.md/.json (findings with app, company, user and machine names, domains, addresses and secrets removed, ready to send to a reviewer or an AI agent). With --app, the results folder gets that name",
+	"reportFolder": "Report folder: {{{dir}}}",
+	"reportDirFailed": "Can't create the report folder inside {{{dir}}} ({{{reason}}}). Give a folder you can write to: --report-dir <folder>.",
+	"reportDirWithOut": "Use either --report-dir (a new folder named electronegativity-<date and time>) or --out (a folder of your choice), not both.",
+	"shareAudit": "Redaction check: {{{count}}} identifying value(s) that earlier steps missed were replaced in the shareable report"
 }

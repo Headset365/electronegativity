@@ -73,6 +73,25 @@ export function sensitiveTerms(input, extra = []) {
       if (words.length > 1) for (const joiner of ['', ' ', '-', '_', '.']) terms.add(words.join(joiner));
     }
   };
+  // hosts and paths of a link: the owner in a repository URL or the company in a domain is a client name
+  const CODE_HOSTS = /^(?:www\.)?(?:github|gitlab|bitbucket|npmjs|sourceforge)\.(?:com|org)$/i;
+  const GENERIC_LABELS = /^(?:www|com|org|net|io|dev|app|co|edu|gov|info|git|issues|tree|blob|tags|releases|wiki|http|https|api)$/i;
+  const addLink = (value) => {
+    if (typeof value !== 'string') return;
+    let url;
+    try { url = new URL(value.replace(/^git\+/, '').replace(/^git@([^:]+):/, 'https://$1/')); } catch { return; }
+    if (!CODE_HOSTS.test(url.hostname)) {
+      add(url.hostname.replace(/^www\./, ''));
+      for (const label of url.hostname.split('.')) if (!GENERIC_LABELS.test(label)) add(label);
+    }
+    for (const segment of url.pathname.split('/')) if (segment && !GENERIC_LABELS.test(segment.replace(/\.git$/i, ''))) add(segment.replace(/\.git$/i, ''));
+  };
+  const addEmail = (value) => {
+    if (typeof value !== 'string' || !value.includes('@')) return;
+    const [local, domain] = value.split('@');
+    if (!/^(?:info|support|contact|hello|admin|team|dev|security|noreply|no-reply|mail|office|sales)$/i.test(local)) add(local);
+    addLink(`https://${domain}`);
+  };
   const resolved = input ? path.resolve(input) : undefined;
   // the project folder: the input itself, or the app folder around resources/app.asar
   const folders = [];
@@ -94,6 +113,17 @@ export function sensitiveTerms(input, extra = []) {
       }
       const author = typeof manifest.author === 'string' ? manifest.author.replace(/<.*?>|\(.*?\)/g, '') : manifest.author && manifest.author.name;
       add(author);
+      // who the app belongs to shows in its links, contact addresses and publisher fields too
+      for (const person of [manifest.author, ...(Array.isArray(manifest.contributors) ? manifest.contributors : [])]) {
+        if (typeof person === 'string') { addEmail(person.match(/<([^>]+)>/)?.[1]); addLink(person.match(/\(([^)]+)\)/)?.[1]); }
+        else if (person && typeof person === 'object') { add(person.name); addEmail(person.email); addLink(person.url); }
+      }
+      for (const link of [manifest.homepage, manifest.repository, manifest.bugs]) addLink(typeof link === 'string' ? link : link && link.url);
+      if (manifest.build) {
+        add(typeof manifest.build.copyright === 'string' ? manifest.build.copyright.replace(/copyright|\(c\)|©|\d{4}(\s*[-–]\s*\d{4})?/gi, '').trim() : undefined);
+        for (const publish of [].concat(manifest.build.publish || [])) { if (publish && typeof publish === 'object') { add(publish.owner); addLink(publish.url); } }
+        for (const publisher of [].concat(manifest.build.win && manifest.build.win.publisherName || [])) add(publisher);
+      }
     } catch {
       // no readable package.json there
     }
@@ -106,7 +136,7 @@ export function sensitiveTerms(input, extra = []) {
   add(os.hostname());
   for (const term of extra) add(term);
   // generic words that would wreck the report if replaced
-  for (const generic of ['electron', 'main', 'renderer', 'preload', 'index', 'node_modules', 'package', 'test', 'user', 'root', 'admin']) terms.delete(generic);
+  for (const generic of ['electron', 'main', 'renderer', 'preload', 'index', 'node_modules', 'package', 'test', 'user', 'root', 'admin', 'com', 'org', 'net', 'app', 'www', 'github', 'gitlab', 'http', 'https']) terms.delete(generic);
   return [...terms].sort((a, b) => b.length - a.length);
 }
 
