@@ -37,9 +37,9 @@ Run everything against a **test environment** with **test accounts**, never prod
 
 ## 2. Before you start
 
-- Use a **test build** of the app: watch mode loads through `NODE_OPTIONS`, which production builds usually switch off
-  with the `EnableNodeOptionsEnvironmentVariable` fuse. If it can't load, the tool says "The app did not load the watch
-  mode hook" (the static scan works on any build).
+- Watch mode loads its observer into the installed app through the Node inspector (started on a local port for the
+  session only). Builds with the `EnableNodeCliInspectArguments` fuse off can't be observed: the tool checks this before
+  starting and says so (the static scan works on any build). If that happens, use a test build with the fuse on.
 - Close the app completely, including any tray icon: a second copy usually hands over to the running one and exits.
 
   ```powershell

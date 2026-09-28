@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import { resolveApp, watchApp } from './launch.js';
 import { locateApp } from './locate.js';
 import { readWatchLog, analyzeWatchLog } from './analyze.js';
-import { analyzePackagedFuses } from './fuses.js';
+import { analyzePackagedFuses, readFuseWire, fuseBinaryFor } from './fuses.js';
 import { crawl } from '../remote/fetch.js';
 import { prepareScanFolder } from '../remote/sources.js';
 
@@ -28,14 +28,22 @@ export function parseHeaders(list = []) {
 export async function observeSession({ watch, watchLog, args = [], marker, capture = true }) {
   let log = watchLog;
   let packagedApp;
+  let injection;
   let staticInput;
   if (watch) {
     const located = locateApp(watch);
     const app = resolveApp(located.kind === 'project' ? located.folder : located.executable, args);
     packagedApp = app.packaged ? app.command : undefined;
     staticInput = located.code;
+    // a packaged app gets the observer through the Node inspector: a build that switched it off can't be observed
+    const wire = packagedApp ? readFuseWire(fuseBinaryFor(packagedApp)) : undefined;
+    if (wire && wire.config.EnableNodeCliInspectArguments === false) {
+      console.error(chalk.yellow(__('watchInspectFuseOff')));
+      injection = { method: 'inspector', blockedByFuse: true };
+    }
     console.log(chalk.cyan(__('watchStarting')));
-    log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture });
+    log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture,
+      onNote: (note) => { injection = { ...injection, ...note }; } });
     console.log(chalk.gray(__('watchLogSaved', { file: log })));
   }
   const records = readWatchLog(log);
@@ -48,6 +56,8 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     mode: watch ? 'launched' : 'log', packaged: !!packagedApp, hookStarted: !!start, lateStart: !!(start && start.late),
     electron: start && start.electron, marker: !!marker, records: recordKinds,
     hookErrors: records.filter(r => r.kind === 'hook-error').slice(0, 20).map(r => r.message), summary: { ...runtime.summary, fuses: undefined },
+    // how the observer was loaded: NODE_OPTIONS for an app folder, the Node inspector for a packaged app
+    injection: packagedApp ? { method: 'inspector', ...injection } : watch ? { method: 'NODE_OPTIONS' } : undefined,
   };
   // read the fuses actually written into the packaged binary, which the static FUSES_* checks can't see
   if (packagedApp) {
@@ -55,6 +65,7 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     if (fuses.read) {
       runtime.issues.push(...fuses.issues);
       runtime.summary.fuses = fuses.states;
+      watchDiagnostics.fuses = fuses.states;
     } else console.error(chalk.yellow(__('watchFusesUnreadable', { file: fuses.binary })));
     watchDiagnostics.fusesRead = fuses.read;
   }

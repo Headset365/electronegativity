@@ -369,6 +369,39 @@ describe('Watch mode', () => {
     const xvfb = process.platform !== 'linux' || spawnSync('which', ['xvfb-run']).status === 0;
     const run = electron && xvfb ? it : it.skip;
 
+    run('observes a packaged app, which ignores NODE_OPTIONS, through the Node inspector', async () => {
+      // package the test app the way installers ship it: Electron's binary with resources/app.asar next to it
+      const dist = path.join(path.dirname(createRequire(import.meta.url).resolve('electron')), 'dist');
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-packaged-app-'));
+      let executable;
+      let resources;
+      if (process.platform === 'darwin') {
+        fs.cpSync(path.join(dist, 'Electron.app'), path.join(root, 'MyApp.app'), { recursive: true, verbatimSymlinks: true });
+        executable = path.join(root, 'MyApp.app');
+        resources = path.join(executable, 'Contents', 'Resources');
+      } else {
+        fs.cpSync(dist, path.join(root, 'MyApp'), { recursive: true, verbatimSymlinks: true });
+        executable = path.join(root, 'MyApp', process.platform === 'win32' ? 'electron.exe' : 'electron');
+        resources = path.join(root, 'MyApp', 'resources');
+      }
+      fs.rmSync(path.join(resources, 'default_app.asar'), { force: true });
+      await asar.createPackage(path.join(import.meta.dirname, 'apps', 'runtime-app'), path.join(resources, 'app.asar'));
+
+      const output = path.join(root, 'report.json');
+      const diagnostics = path.join(root, 'diag.json');
+      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', executable, '--watch-args', '--no-sandbox', '--offline', '-r', '-o', output, '--diagnostics', diagnostics];
+      const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8' }) : spawnSync(process.execPath, cli, { encoding: 'utf8' });
+      command.status.should.equal(0, command.stderr);
+      const watch = JSON.parse(fs.readFileSync(diagnostics, 'utf8')).watch;
+      watch.injection.should.include({ method: 'inspector', loaded: true });
+      watch.hookStarted.should.equal(true, JSON.stringify(watch));
+      const report = JSON.parse(fs.readFileSync(output, 'utf8'));
+      const ids = report.issues.map(i => i.id);
+      ids.should.include.members(['RUNTIME_NODE_INTEGRATION', 'RUNTIME_IPC', 'RUNTIME_HTML_ENDPOINT']);
+      // loaded before the app's code: windows it constructs are observed with their preload
+      report.issues.filter(i => i.id === 'RUNTIME_WINDOW_SUMMARY').some(i => i.properties.preload === 'preload.js').should.equal(true);
+    });
+
     run('observes a real session without disturbing the app', () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-watch-app-'));
       fs.cpSync(path.join(import.meta.dirname, 'apps', 'runtime-app'), dir, { recursive: true });

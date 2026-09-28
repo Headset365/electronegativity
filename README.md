@@ -228,7 +228,7 @@ The app starts with a small observer loaded into its main process, and a read-on
 
 To detect stored-content injection with `--watch-marker <token>`, put content carrying the token into the app from one account and open it as another user. The observer reports the token as live HTML when it became part of the page's markup (a tag or attribute name, or an event handler), and as shown safely when it only appears as text or in an ordinary attribute value such as a form field's value.
 
-The observer only records: it doesn't change what the app does. URLs are stored without their query strings, and IPC arguments only by type. It is loaded through `NODE_OPTIONS`, which packaged apps ignore when the `EnableNodeOptionsEnvironmentVariable` fuse is off (as recommended for production): run watch mode on a development or test build. With an app folder, the folder is also scanned statically; with a packaged executable, its `resources/app.asar`.
+The observer only records: it doesn't change what the app does. URLs are stored without their query strings, and IPC arguments only by type. For an app folder it is loaded through `NODE_OPTIONS=--require`. Packaged apps ignore that (Electron drops most `NODE_OPTIONS` there), so a packaged app is started paused under the Node inspector on a local port, the observer is loaded before any of the app's code runs, and the app is resumed; the inspector closes once the observer is in. This needs the `EnableNodeCliInspectArguments` fuse, which is on unless the build switched it off; watch mode checks the fuse first and says so when it can't observe a build. With an app folder, the folder is also scanned statically; with a packaged executable, its `resources/app.asar`.
 
 ### Diagnostics
 
