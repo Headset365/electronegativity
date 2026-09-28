@@ -28,12 +28,14 @@ jobs:
       - run: npm test
 
   watch-mode:
-    name: Watch mode end to end (Electron on ${{ matrix.os }})
+    name: Watch mode end to end (Electron ${{ matrix.electron }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        # 34 ships a Node module loader that crashes under --inspect-brk (see watch/launch.js)
+        electron: [34, 38]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -41,5 +43,5 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm install --no-save electron@38
+      - run: npm install --no-save electron@${{ matrix.electron }}
       - run: npx mocha test/test_watch.js

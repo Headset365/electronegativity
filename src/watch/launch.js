@@ -59,7 +59,7 @@ export function resolveApp(target, extraArgs = []) {
  * resumed. That needs the EnableNodeCliInspectArguments fuse, on unless the build switched it off.
  */
 export function watchApp(target, { args = [], marker, capture = true, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onNote = () => {} } = {}) {
-  const { command, args: commandArgs, packaged } = resolveApp(target, args);
+  const { command, args: commandArgs, packaged, staticInput } = resolveApp(target, args);
   fs.writeFileSync(log, '');
   const quotedHook = HOOK.includes(' ') ? `"${HOOK}"` : HOOK;
   const env = {
@@ -78,7 +78,9 @@ export function watchApp(target, { args = [], marker, capture = true, log = path
       else delete env.NODE_OPTIONS;
       port = await freePort();
     }
-    const finalArgs = packaged ? [`--inspect-brk=127.0.0.1:${port}`, ...commandArgs] : commandArgs;
+    // --inspect-brk-node pauses inside Electron's own startup. (--inspect-brk pauses at the app's first line, but some
+    // Electron releases, 34 among them, crash on that path: "ReferenceError: resolvedArgv is not defined".)
+    const finalArgs = packaged ? [`--inspect-brk-node=127.0.0.1:${port}`, ...commandArgs] : commandArgs;
     return new Promise((resolve, reject) => {
       const child = spawn(command, finalArgs, { env, stdio });
       const stop = () => child.kill();
@@ -95,7 +97,7 @@ export function watchApp(target, { args = [], marker, capture = true, log = path
         resolve(log);
       });
       if (packaged) {
-        loadThroughInspector(port, () => exited).then(result => onNote(result)).catch(error => {
+        loadThroughInspector(port, () => exited, mainScriptOf(staticInput)).then(result => onNote(result)).catch(error => {
           fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind: 'hook-error', message: `inspector: ${error.message}` }) + '\n');
           onNote({ loaded: false, error: error.message });
         });
@@ -116,12 +118,36 @@ function freePort() {
   });
 }
 
+// The app's entry script, from its package.json "main" (index.js by default), relative to its code
+export function mainScriptOf(code) {
+  let manifest;
+  try {
+    const text = /\.asar$/i.test(code || '') ? createRequire(import.meta.url)('@electron/asar').extractFile(code, 'package.json').toString('utf8')
+      : fs.readFileSync(path.join(code, 'package.json'), 'utf8');
+    manifest = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  let main = typeof manifest.main === 'string' && manifest.main.trim() ? manifest.main.trim() : 'index.js';
+  main = main.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!/\.[cm]?js$/i.test(main)) main += '.js';
+  return main;
+}
+
+// Script URLs as the inspector reports them: file:///C:/Program%20Files/App/resources/app.asar/main.js, or a path
+const scriptUrlPattern = (main) => {
+  const tail = main.split('/').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '(?: |%20)')).join('[\\\\/]');
+  return `[\\\\/]app(?:\\.asar)?[\\\\/]${tail}$`;
+};
+
 /**
- * Connects to the paused app's inspector, loads the hook into its main process, and lets the app start. If the
- * inspector never comes up (the EnableNodeCliInspectArguments fuse is off), the app runs normally and nothing is
- * observed. The inspector closes once the hook is in.
+ * Connects to the paused app's inspector and loads the hook into its main process before any of the app's code runs:
+ * the app is started paused inside Electron's startup (--inspect-brk-node), a breakpoint is set on the first line of
+ * its entry script, and the hook is loaded when it is reached. If the inspector never comes up (the
+ * EnableNodeCliInspectArguments fuse is off), the app runs normally and nothing is observed. The inspector closes once
+ * the hook is in.
  */
-async function loadThroughInspector(port, hasExited, timeoutMs = 30000) {
+async function loadThroughInspector(port, hasExited, mainScript, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
   let target;
   while (!target && Date.now() < deadline && !hasExited()) {
@@ -141,36 +167,81 @@ async function loadThroughInspector(port, hasExited, timeoutMs = 30000) {
   });
   let id = 0;
   const pending = new Map();
-  let paused;
-  const pausedOnce = new Promise(resolve => { paused = resolve; });
+  const pauses = [];
+  let wake = () => {};
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(String(event.data));
     if (message.id && pending.has(message.id)) {
       pending.get(message.id)(message);
       pending.delete(message.id);
-    } else if (message.method === 'Debugger.paused') paused();
+    } else if (message.method === 'Debugger.paused') {
+      pauses.push(message.params || {});
+      wake();
+    }
   });
   const send = (method, params = {}) => new Promise((resolve) => {
     const messageId = ++id;
     pending.set(messageId, resolve);
     socket.send(JSON.stringify({ id: messageId, method, params }));
   });
+  const nextPause = (ms) => pauses.length ? Promise.resolve(pauses.shift()) : new Promise(resolve => {
+    const timer = setTimeout(() => { wake = () => {}; resolve(undefined); }, ms);
+    wake = () => {
+      if (!pauses.length) return;
+      clearTimeout(timer);
+      wake = () => {};
+      resolve(pauses.shift());
+    };
+  });
+
   await send('Runtime.enable');
   await send('Debugger.enable');
+  const breakpoints = [];
+  if (mainScript) {
+    const set = await send('Debugger.setBreakpointByUrl', { urlRegex: scriptUrlPattern(mainScript), lineNumber: 0 });
+    if (set.result && set.result.breakpointId) breakpoints.push(set.result.breakpointId);
+  }
+  // Electron's patch to Node's module loader passes process._firstFileName to the --inspect-brk path when the app's
+  // entry script is compiled, and some releases (34 among them) assign it to a variable the loader no longer declares:
+  // "ReferenceError: resolvedArgv is not defined", before any of the app's code runs, and the app can't start. The value
+  // only tells the inspector where to pause, which the entry breakpoint does. At the first pause, before `process`
+  // exists, an inherited accessor that ignores writes keeps it unset; it is removed once the hook is in.
+  const guard = `(() => {
+    Object.defineProperty(Object.prototype, '_firstFileName', { get() { return undefined; }, set() {}, configurable: true, enumerable: false });
+    return true;
+  })()`;
   await send('Runtime.runIfWaitingForDebugger');
-  // --inspect-brk stops on the first line of the app's JavaScript: load the hook there, before the app runs
-  await Promise.race([pausedOnce, new Promise(resolve => setTimeout(resolve, 5000))]);
-  const expression = `(() => {
+  const hookExpression = `(() => {
+    if (typeof process !== 'object' || !process || typeof process.cwd !== 'function') return 'not ready';
+    delete Object.prototype._firstFileName;
     const load = typeof process.getBuiltinModule === 'function' ? process.getBuiltinModule('module').createRequire(${JSON.stringify(HOOK)}) : require;
     load(${JSON.stringify(HOOK)});
     // close the inspector once this session has disconnected, so the port doesn't stay open
     setTimeout(() => { try { (typeof process.getBuiltinModule === 'function' ? process.getBuiltinModule('inspector') : require('inspector')).close(); } catch {} }, 2000);
     return 'loaded';
   })()`;
-  const result = await send('Runtime.evaluate', { expression, includeCommandLineAPI: true, returnByValue: true });
+  // the first pause is inside Electron's startup; load the hook at the first of our breakpoints that is reached
+  let result;
+  let atEntry = false;
+  let guarded = false;
+  for (let pause = await nextPause(10000); pause && Date.now() < deadline; pause = await nextPause(15000)) {
+    if (!guarded) guarded = !!(await send('Runtime.evaluate', { expression: guard, returnByValue: true })).result;
+    if ((pause.hitBreakpoints || []).some(hit => breakpoints.includes(hit))) {
+      result = await send('Runtime.evaluate', { expression: hookExpression, includeCommandLineAPI: true, returnByValue: true });
+      if (result.result && result.result.result && result.result.result.value === 'loaded') {
+        atEntry = true;
+        break;
+      }
+    }
+    await send('Debugger.resume');
+  }
+  // no breakpoint reached (an entry script we couldn't find): load it now, late
+  if (!atEntry) result = await send('Runtime.evaluate', { expression: hookExpression, includeCommandLineAPI: true, returnByValue: true });
+  for (const breakpointId of breakpoints) await send('Debugger.removeBreakpoint', { breakpointId });
   await send('Debugger.resume');
   socket.close();
   const error = result.error || (result.result && result.result.exceptionDetails);
   if (error) throw new Error(`loading the hook failed: ${JSON.stringify(error).slice(0, 300)}`);
-  return { loaded: true };
+  // not at a breakpoint: the app's code had already started when the hook loaded (it is marked late)
+  return { loaded: true, atEntry };
 }
