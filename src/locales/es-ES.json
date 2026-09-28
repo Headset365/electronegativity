@@ -245,5 +245,6 @@
 	"WORD_LAUNCH_JS_CHECK": "Apertura de Microsoft Word",
 	"DOCUMENT_PIPELINE_JS_CHECK": "Procesamiento de documentos",
 	"SOURCE_MAP_SHIPPED": "Los source maps se distribuyen con la aplicación",
-	"watchScreenshotsOptionDescription": "en modo watch, guarda una captura de la ventana como evidencia cuando el marcador vuelve como HTML activo, se inserta script en una página o una navegación lleva el marcador (en esta carpeta, por defecto ./screenshots; las páginas pueden mostrar datos confidenciales)"
+	"watchScreenshotsOptionDescription": "en modo watch, guarda una captura de la ventana como evidencia cuando el marcador vuelve como HTML activo, se inserta script en una página o una navegación lleva el marcador (en esta carpeta, por defecto ./screenshots; las páginas pueden mostrar datos confidenciales)",
+	"outputNotWritable": "No se puede escribir el informe {{{output}}}: la carpeta {{{dir}}} no admite escritura ({{{reason}}}). Ejecútelo desde una carpeta con permiso de escritura (p. ej. Documentos) o indique una ruta completa con -o."
 }

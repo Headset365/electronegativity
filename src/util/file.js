@@ -423,3 +423,33 @@ function csvHeader() {
 export function writeCsvHeader(filename){
   fs.writeFileSync(filename, csvHeader());
 }
+
+const OUTPUT_EXTENSION = /\.(html?|json|sarif|csv|docx)$/i;
+
+/**
+ * The files of -o: comma-separated, and also space-separated when every part is an output file name. PowerShell turns
+ * an unquoted `-o a.html,b.json` into the single argument "a.html b.json"; a lone name with spaces ("my report.html")
+ * stays as it is.
+ */
+export function splitOutputs(value) {
+  return [].concat(value || []).flatMap(v => String(v).split(',')).map(o => o.trim()).filter(Boolean)
+    .flatMap(o => {
+      const parts = o.split(/\s+/);
+      return parts.length > 1 && parts.every(part => OUTPUT_EXTENSION.test(part)) ? parts : [o];
+    });
+}
+
+/** The first output whose folder can't be written to, with the reason, or undefined: checked before a long scan. */
+export function unwritableOutput(outputs) {
+  for (const output of outputs) {
+    const dir = path.dirname(path.resolve(output));
+    const probe = path.join(dir, `.electronegativity-write-test-${process.pid}`);
+    try {
+      fs.writeFileSync(probe, '');
+      fs.unlinkSync(probe);
+    } catch (error) {
+      return { output: path.resolve(output), dir, reason: error.code || error.message };
+    }
+  }
+  return undefined;
+}

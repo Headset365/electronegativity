@@ -8,6 +8,7 @@ import { directiveProblems } from '../src/finder/checks/GlobalChecks/ConfigRevie
 import { readCacheEntry, reviewCaches } from '../src/storage/at_rest.js';
 import { sourceMapIssues } from '../src/production/sourcemaps.js';
 import { interactionOf, consequenceOf } from '../src/finder/consequences.js';
+import { splitOutputs, unwritableOutput } from '../src/util/file.js';
 
 chaiShould();
 await _i18n();
@@ -290,6 +291,19 @@ module.exports = { unzip, unzipSafe };` });
       out.secrets.should.have.length(1);
       out.secrets[0].url.should.equal('https://a.test/api/me');
       out.secrets[0].shown.should.not.include(token);
+    });
+  });
+
+  describe('Output options', () => {
+    it('takes -o lists separated by commas, or by spaces as PowerShell passes an unquoted list', () => {
+      splitOutputs('a.html,b.json').should.deep.equal(['a.html', 'b.json']);
+      splitOutputs('a.html b.json c.cdx.json d.sarif e.docx').should.deep.equal(['a.html', 'b.json', 'c.cdx.json', 'd.sarif', 'e.docx']);
+      splitOutputs('my report.html').should.deep.equal(['my report.html']);
+    });
+
+    it('finds an output folder that cannot be written before the scan starts', () => {
+      (unwritableOutput([path.join(tmp('eng-out-'), 'r.html')]) === undefined).should.equal(true);
+      unwritableOutput([path.join(os.tmpdir(), 'no-such-folder-eng', 'r.html')]).reason.should.equal('ENOENT');
     });
   });
 });

@@ -16,6 +16,7 @@ import { locateApp } from './watch/locate.js';
 import { observeSession, collectRemote, parseHeaders } from './watch/session.js';
 import { createAssistant, writeMarkerFiles } from './watch/assistant.js';
 import { isPackage, unpackTarget } from './unpack/index.js';
+import { splitOutputs, unwritableOutput } from './util/file.js';
 
 async function main() {
 
@@ -104,13 +105,21 @@ async function main() {
   const screenshots = options.watchScreenshots === true ? 'screenshots' : options.watchScreenshots;
 
   if (options.output) {
-    // several outputs at once: -o report.html,report.json,report.docx,report.cdx.json
-    const outputs = options.output.split(',').map(o => o.trim()).filter(Boolean);
+    // several outputs at once: -o report.html,report.json,report.docx,report.cdx.json (or space-separated, as an
+    // unquoted comma list arrives from PowerShell)
+    const outputs = splitOutputs(options.output);
+    options.output = outputs.join(',');
     options.fileFormat = outputs.length === 1 ? outputs[0].split('.').pop().toLowerCase() : 'multiple';
     if (outputs.some(o => !OUTPUT_FORMATS.includes(o.split('.').pop().toLowerCase()))) {
       console.error(chalk.red(__('fileFormatError')));
       program.outputHelp();
       process.exit(1);
+    }
+    // before a scan or a watch session that can take a while: the reports must be writable where they go
+    const unwritable = unwritableOutput(outputs);
+    if (unwritable) {
+      console.error(chalk.red(__('outputNotWritable', unwritable)));
+      process.exit(2);
     }
   }
   let failOn;

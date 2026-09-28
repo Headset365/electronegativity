@@ -245,5 +245,6 @@
 	"WORD_LAUNCH_JS_CHECK": "Microsoft Word launch",
 	"DOCUMENT_PIPELINE_JS_CHECK": "Document pipeline",
 	"SOURCE_MAP_SHIPPED": "Source maps ship with the app",
-	"watchScreenshotsOptionDescription": "in watch mode, save a screenshot of the window as evidence when the marker comes back as live HTML, script is inserted into a page or a navigation carries the marker (to this folder, default ./screenshots; pages can show confidential data)"
+	"watchScreenshotsOptionDescription": "in watch mode, save a screenshot of the window as evidence when the marker comes back as live HTML, script is inserted into a page or a navigation carries the marker (to this folder, default ./screenshots; pages can show confidential data)",
+	"outputNotWritable": "Can't write the report {{{output}}}: the folder {{{dir}}} is not writable ({{{reason}}}). Run from a folder you can write to (e.g. cd to your Documents) or give a full path with -o."
 }

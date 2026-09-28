@@ -245,5 +245,6 @@
 	"WORD_LAUNCH_JS_CHECK": "Lancement de Microsoft Word",
 	"DOCUMENT_PIPELINE_JS_CHECK": "Traitement des documents",
 	"SOURCE_MAP_SHIPPED": "Les source maps sont distribuées avec l'application",
-	"watchScreenshotsOptionDescription": "en mode watch, enregistre une capture de la fenêtre comme preuve quand le marqueur revient en HTML actif, qu'un script est inséré dans une page ou qu'une navigation porte le marqueur (dans ce dossier, par défaut ./screenshots ; les pages peuvent afficher des données confidentielles)"
+	"watchScreenshotsOptionDescription": "en mode watch, enregistre une capture de la fenêtre comme preuve quand le marqueur revient en HTML actif, qu'un script est inséré dans une page ou qu'une navigation porte le marqueur (dans ce dossier, par défaut ./screenshots ; les pages peuvent afficher des données confidentielles)",
+	"outputNotWritable": "Impossible d'écrire le rapport {{{output}}} : le dossier {{{dir}}} n'est pas accessible en écriture ({{{reason}}}). Lancez-le depuis un dossier accessible en écriture (p. ex. Documents) ou donnez un chemin complet avec -o."
 }

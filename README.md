@@ -47,6 +47,10 @@ $ node src/index.js -i /path/to/electron/app
 
 To update a global install, run the `npm install -g` command again.
 
+Installing from GitHub needs Git on the PATH (`winget install --id Git.Git -e` on Windows). Without Git, install the branch archive instead: `npm install -g https://github.com/Headset365/electronegativity/archive/refs/heads/<branch>.tar.gz`.
+
+In PowerShell, quote comma-separated lists (`-o "report.html,report.json"`): unquoted, PowerShell passes them space-separated, which the tool also accepts. Run it from a folder you can write to; the reports' folder is checked before the scan starts.
+
 ### What's new in 2.0
 
 * Supports modern Electron projects: `.mjs`/`.cjs`/`.mts`/`.cts` sources, current ECMAScript and TypeScript syntax, and Electron versions detected from `package-lock.json` (v1-v3), `npm-shrinkwrap.json`, `yarn.lock` (classic and Berry), `pnpm-lock.yaml` and `node_modules/electron`.
