@@ -1,4 +1,6 @@
 // Self-contained HTML report: no external resources, so it can be archived, attached to tickets or opened offline.
+import { ROUTES, consequenceOf } from '../finder/consequences.js';
+
 const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const CONFIDENCES = ['CERTAIN', 'FIRM', 'TENTATIVE'];
 
@@ -13,6 +15,17 @@ function advisoryLinks(ids) {
   return ids.length > 6 ? `<details><summary>${ids.length} advisories</summary>${links}</details>` : `Advisories: ${links}`;
 }
 
+// Code samples from minified bundles can be a single line of many kilobytes: show the start and say how much was cut
+const SAMPLE_LIMIT = 3000;
+function sampleBlock(sample) {
+  const text = String(sample);
+  const lines = text.split('\n').length;
+  const cut = text.length > SAMPLE_LIMIT ? text.length - SAMPLE_LIMIT : 0;
+  const shown = cut ? text.slice(0, SAMPLE_LIMIT) : text;
+  const size = lines > 1 ? `${lines} lines` : `${text.length} characters`;
+  return `<details class="code"><summary>Code (${size})</summary><pre class="sample"><code>${escapeHtml(shown)}</code></pre>${cut ? `<div class="cut">${cut} more characters not shown; open the file at the location above.</div>` : ''}</details>`;
+}
+
 function findingRow(issue, index) {
   const sev = issue.severity.name;
   const conf = issue.confidence.name;
@@ -20,15 +33,18 @@ function findingRow(issue, index) {
   const location = issue.file === 'N/A' ? 'Application-wide' : issue.file;
   const url = safeUrl(issue.shortenedURL);
   const advisories = issue.properties && Array.isArray(issue.properties.advisories) ? issue.properties.advisories : undefined;
-  const searchText = [issue.id, issue.file, issue.description, issue.sample].join(' ').toLowerCase();
+  const consequence = consequenceOf(issue.id);
+  const route = consequence ? consequence.route : 'other';
+  const searchText = [issue.id, issue.file, issue.description, String(issue.sample ?? '').slice(0, SAMPLE_LIMIT), consequence && consequence.text].join(' ').toLowerCase();
 
   return `
-      <tr class="finding" data-severity="${sev}" data-confidence="${conf}" data-check="${escapeHtml(issue.id)}" data-manual="${issue.manualReview ? 1 : 0}" data-text="${escapeHtml(searchText)}" data-index="${index}">
+      <tr class="finding" data-severity="${sev}" data-confidence="${conf}" data-check="${escapeHtml(issue.id)}" data-manual="${issue.manualReview ? 1 : 0}" data-route="${route}" data-text="${escapeHtml(searchText)}" data-index="${index}">
         <td><span class="badge sev-${sev.toLowerCase()}">${sev === 'INFORMATIONAL' ? 'INFO' : sev}</span></td>
         <td>
           <div class="check">${escapeHtml(issue.id)}${issue.manualReview ? ' <span class="review" title="Requires manual review">review</span>' : ''}</div>
           <div class="desc">${escapeHtml(issue.description)}</div>
-          ${issue.sample ? `<pre class="sample"><code>${escapeHtml(issue.sample)}</code></pre>` : ''}
+          ${consequence ? `<div class="consequence"><span class="route route-${route}" title="Who can exploit it">${escapeHtml(consequence.label)}</span> ${escapeHtml(consequence.text)}</div>` : ''}
+          ${issue.sample ? sampleBlock(issue.sample) : ''}
           ${advisories ? `<div class="advisories">${advisoryLinks(advisories)}</div>` : ''}
           ${url ? `<a class="ref" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Reference</a>` : ''}
         </td>
@@ -153,6 +169,13 @@ export function renderHtmlReport(allIssues, meta) {
     byCheck.set(issue.id, entry);
   }
   const errors = (meta.errors || []).filter(e => !e.tolerable);
+  const routeCounts = {};
+  for (const issue of sorted) {
+    const route = (consequenceOf(issue.id) || { route: 'other' }).route;
+    routeCounts[route] = (routeCounts[route] || 0) + 1;
+  }
+  const routeOptions = [...Object.keys(ROUTES), 'other'].filter(r => routeCounts[r])
+    .map(r => `<option value="${r}">${escapeHtml(ROUTES[r] || 'Other')} (${routeCounts[r]})</option>`).join('');
 
   return `<!doctype html>
 <html lang="en">
@@ -202,6 +225,15 @@ export function renderHtmlReport(allIssues, meta) {
   .review { font-family: system-ui, sans-serif; font-size: 11px; font-weight: 600; color: var(--medium); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 4px; }
   .desc { margin: 2px 0 6px; }
   .sample { background: var(--code); border-radius: 6px; padding: 6px 8px; margin: 6px 0; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+  .sample { max-height: 480px; overflow-y: auto; }
+  details.code { margin: 4px 0; font-size: 12px; }
+  details.code summary { width: fit-content; }
+  .cut { color: var(--muted); font-size: 12px; }
+  .consequence { margin: 2px 0 6px; padding: 6px 8px; border-left: 3px solid var(--border); background: var(--code); border-radius: 0 6px 6px 0; font-size: 13px; }
+  .route { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-right: 4px; border: 1px solid currentColor; white-space: nowrap; }
+  .route-content { color: var(--high); } .route-escalation { color: var(--medium); } .route-network { color: var(--accent); }
+  .route-local, .route-info, .route-other { color: var(--muted); } .route-dependency { color: var(--low); }
+  .linkish { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
   .loc { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; min-width: 180px; }
   .pos { white-space: nowrap; }
   details summary { cursor: pointer; color: var(--accent); }
@@ -257,7 +289,11 @@ ${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check=
     <label>Confidence <select id="confidence">
       <option value="0">Any</option>${CONFIDENCES.slice(0, 2).map((c, i) => `<option value="${2 - i}">${c}${i === 0 ? '' : ' or higher'}</option>`).join('')}
     </select></label>
+    <label>Exploitable by <select id="route">
+      <option value="">Anyone</option>${routeOptions}
+    </select></label>
     <label><input type="checkbox" id="manual"> Manual review only</label>
+    <button type="button" id="expand" class="linkish">Expand all code</button>
     <span class="count" id="count"></span>
   </div>
   <div class="table-wrap">
@@ -282,6 +318,8 @@ ${errors.length > 0 ? `
   const search = document.getElementById('search');
   const confidence = document.getElementById('confidence');
   const manual = document.getElementById('manual');
+  const route = document.getElementById('route');
+  const expand = document.getElementById('expand');
   let activeCheck = null;
 
   function apply() {
@@ -293,6 +331,7 @@ ${errors.length > 0 ? `
       const show = severities.has(row.dataset.severity) &&
         confidenceValue[row.dataset.confidence] >= minConfidence &&
         (!manual.checked || row.dataset.manual === '1') &&
+        (!route.value || row.dataset.route === route.value) &&
         (!activeCheck || row.dataset.check === activeCheck) &&
         (!q || row.dataset.text.includes(q));
       row.hidden = !show;
@@ -311,7 +350,12 @@ ${errors.length > 0 ? `
     checkButtons.forEach(b => b.classList.toggle('active', b.dataset.check === activeCheck));
     apply();
   }));
-  [search, confidence, manual].forEach(el => el.addEventListener('input', apply));
+  [search, confidence, manual, route].forEach(el => el.addEventListener('input', apply));
+  expand.addEventListener('click', () => {
+    const open = expand.textContent.startsWith('Expand');
+    document.querySelectorAll('tr.finding:not([hidden]) details.code').forEach(d => { d.open = open; });
+    expand.textContent = open ? 'Collapse all code' : 'Expand all code';
+  });
   apply();
 })();
 </script>

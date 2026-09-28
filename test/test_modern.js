@@ -345,6 +345,18 @@ describe('Report output', () => {
     html.should.not.match(/<(link|script) [^>]*src=/);
   });
 
+  it('collapses code samples, truncates huge ones and explains each finding\'s consequence', () => {
+    const html = renderHtmlReport([issue(), issue({ id: 'DEVTOOLS_JS_CHECK', sample: 'x'.repeat(10000) })],
+      { version: '2.0.0', input: '/app', electronVersion: '38.0.0', filesScanned: 1, atomicChecks: 1, globalChecks: 1, generatedAt: 'now', errors: [] });
+    html.should.include('<details class="code"><summary>Code (');
+    html.should.not.include('x'.repeat(3001));
+    html.should.include('7000 more characters not shown');
+    html.should.include('data-route="content"');
+    html.should.include('data-route="local"');
+    html.should.include('class="route route-content"');
+    html.should.include('id="route"');
+  });
+
   it('writes JSON, HTML, SARIF and CSV based on the file extension', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-report-'));
     for (const ext of ['json', 'html', 'sarif', 'csv']) {
@@ -355,11 +367,25 @@ describe('Report output', () => {
         const json = JSON.parse(content);
         json.electronVersion.should.equal('38.0.0');
         json.issues[0].severity.should.equal('MEDIUM');
+        json.issues[0].exploitableBy.should.equal('Shared content');
+        json.issues[0].consequence.should.be.a('string');
       }
       if (ext === 'html') content.should.match(/^<!doctype html>/);
       if (ext === 'sarif') JSON.parse(content).version.should.equal('2.1.0');
       if (ext === 'csv') content.split('\n')[0].should.match(/^issue, severity/);
     }
     fs.rmSync(dir, { recursive: true });
+  });
+});
+
+describe('Consequences', () => {
+  it('describes every check and runtime finding', async () => {
+    const { consequenceOf } = await import('../src/finder/consequences.js');
+    const ids = fs.readdirSync('src/finder/checks/AtomicChecks').concat(fs.readdirSync('src/finder/checks/GlobalChecks'))
+      .filter(f => f.endsWith('.js')).map(f => fs.readFileSync(path.join(f.includes('Global') ? 'src/finder/checks/GlobalChecks' : 'src/finder/checks/AtomicChecks', f), 'utf8'))
+      .flatMap(src => [...src.matchAll(/this\.id\s*=\s*['"]([A-Z0-9_]+)['"]/g)].map(m => m[1]));
+    ids.length.should.be.above(50);
+    const missing = ids.filter(id => !consequenceOf(id));
+    missing.should.deep.equal([]);
   });
 });

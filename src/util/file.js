@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import pkg from '../../package.json' with { type: 'json' };
 import { sourceExtensions } from '../parser/types.js';
 import { renderHtmlReport } from './report_html.js';
+import { consequenceOf } from '../finder/consequences.js';
 
 const VER = pkg.version;
 const MANIFEST_FILES = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'electron-builder.json', 'electron-builder.yml', 'electron-builder.yaml'];
@@ -245,6 +246,8 @@ function jsonReport(result, meta) {
       column: issue.location ? issue.location.column : undefined,
       sample: issue.sample,
       description: issue.description,
+      exploitableBy: consequenceOf(issue.id)?.label,
+      consequence: consequenceOf(issue.id)?.text,
       reference: issue.shortenedURL,
       properties: reportProperties(issue.properties)
     }))
