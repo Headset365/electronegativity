@@ -112,16 +112,19 @@ function validatesArguments(fn) {
   let found = false;
   visit(fn.body, (n) => {
     if (found) return false;
-    if (n.type === 'UnaryExpression' && n.operator === 'typeof') found = true;
-    else if (n.type === 'BinaryExpression' && n.operator === 'instanceof') found = true;
-    else if (isCall(n)) {
-      const name = calleeName(n.callee) || '';
-      const object = n.callee.object && (n.callee.object.name || memberName(n.callee.object));
-      if (object === 'Array' && name === 'isArray') found = true;
-      else if (object === 'Number' && /^is/.test(name)) found = true;
-      else if (/^(parse|safeParse|parseAsync|validate|validateSync|assert|check|is|decode)$/.test(name) && n.callee.object) found = true;
-      else if (/valid|assert|schema|guard|sanitiz|ensure|check[A-Z]/i.test(name)) found = true;
-    }
+    // An unused `typeof` expression does not protect the operation. Only count checks in a branch
+    // that can reject an input; helper names by themselves are hints, not validation proof.
+    if (n.type !== 'IfStatement') return;
+    let checks = false;
+    visit(n.test, test => {
+      if (test.type === 'UnaryExpression' && test.operator === 'typeof') checks = true;
+      else if (test.type === 'BinaryExpression' && test.operator === 'instanceof') checks = true;
+      else if (isCall(test) && /^(isArray|isFinite|isInteger|valid\w*|assert\w*|check\w*|is[A-Z]\w*)$/i.test(calleeName(test.callee) || '')) checks = true;
+    });
+    let rejects = false;
+    if (n.consequent) visit(n.consequent, child => { if (child.type === 'ReturnStatement' || child.type === 'ThrowStatement') rejects = true; });
+    if (n.alternate) visit(n.alternate, child => { if (child.type === 'ReturnStatement' || child.type === 'ThrowStatement') rejects = true; });
+    if (checks && rejects) found = true;
     return !found;
   });
   return found;
@@ -220,7 +223,7 @@ export class IpcHandlerJSCheck {
     const sensitive = caps.filter(c => ['files', 'processes', 'shell'].includes(c) || (c === 'windows' && !targetsWindow));
     if (used.length > 0 && !validated && sensitive.length > 0)
       results.push(finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true, properties: { ...properties, issue: 'unvalidated' },
-        description: `${this.description}: ${label} uses ${sensitive.join(', ')} with arguments from the page (${used.join(', ')}) and never checks their type or value` }));
+        description: `${this.description}: ${label} uses ${sensitive.join(', ')} with arguments from the page (${used.join(', ')}); no rejecting input guard was recognized by this analysis` }));
     if (targetsWindow)
       results.push(finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true, properties: { ...properties, issue: 'window-target' },
         description: `${this.description}: ${label} acts on a window the page chooses by id, so one window can drive another` }));
@@ -229,7 +232,7 @@ export class IpcHandlerJSCheck {
         description: `${this.description}: ${label} sends a credential (${secret}) back to the page, where any script injected into it can read it` }));
     if (results.length === 0)
       results.push(finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, properties,
-        description: `${this.description}: ${label}${caps.length ? ` (${caps.join(', ')})` : ''}${used.length ? (validated ? ', checks its arguments' : ', uses its arguments unchecked') : ''}` }));
+        description: `${this.description}: ${label}${caps.length ? ` (${caps.join(', ')})` : ''}${used.length ? (validated ? ', contains a validation-like guard (effectiveness unverified)' : ', uses page arguments (validation unverified)') : ''}` }));
     return results;
   }
 }

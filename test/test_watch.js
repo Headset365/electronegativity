@@ -139,7 +139,7 @@ describe('Watch mode', () => {
       dom.map(i => i.properties.event).should.have.members(['event-handler', 'javascript-url']); // 'script' is not reported
       const live = issues.filter(i => i.id === 'RUNTIME_MARKER' && i.properties.live);
       live.should.have.length(1);
-      live[0].severity.name.should.equal('HIGH');
+      live[0].severity.name.should.equal('LOW');
       issues.filter(i => i.id === 'RUNTIME_MARKER' && !i.properties.live)[0].severity.name.should.equal('INFORMATIONAL');
     });
   });
@@ -212,15 +212,15 @@ describe('Watch mode', () => {
       issues.find(i => i.id === 'WINDOW_SUMMARY_JS_CHECK' && i.file === 'main.js').properties.observedAt.should.equal('file:///app/index.html');
     });
 
-    it('marks a problem confirmed by both static and runtime analysis', () => {
+    it('does not equate same-type findings across different windows', () => {
       const issues = reconcileRuntime(build());
-      issues.find(i => i.id === 'RUNTIME_NODE_INTEGRATION').description.should.match(/also found by static analysis: NODE_INTEGRATION_JS_CHECK/);
-      issues.find(i => i.id === 'NODE_INTEGRATION_JS_CHECK').properties.confirmedByRuntime.should.equal('RUNTIME_NODE_INTEGRATION');
+      issues.find(i => i.id === 'RUNTIME_NODE_INTEGRATION').description.should.not.match(/also found/);
+      (issues.find(i => i.id === 'NODE_INTEGRATION_JS_CHECK').properties.confirmedByRuntime === undefined).should.equal(true);
     });
 
     it('reports static windows that were never opened during the session', () => {
       const coverage = reconcileRuntime(build()).find(i => i.id === 'RUNTIME_WINDOW_COVERAGE');
-      coverage.description.should.match(/1 of 2 window\(s\).*settings-preload\.js.*settings\.js:5/);
+      coverage.description.should.match(/1 of 2 window definition\(s\).*settings-preload\.js.*settings\.js:5/);
     });
 
     it('lists ways content comes in that the code handles but the session did not try', () => {

@@ -6,6 +6,7 @@
 // https://example.invalid/<token> and a text file named after it. Where the marker ends up shows whether content from
 // another user can reach an HTML sink, openExternal, a navigation, IPC or a command line; nothing is attacked.
 import fs from 'node:fs';
+import { activeHtml } from './active.js';
 import path from 'node:path';
 import chalk from 'chalk';
 import { apiRoute } from './analyze.js';
@@ -27,7 +28,7 @@ export const markerForms = (marker) => ({
  * Writes the files the tester uses: a page to open in a browser and copy (so the marker is pasted as formatted HTML,
  * with a link), and a text file named after the marker (to attach or open). Returns their paths.
  */
-export function writeMarkerFiles(dir, marker) {
+export function writeMarkerFiles(dir, marker, active = false) {
   const forms = markerForms(marker);
   const page = path.join(dir, `${marker}-paste-me.html`);
   fs.writeFileSync(page, `<!doctype html><meta charset="utf-8"><title>${marker}</title>
@@ -36,7 +37,12 @@ export function writeMarkerFiles(dir, marker) {
 `);
   const file = path.join(dir, forms.file);
   fs.writeFileSync(file, `${marker}\n`);
-  return { page, file };
+  let activePage;
+  if (active) {
+    activePage = path.join(dir, `${marker}-active-probe.txt`);
+    fs.writeFileSync(activePage, `${activeHtml(marker)}\n`);
+  }
+  return { page, file, activePage };
 }
 
 const frameText = (frame) => frame ? `${frame.url}:${frame.line}:${frame.column}` : 'an unknown script';
@@ -51,7 +57,7 @@ const originOf = (url) => {
 /**
  * @param {{ marker?: string, staticIssues?: Array, files?: { page, file }, print?: Function }} options
  */
-export function createAssistant({ marker, staticIssues = [], files, print = (line) => console.log(line) } = {}) {
+export function createAssistant({ marker, active = false, staticIssues = [], files, print = (line) => console.log(line) } = {}) {
   const forms = marker ? markerForms(marker) : undefined;
   const say = {
     next: (text) => print(chalk.cyan(`[validate] → ${text}`)),
@@ -63,7 +69,7 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
   const first = (key) => !once.has(key) && once.add(key);
   const state = {
     platform: process.platform, pageOrigins: new Map(), asked: new Map(), sent: new Map(), rendered: [], sinks: [], links: [],
-    paths: [], commands: [], ipc: new Map(), entries: new Set(),
+    paths: [], commands: [], ipc: new Map(), entries: new Set(), activeSent: 0, activeExecuted: false,
     // set for the current session when the tool can re-send the marker request itself: { confirm(question)->bool, send(command) }
     channel: undefined, confirming: false, autoSent: new Set(),
     // requests waiting to be asked about while a question is open, and the endpoint keys already on that list
@@ -90,7 +96,8 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
     const links = count(LINK_REVIEW);
     const paths = count(new Set(['OPEN_PATH_JS_CHECK']));
     const ipc = count(new Set(['IPC_SENDER_VALIDATION_JS_CHECK']));
-    if (html) say.next(`The static scan found ${html} place(s) that write data as HTML. Save content carrying the HTML marker (paste the formatted copy, or put the HTML marker in the editor's source/HTML view), then view it: here, or signed in as the second account. Each place the markup reaches is confirmed automatically.`);
+    if (html) say.next(`The static scan found ${html} place(s) that write data as HTML. Save the HTML marker and view it to trace where markup appears. This does not establish script execution.`);
+    if (active && files?.activePage) say.next(`Optional execution probe in ${files.activePage}: place it in an HTML field and view the saved content. It only writes a unique console signal. The tool will record execution if that signal appears.`);
     if (links) say.next(`${links} finding(s) are about links and navigation. Add the link ${forms.link} to shared content (a document, a comment) and click it; also try Ctrl+click and middle-click.`);
     if (paths) say.next(`${paths} finding(s) open files with their default program. If the app handles attachments or file names from content, attach ${files ? files.file : forms.file} and open it from the app.`);
     if (ipc) say.note(`${ipc} IPC handler(s) don't check which page sent the message. That can't be tested by using the app: read each handler for an event.senderFrame check. The report lists which origins used each channel.`);
@@ -120,13 +127,13 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
     // a status would overwrite data unrelated to the stored-content test
     const fill = r.fields.filter(f => f.html).map(f => ({ name: f.name, html: true }));
     if (!channel || !channel.confirm || !channel.send || fill.length === 0) return manualFor(request);
-    const shown = fill.map(f => `${f.name}=${forms.html}`);
+    const shown = fill.map(f => `${f.name}=${active ? activeHtml(marker) : forms.html}`);
     say.next(`Saw ${key}${html.length ? ` carrying HTML in: ${listNames(html)}` : ''}${text.length ? `${html.length ? '; text in' : ' with fields'}: ${listNames(text)}` : ''}. I can re-send it for you, through the app's own session, with the marker in: ${listNames(fill.map(f => f.name))} — ${shown.slice(0, 8).join('; ')}${shown.length > 8 ? '; …' : ''}.`);
     state.confirming = true;
-    Promise.resolve(channel.confirm(`[validate] Send ${key} with the marker now? [y/N] `))
+    Promise.resolve(channel.confirm(`[validate] Send ${key} with ${active ? 'the benign script probe' : 'the marker'} now? [y/N] `))
       .then(yes => {
         if (yes) {
-          channel.send({ kind: 'send-marker', replay: r.replay, method: r.method, route, fields: fill });
+          channel.send({ kind: 'send-marker', replay: r.replay, method: r.method, route, fields: fill, ...(active ? { active: true } : {}) });
           say.next(`Sending ${key} with the marker…`);
         } else {
           say.note('Not sending it. To check this endpoint yourself:');
@@ -218,13 +225,21 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
           }
         }
         break;
+      case 'active-payload-sent':
+        state.activeSent++;
+        say.note(`Benign execution probe sent to ${r.method} ${r.route} (status ${r.status}). View the saved content; no execution has been observed yet.`);
+        break;
+      case 'active-payload-executed':
+        if (!state.activeExecuted) say.bad(`The benign probe executed in a renderer at ${r.url}. Review the content route and the page's privileges.`);
+        state.activeExecuted = true;
+        break;
       case 'sink': {
         if (!r.live) break;
         const frame = (r.frames || [])[0];
         if (!first(`sink:${r.sink}:${frameText(frame)}`)) break;
         state.sinks.push({ sink: r.sink, frame, url: r.url });
         const finding = staticAt(frame);
-        say.bad(`Markup carrying the marker was written with ${r.sink} by ${frameText(frame)}${finding ? `: confirms ${finding.id} at ${place(finding)}` : ''}.`);
+        say.note(`Marker markup reached ${r.sink} by ${frameText(frame)}${finding ? `: observed ${finding.id} at ${place(finding)}` : ''}. Script execution remains untested.`);
         break;
       }
       case 'shell':
@@ -233,10 +248,10 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
           const web = WEB_SCHEMES.has(String(r.scheme || '').toLowerCase());
           state.links.push({ kind: 'openExternal', scheme: r.scheme, web });
           if (web && first('external-web')) say.note(`A link from content was handed to the operating system (shell.openExternal). Now try the same link as ${forms.fileLink(state.platform)}: if a folder opens, the app passes links of any scheme to the OS.`);
-          if (!web && first(`external:${r.scheme}`)) say.bad(`A ${r.scheme}: link from content was passed to the operating system by shell.openExternal: the app has no scheme allowlist.`);
+          if (!web && first(`external:${r.scheme}`)) say.note(`A ${r.scheme}: marker link reached shell.openExternal in this session. Review the route and allowed schemes.`);
         } else if (first(`path:${r.method}`)) {
           state.paths.push({ method: r.method });
-          say.bad(`A path containing the marker was opened by shell.${r.method}: content chooses which file the app opens. Check which file types it will open.`);
+          say.note(`A marker path reached shell.${r.method}. Check which paths and file types are allowed.`);
         }
         break;
       case 'will-navigate':
@@ -269,7 +284,7 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
       case 'process':
         if (!r.marker || !first(`process:${r.program}`)) break;
         state.commands.push({ program: r.program, method: r.method });
-        say.bad(`The marker reached a command the app runs (${r.program}, via ${r.method}): content controls part of a command line.`);
+        say.note(`The marker reached a command invocation (${r.program}, via ${r.method}). Whether it can alter command syntax is unverified.`);
         break;
       case 'entry':
         state.entries.add(r.detail);
@@ -285,24 +300,26 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
     if (!marker) return [];
     const items = [];
     const live = state.rendered.filter(r => r.live);
-    if (live.length) items.push({ status: 'confirmed', text: `stored content rendered as live HTML at ${live.map(r => r.url).join(', ')}` });
-    else if (state.rendered.length) items.push({ status: 'safe', text: `the marker was shown as text wherever it appeared (${state.rendered.length} page${state.rendered.length === 1 ? '' : 's'})` });
+    if (live.length) items.push({ status: 'info', text: `marker markup appeared at ${live.map(r => r.url).join(', ')}; script execution untested` });
+    else if (state.rendered.length) items.push({ status: 'info', text: `the marker appeared as text in ${state.rendered.length} observed page(s); other routes remain untested` });
     else items.push({ status: 'todo', text: 'the marker was never seen in a page: save content with it and view it (here or as the second account)' });
-    for (const s of state.sinks) items.push({ status: 'confirmed', text: `markup reached ${s.sink} at ${frameText(s.frame)}` });
+    for (const s of state.sinks) items.push({ status: 'info', text: `markup reached ${s.sink} at ${frameText(s.frame)}` });
+    if (state.activeExecuted) items.push({ status: 'confirmed', text: 'the benign probe executed script in a renderer; the input source and privileges need review' });
+    else if (state.activeSent) items.push({ status: 'todo', text: 'active probe sent, but execution was not observed; view the saved content before interpreting the result' });
     for (const [key, fields] of state.sent) items.push({ status: 'done', text: `marker sent with ${key} (${fields.join(', ')})` });
     for (const [key] of state.asked) if (!state.sent.has(key)) items.push({ status: 'todo', text: `send ${key} again with the marker in its fields` });
     const external = state.links.filter(l => l.kind === 'openExternal');
-    if (external.some(l => !l.web)) items.push({ status: 'confirmed', text: 'non-web links from content reach shell.openExternal (no scheme allowlist)' });
+    if (external.some(l => !l.web)) items.push({ status: 'info', text: 'a non-web marker link reached shell.openExternal in this session' });
     else if (external.length) items.push({ status: 'todo', text: `links from content reach shell.openExternal: try ${forms.fileLink(state.platform)} to check the scheme allowlist` });
     const navigations = state.links.filter(l => l.kind === 'navigate');
-    if (navigations.some(l => !l.prevented)) items.push({ status: 'confirmed', text: 'a link from content navigated an app window' });
-    else if (navigations.length) items.push({ status: 'safe', text: 'navigation to the marker link was blocked' });
+    if (navigations.some(l => !l.prevented)) items.push({ status: 'info', text: 'a marker link navigation was allowed' });
+    else if (navigations.length) items.push({ status: 'info', text: 'the observed marker link navigation was blocked' });
     const windows = state.links.filter(l => l.kind === 'window');
-    if (windows.some(l => l.action !== 'deny')) items.push({ status: 'confirmed', text: 'a link from content opened a new app window' });
-    else if (windows.length) items.push({ status: 'safe', text: 'new windows for the marker link were refused' });
+    if (windows.some(l => l.action !== 'deny')) items.push({ status: 'info', text: 'a marker link new-window request was allowed' });
+    else if (windows.length) items.push({ status: 'info', text: 'the observed marker link new-window request was refused' });
     if (state.links.length === 0 && review.some(i => LINK_REVIEW.has(i.id))) items.push({ status: 'todo', text: `click the link ${forms.link} placed in shared content` });
-    for (const p of state.paths) items.push({ status: 'confirmed', text: `a path from content was opened by shell.${p.method}` });
-    for (const c of state.commands) items.push({ status: 'confirmed', text: `the marker reached a command line (${c.program})` });
+    for (const p of state.paths) items.push({ status: 'info', text: `a marker path reached shell.${p.method}` });
+    for (const c of state.commands) items.push({ status: 'info', text: `the marker reached a command invocation (${c.program})` });
     for (const [channel] of state.ipc) items.push({ status: 'info', text: `content reached IPC channel '${channel}'` });
     if (state.entries.has('paste-text') && !state.entries.has('paste-html')) items.push({ status: 'todo', text: 'paste formatted (HTML) content, not only plain text' });
     return items;

@@ -82,7 +82,7 @@ const RULES = {
   TRAFFIC_AUTH_TO_THIRD_PARTY: ['HIGH', 'FIRM', 'Authentication material sent to a third-party host', 'https://cwe.mitre.org/data/definitions/200.html'],
   TRAFFIC_USER_INPUT_TO_THIRD_PARTY: ['MEDIUM', 'FIRM', 'User-submitted value forwarded to a third party', 'https://cwe.mitre.org/data/definitions/359.html'],
   TRAFFIC_STATE_CHANGE_NO_AUTH: ['LOW', 'TENTATIVE', 'State-changing request with no visible authentication', 'https://cwe.mitre.org/data/definitions/306.html'],
-  TRAFFIC_IDOR_CANDIDATE: ['LOW', 'TENTATIVE', 'Numeric object id in an authenticated request (IDOR candidate)', 'https://cwe.mitre.org/data/definitions/639.html'],
+  TRAFFIC_IDOR_CANDIDATE: ['INFORMATIONAL', 'TENTATIVE', 'Numeric object id in an authenticated request (authorization untested)', 'https://cwe.mitre.org/data/definitions/639.html'],
   TRAFFIC_REFLECTED_INPUT: ['LOW', 'TENTATIVE', 'Request input reflected in the response', 'https://cwe.mitre.org/data/definitions/79.html'],
   TRAFFIC_BASIC_AUTH: ['LOW', 'CERTAIN', 'HTTP Basic authentication in use', 'https://cwe.mitre.org/data/definitions/522.html'],
   TRAFFIC_SECRET_IN_RESPONSE: ['MEDIUM', 'FIRM', 'Secret returned in a response body', 'https://cwe.mitre.org/data/definitions/200.html'],
@@ -252,6 +252,8 @@ class TrafficAnalyzer {
 
   stateChangeNoAuth(e) {
     if (!STATE_METHODS.has(e.method) || isLoopback(e.host) || e.status === 401 || e.status === 403) return;
+    // Login, token issuance and session creation must start without an existing credential.
+    if (/(?:^|\/)(?:login|sign-?in|oauth|token|session)(?:\/|$)/i.test(e.path)) return;
     if (e.requestHeaders.some(([name]) => isAuthHeader(name))) return;
     // live requests observed without their headers (watch mode without header capture) can't be judged
     if (e.requestHeadersUnknown) return;
@@ -268,7 +270,7 @@ class TrafficAnalyzer {
     const where = ids.length > 0 ? 'path' : 'query';
     const route = e.path.replace(/\d+/g, '{id}');
     this.report('TRAFFIC_IDOR_CANDIDATE', `${e.method}:${e.host}:${route}`, {
-      description: `Authenticated ${e.method} ${e.host}${route} addresses an object by a numeric id in the ${where}: check on the server that another user's id is refused (the tool never requests other ids)`,
+      description: `Authenticated ${e.method} ${e.host}${route} addresses an object by a numeric id in the ${where}. Authorization was not tested; this is an endpoint inventory for a separate account comparison`,
       evidence: `${e.method} ${e.scheme}://${e.host}${e.path}`, location: `${e.scheme}://${e.host}${route}`, properties: { host: e.host, location: where, route } });
   }
 
@@ -306,10 +308,11 @@ class TrafficAnalyzer {
     const real = findSecrets(e.responseBody).filter(s => !s.kind.startsWith('Hard-coded'));
     if (real.length === 0) return;
     const kinds = [...new Set(real.map(s => s.kind))].sort();
+    const issuance = /(?:^|\/)(?:login|sign-?in|oauth|token|session)(?:\/|$)/i.test(e.path) && kinds.every(k => k === 'JSON Web Token');
     this.report('TRAFFIC_SECRET_IN_RESPONSE', `${e.host}:${e.path}:${kinds.join(',')}`, {
-      description: `The response of ${e.host}${e.path} contains ${kinds.join(', ')}`,
+      description: issuance ? `An authentication response of ${e.host}${e.path} returned a JSON Web Token (expected for token issuance; review how the client stores it)` : `The response of ${e.host}${e.path} contains ${kinds.join(', ')}; check whether this is expected for the caller`,
       evidence: `${e.method} ${e.host}${e.path}: ${real.slice(0, 3).map(s => `${s.kind}=${redact(s.value)}`).join(', ')}`,
-      location: `${e.scheme}://${e.host}${e.path}`, properties: { host: e.host, kinds } });
+      location: `${e.scheme}://${e.host}${e.path}`, severity: issuance ? 'INFORMATIONAL' : 'MEDIUM', properties: { host: e.host, kinds } });
   }
 
   insecureCookie(e) {

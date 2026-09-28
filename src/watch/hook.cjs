@@ -58,7 +58,11 @@ if (logFile && process.versions.electron && process.type === 'browser') {
 
 // The one active, harmless value the validation assistant proposes putting into a saved field: the marker on its own for
 // a plain field, or the marker wrapped in a <span data-...> element for a rich-text/HTML field.
-function markerFormValue(html, marker) {
+function markerFormValue(html, marker, active = false) {
+  if (html && active) {
+    if (!/^[A-Za-z0-9_-]{8,80}$/.test(marker)) return undefined;
+    return '<img src="data:,' + marker + '" onerror="console.log(\'ENG_ACTIVE_EXEC:' + marker + '\')" alt="">';
+  }
   return html ? '<span data-' + marker + '="1">' + marker + '</span>' : marker;
 }
 
@@ -156,8 +160,9 @@ function canReplayBody(text) {
  * @param {string} marker the planted marker token
  * @param {Array<{ name: string, html?: boolean }>} fields the fields to put the marker into (field names as bodyFields reports them)
  */
-function fillMarkerBody(text, marker, fields) {
+function fillMarkerBody(text, marker, fields, active = false) {
   if (!marker || !Array.isArray(fields) || fields.length === 0) return null;
+  if (active && !/^[A-Za-z0-9_-]{8,80}$/.test(marker)) return null;
   const want = new Map();
   for (const field of fields) if (field && typeof field.name === 'string') want.set(field.name, !!field.html);
   if (want.size === 0) return null;
@@ -170,7 +175,7 @@ function fillMarkerBody(text, marker, fields) {
         const leaf = path || '(body)';
         if (!want.has(leaf)) return undefined;
         matched = true;
-        return markerFormValue(want.get(leaf), marker);
+        return markerFormValue(want.get(leaf), marker, active);
       });
     } catch {
       return null;
@@ -182,7 +187,7 @@ function fillMarkerBody(text, marker, fields) {
     let matched = false;
     for (const [name, value] of new URLSearchParams(trimmed)) {
       if (want.has(name)) {
-        out.append(name, markerFormValue(want.get(name), marker));
+        out.append(name, markerFormValue(want.get(name), marker, active));
         matched = true;
       } else out.append(name, value);
     }
@@ -219,6 +224,7 @@ function instrument(electron, late) {
   // the planted marker (--watch-marker): where it turns up is recorded as a yes/no, so a finding that needs review can be
   // confirmed at runtime (content reaching openExternal, a navigation, IPC, a command line), without logging the values
   const MARKER = process.env.ELECTRONEGATIVITY_WATCH_MARKER || '';
+  const ACTIVE = process.env.ELECTRONEGATIVITY_WATCH_ACTIVE === '1' && /^[A-Za-z0-9_-]{8,80}$/.test(MARKER);
   const hasMarker = (value) => {
     if (!MARKER || value === undefined || value === null) return false;
     try {
@@ -328,6 +334,8 @@ function instrument(electron, late) {
       const detail = event && typeof event.message === 'string' ? event : { level: levelArg, message: messageArg, lineNumber: lineArg, sourceId: sourceArg };
       const message = String(detail.message || '');
       const url = redact(detail.sourceId || '');
+      if (ACTIVE && message.trim() === `ENG_ACTIVE_EXEC:${MARKER}`)
+        write('active-payload-executed', { id, url: redact((electron.webContents.fromId(id) || {}).getURL?.() || detail.sourceId || '') });
       consoleSecrets(message, 'renderer', url);
       const level = typeof detail.level === 'number' ? detail.level : ({ error: 3, warning: 2 })[detail.level];
       if (/Content Security Policy/i.test(message) && /Refused to/i.test(message)) {
@@ -941,7 +949,8 @@ function instrument(electron, late) {
       const done = (data) => write('marker-request', { route: cmd.route, method: cmd.method, ...data });
       const entry = replayable.get(cmd.replay);
       if (!entry) return done({ ok: false, error: 'the request is no longer available to re-send' });
-      const built = fillMarkerBody(entry.text, MARKER, cmd.fields || []);
+      const active = ACTIVE && cmd.active === true;
+      const built = fillMarkerBody(entry.text, MARKER, cmd.fields || [], active);
       if (!built) return done({ ok: false, method: entry.method, error: 'could not rebuild the request body with the marker' });
       const ses = entry.ses || (electron.session && electron.session.defaultSession);
       if (!ses || typeof ses.fetch !== 'function') return done({ ok: false, method: entry.method, error: 'session.fetch is unavailable (needs Electron 25+)' });
@@ -952,7 +961,10 @@ function instrument(electron, late) {
       // for the rebuilt body last so it wins
       const headers = { ...(entry.headers || {}), 'content-type': built.contentType };
       ses.fetch(entry.url, { method: entry.method, headers, body: built.body })
-        .then(response => done({ ok: !!response.ok, status: response.status, method: entry.method, fields: names, html: htmlNames }))
+        .then(response => {
+          if (active && response.ok) write('active-payload-sent', { method: entry.method, route: cmd.route, status: response.status });
+          done({ ok: !!response.ok, status: response.status, method: entry.method, fields: names, html: htmlNames });
+        })
         .catch(error => done({ ok: false, method: entry.method, fields: names, error: String(error && error.message) }));
     };
     let offset = 0;

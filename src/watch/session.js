@@ -27,7 +27,7 @@ export function parseHeaders(list = []) {
  * session log `watchLog`, and analyzes it. Returns { runtime, watchDiagnostics, watchLog, staticInput }.
  * @throws when the app can't be started or the log can't be read
  */
-export async function observeSession({ watch, watchLog, args = [], marker, capture = true, traffic = true, scope = [], canaries = [], searchDirs = [], userData,
+export async function observeSession({ watch, watchLog, args = [], marker, active = false, capture = true, traffic = true, scope = [], canaries = [], searchDirs = [], userData,
   assistant, staticIssues = [], confirm, screenshots }) {
   let log = watchLog;
   let packagedApp;
@@ -56,7 +56,7 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-'));
     const logFile = path.join(logDir, 'session.jsonl');
     if (!assistant) {
-      assistant = createAssistant({ marker, staticIssues, files: marker ? writeMarkerFiles(logDir, marker) : undefined });
+      assistant = createAssistant({ marker, active, staticIssues, files: marker ? writeMarkerFiles(logDir, marker, active) : undefined });
       assistant.intro();
     }
     fs.writeFileSync(logFile, '');
@@ -71,7 +71,7 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
     }
     const stopFollowing = followLog(logFile, record => assistant.handle(record));
     try {
-      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, capture, traffic, scope, screenshots, log: logFile, commands: commandsFile,
+      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, active, capture, traffic, scope, screenshots, log: logFile, commands: commandsFile,
         onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
       stopFollowing();
@@ -88,7 +88,7 @@ export async function observeSession({ watch, watchLog, args = [], marker, captu
   const start = records.find(r => r.kind === 'start');
   const watchDiagnostics = {
     mode: watch ? 'launched' : 'log', packaged: !!packagedApp, hookStarted: !!start, lateStart: !!(start && start.late),
-    electron: start && start.electron, markerSet: !!marker, records: recordKinds,
+    electron: start && start.electron, markerSet: !!marker, activeTests: active, records: recordKinds,
     hookErrors: records.filter(r => r.kind === 'hook-error').slice(0, 20).map(r => r.message),
     // field names stay out of the shared diagnostics: only how many there were and whether the marker was sent
     summary: { ...runtime.summary, fuses: undefined, api: runtime.summary.api.map(({ fields, ...endpoint }) => ({ ...endpoint, fields: fields.length, markerSent: fields.some(f => f.marker) })) },

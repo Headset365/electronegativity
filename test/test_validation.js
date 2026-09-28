@@ -12,6 +12,7 @@ import { mapFrames, MANIFEST } from '../src/remote/sources.js';
 import { validationHint } from '../src/finder/consequences.js';
 import { renderHtmlReport } from '../src/util/report_html.js';
 import { severity, confidence } from '../src/finder/attributes.js';
+import { activeHtml } from '../src/watch/active.js';
 
 chaiShould();
 await _i18n();
@@ -167,7 +168,7 @@ describe('Validation assistant', () => {
     const { assistant, lines } = assistantWith({ staticIssues: [staticIssue('XSS_SINK_JS_CHECK', 'https://srv.test/js/app.js', 120)] });
     assistant.handle({ kind: 'sink', sink: 'innerHTML', live: true, url: 'https://srv.test/', frames: [{ url: 'https://srv.test/js/app.js', line: 120, column: 17 }] });
     assistant.handle({ kind: 'sink', sink: 'innerHTML', live: false, url: 'https://srv.test/', frames: [{ url: 'https://srv.test/js/other.js', line: 5, column: 1 }] });
-    lines.should.deep.equal(['[validate] ✗ Markup carrying the marker was written with innerHTML by https://srv.test/js/app.js:120:17: confirms XSS_SINK_JS_CHECK at https://srv.test/js/app.js:120.']);
+    lines.should.deep.equal(['[validate] ! Marker markup reached innerHTML by https://srv.test/js/app.js:120:17: observed XSS_SINK_JS_CHECK at https://srv.test/js/app.js:120. Script execution remains untested.']);
   });
 
   it('suggests the next link to try, and reports what the app did with links from content', () => {
@@ -176,16 +177,16 @@ describe('Validation assistant', () => {
     assistant.handle({ kind: 'shell', method: 'openExternal', marker: true, scheme: 'https' });
     lines.pop().should.include(`file:///C:/Windows/#${M}`);
     assistant.handle({ kind: 'shell', method: 'openExternal', marker: true, scheme: 'file' });
-    lines.pop().should.equal('[validate] ✗ A file: link from content was passed to the operating system by shell.openExternal: the app has no scheme allowlist.');
+    lines.pop().should.match(/A file: marker link reached shell\.openExternal/);
     assistant.handle({ kind: 'window-open', marker: true, action: 'allow', default: true });
     lines.pop().should.equal('[validate] ✗ A link from content opened a new app window (the app has no setWindowOpenHandler).');
     assistant.handle({ kind: 'will-navigate', marker: true, prevented: true, url: `https://example.invalid/${M}` });
     lines.pop().should.match(/✓ The app blocked the window/);
     assistant.handle({ kind: 'process', marker: true, program: 'cmd.exe', method: 'exec' });
-    lines.pop().should.match(/✗ The marker reached a command the app runs \(cmd\.exe/);
+    lines.pop().should.match(/! The marker reached a command invocation \(cmd\.exe/);
     const summary = assistant.summary();
-    summary.some(i => i.status === 'confirmed' && /no scheme allowlist/.test(i.text)).should.equal(true);
-    summary.some(i => i.status === 'safe' && /navigation to the marker link was blocked/.test(i.text)).should.equal(true);
+    summary.some(i => i.status === 'info' && /non-web marker link/.test(i.text)).should.equal(true);
+    summary.some(i => i.status === 'info' && /marker link navigation was blocked/.test(i.text)).should.equal(true);
   });
 
   it('asks for formatted content after a plain-text paste', () => {
@@ -246,7 +247,7 @@ describe('Marker evidence', () => {
     byId('RUNTIME_MARKER_SINK')[0].should.include({ file: 'https://srv.test/js/app.js' });
     byId('RUNTIME_MARKER_SINK')[0].location.should.deep.equal({ line: 1, column: 50 });
     byId('RUNTIME_MARKER_SENT')[0].properties.fields.should.deep.equal(['text']);
-    byId('RUNTIME_MARKER_OPEN_EXTERNAL')[0].severity.should.equal(severity.HIGH);
+    byId('RUNTIME_MARKER_OPEN_EXTERNAL')[0].severity.should.equal(severity.MEDIUM);
     byId('RUNTIME_MARKER_OPEN_PATH').should.have.length(1);
     byId('RUNTIME_MARKER_NAVIGATION')[0].properties.blocked.should.equal(false);
     byId('RUNTIME_MARKER_NEW_WINDOW')[0].properties.blocked.should.equal(true);
@@ -254,7 +255,7 @@ describe('Marker evidence', () => {
     byId('RUNTIME_MARKER_COMMAND')[0].properties.program.should.equal('cmd.exe');
   });
 
-  it('confirms or rules out the static findings that need review', () => {
+  it('only correlates an exact sink line or IPC channel, without clearing other findings', () => {
     const { issues: runtime } = analyzeWatchLog([...records, { kind: 'page', id: 1, type: 'window', url: 'https://srv.test/', prefs: {} }]);
     const issues = [
       staticIssue('XSS_SINK_JS_CHECK', 'https://srv.test/js/app.js', 1),
@@ -270,8 +271,8 @@ describe('Marker evidence', () => {
     ];
     reconcileRuntime(issues, {});
     const status = issues.slice(0, 9).map(i => i.validation && i.validation.status);
-    status.should.deep.equal(['confirmed', undefined, 'confirmed', 'confirmed', 'confirmed', 'safe', 'confirmed', 'observed', undefined]);
-    issues[0].validation.text.should.match(/written with innerHTML from this line \(https:\/\/srv\.test\/js\/app\.js:1:50\)/);
+    status.should.deep.equal(['observed', undefined, undefined, undefined, undefined, undefined, undefined, 'observed', undefined]);
+    issues[0].validation.text.should.match(/reached innerHTML from this line \(https:\/\/srv\.test\/js\/app\.js:1:50\)/);
   });
 
   it('maps a minified stack frame to the original source the scan reported on', () => {
@@ -286,6 +287,13 @@ describe('Marker evidence', () => {
 });
 
 describe('Marker request body', () => {
+  it('uses executable markup only for an explicitly active HTML field, retaining every other value', () => {
+    const body = '{"matterId":1234567890123456789,"title":"ordinary","html":"<p>old</p>"}';
+    const out = fillMarkerBody(body, M, [{ name: 'html', html: true }], true);
+    out.body.should.equal(`{"matterId":1234567890123456789,"title":"ordinary","html":${JSON.stringify(activeHtml(M))}}`);
+    activeHtml(M).should.include(`ENG_ACTIVE_EXEC:${M}`);
+    (fillMarkerBody(body, `x' onerror='evil`, [{ name: 'html', html: true }], true) === null).should.equal(true);
+  });
   it('puts the marker into the named JSON fields and leaves the others intact', () => {
     const out = fillMarkerBody(JSON.stringify({ title: 'hi', body: '<p>x</p>', keep: 'me', n: 5 }), M, [{ name: 'title', html: false }, { name: 'body', html: true }]);
     out.contentType.should.equal('application/json');
@@ -333,6 +341,28 @@ describe('Marker request body', () => {
     canReplayBody('{"title":"x"}').should.equal(true);
     canReplayBody('a=1&b=2').should.equal(true);
     canReplayBody('------x\r\nContent-Disposition: form-data; name="f"').should.equal(false);
+  });
+});
+
+describe('Active probe evidence', () => {
+  it('reports executed script only on a renderer signal, and treats silence as incomplete coverage', () => {
+    const sent = [{ kind: 'start' }, { kind: 'active-payload-sent', method: 'POST', route: 'https://example.test/notes', status: 201 }];
+    const quiet = analyzeWatchLog(sent).issues;
+    quiet.some(i => i.id === 'RUNTIME_ACTIVE_SCRIPT').should.equal(false);
+    quiet.find(i => i.id === 'RUNTIME_ACTIVE_COVERAGE').properties.execution.should.equal('not observed');
+    const executed = analyzeWatchLog([...sent, { kind: 'active-payload-executed', id: 1, url: 'https://example.test/note' }]).issues;
+    executed.find(i => i.id === 'RUNTIME_ACTIVE_SCRIPT').properties.execution.should.equal('observed');
+    executed.some(i => i.id === 'RUNTIME_ACTIVE_COVERAGE').should.equal(false);
+  });
+
+  it('offers a probe only when opted in and routes it through the existing per-request confirmation', async () => {
+    const commands = [];
+    const { assistant } = assistantWith({ active: true });
+    assistant.useChannel({ confirm: async () => true, send: command => commands.push(command) });
+    assistant.handle({ kind: 'api', method: 'POST', url: 'https://example.test/notes', status: 201, replay: 3,
+      fields: [{ name: 'html', html: true, marker: false }] });
+    await new Promise(resolve => setImmediate(resolve));
+    commands[0].should.include({ kind: 'send-marker', replay: 3, active: true });
   });
 });
 

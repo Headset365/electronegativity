@@ -6,14 +6,6 @@ import { severity, confidence } from '../finder/attributes.js';
 
 const DOCS = 'https://www.electronjs.org/docs/latest/tutorial/security';
 
-// runtime finding id -> the static check that reports the same problem in code
-const SAME_PROBLEM = {
-  RUNTIME_NODE_INTEGRATION: 'NODE_INTEGRATION_JS_CHECK',
-  RUNTIME_CONTEXT_ISOLATION: 'CONTEXT_ISOLATION_JS_CHECK',
-  RUNTIME_WEB_SECURITY: 'WEB_SECURITY_JS_CHECK',
-  RUNTIME_SANDBOX: 'SANDBOX_JS_CHECK',
-};
-
 const baseName = (p) => (p && p !== 'dynamic path' && p !== 'dynamic' ? path.basename(String(p)) : undefined);
 const place = (issue) => `${issue.file}${issue.location && issue.location.line ? ':' + issue.location.line : ''}`;
 
@@ -28,28 +20,17 @@ export function reconcileRuntime(issues, summary) {
   entryCoverage(issues, summary);
   const staticWindows = issues.filter(i => i.id === 'WINDOW_SUMMARY_JS_CHECK');
 
-  // link windows by preload script: the same preload means the static definition and the observed window are the same
+  // A preload is only a useful hint when it uniquely identifies a window on both sides.
   const observed = new Set();
   for (const sw of staticWindows) {
     const preload = baseName(sw.properties && sw.properties.preload);
-    const match = preload && runtimeWindows.find(rw => baseName(rw.properties && rw.properties.preload) === preload);
-    if (match) {
+    const candidates = preload && runtimeWindows.filter(rw => baseName(rw.properties && rw.properties.preload) === preload);
+    if (candidates && candidates.length === 1 && staticWindows.filter(w => baseName(w.properties && w.properties.preload) === preload).length === 1) {
+      const match = candidates[0];
       sw.properties = { ...sw.properties, observedAt: match.properties.url };
       match.properties = { ...match.properties, staticWindow: place(sw) };
       observed.add(sw);
     }
-  }
-
-  // a problem seen both in the code and at runtime: mark each as confirmed by the other
-  for (const [runtimeId, staticId] of Object.entries(SAME_PROBLEM)) {
-    const runtimeHits = issues.filter(i => i.id === runtimeId);
-    const staticHits = issues.filter(i => i.id === staticId);
-    if (runtimeHits.length === 0 || staticHits.length === 0) continue;
-    for (const r of runtimeHits) if (!/also found/.test(r.description)) {
-      r.description += ` (also found by static analysis: ${staticId})`;
-      r.properties = { ...r.properties, confirmedByStatic: staticId };
-    }
-    for (const s of staticHits) s.properties = { ...s.properties, confirmedByRuntime: runtimeId };
   }
 
   // windows the static scan found but that were never opened: coverage beyond the IPC channels already reported
@@ -58,8 +39,8 @@ export function reconcileRuntime(issues, summary) {
     const list = unopened.map(sw => `${sw.properties.window} (${baseName(sw.properties.preload)}) at ${place(sw)}`);
     issues.push({
       file: 'runtime', sample: '', location: { line: 0, column: 0 }, id: 'RUNTIME_WINDOW_COVERAGE',
-      description: `${unopened.length} of ${staticWindows.length} window(s) defined in the code were not opened during the session: ${list.join('; ')}`,
-      properties: { unopened: list }, shortenedURL: DOCS, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
+      description: `${unopened.length} of ${staticWindows.length} window definition(s) could not be matched to an observed window by a unique preload during this session: ${list.join('; ')}`,
+      properties: { unmatched: list }, shortenedURL: DOCS, severity: severity.INFORMATIONAL, confidence: confidence.FIRM,
       manualReview: false, visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: 'Runtime'
     });
   }
@@ -109,13 +90,12 @@ function sameScript(file, url) {
 }
 
 /**
- * Marks static findings the planted marker confirmed (or ruled out) during the session: `validation` = { status, text }.
- * HTML sinks are matched to the exact script line that wrote the markup; the others by kind (the marker shows the app
- * does it somewhere, the static finding says where it can happen).
+ * A marker can establish that data reached a sink, not that executable content ran or a guard was absent.
+ * Only connect an HTML finding with a matching script line, or an IPC handler with a matching channel.
  */
 function linkMarkerEvidence(issues) {
   const of = (id) => issues.filter(i => i.id === id);
-  const mark = (issue, status, text) => { if (!issue.validation || issue.validation.status !== 'confirmed') issue.validation = { status, text }; };
+  const mark = (issue, text) => { if (!issue.validation) issue.validation = { status: 'observed', text }; };
 
   for (const sink of of('RUNTIME_MARKER_SINK')) {
     const frames = (sink.properties && sink.properties.frames) || [];
@@ -125,36 +105,14 @@ function linkMarkerEvidence(issues) {
       const frame = frames.find(f => (f.original && f.original.file === issue.file && f.original.line === issue.location.line) ||
         (f.line === issue.location.line && sameScript(issue.file, f.url)));
       if (frame) {
-        mark(issue, 'confirmed', `Confirmed at runtime: markup planted as another user's content was written with ${sink.properties.sink} from this line (${frame.url}:${frame.line}:${frame.column}${frame.original ? `, ${frame.original.file.replace(/^.* \(source: (.*)\)$/, '$1')}:${frame.original.line}` : ''}).`);
+        mark(issue, `Observed at runtime: marker markup reached ${sink.properties.sink} from this line (${frame.url}:${frame.line}:${frame.column}${frame.original ? `, ${frame.original.file.replace(/^.* \(source: (.*)\)$/, '$1')}:${frame.original.line}` : ''}). Script execution and exploitability remain untested.`);
         sink.properties = { ...sink.properties, staticFinding: `${issue.id} at ${issue.file}:${issue.location.line}` };
       }
     }
   }
-  const external = of('RUNTIME_MARKER_OPEN_EXTERNAL');
-  for (const issue of of('OPEN_EXTERNAL_JS_CHECK')) {
-    const nonWeb = external.find(r => r.properties && !/^(https?|mailto)$/i.test(r.properties.scheme || ''));
-    if (nonWeb) mark(issue, 'confirmed', `Confirmed at runtime: a ${nonWeb.properties.scheme}: link from content reached shell.openExternal, so there is no scheme allowlist (the session does not tell which openExternal call it was).`);
-    else if (external.length) mark(issue, 'observed', 'Seen at runtime: links from content reach shell.openExternal. Try a file:/// link in the next session to check the scheme allowlist.');
-  }
-  const paths = of('RUNTIME_MARKER_OPEN_PATH');
-  for (const issue of issues.filter(i => i.id === 'OPEN_PATH_JS_CHECK' || i.id === 'SHOWITEMINFOLDER_JS_CHECK'))
-    if (paths.length) mark(issue, 'confirmed', `Confirmed at runtime: a path from content reached shell.${paths[0].properties.method}.`);
-  const navigation = of('RUNTIME_MARKER_NAVIGATION');
-  for (const issue of issues.filter(i => /^LIMIT_NAVIGATION_/.test(i.id) || i.id === 'RUNTIME_NAVIGATION')) {
-    if (navigation.some(r => r.properties && !r.properties.blocked)) mark(issue, 'confirmed', 'Confirmed at runtime: a link from content navigated an app window.');
-    else if (navigation.length) mark(issue, 'safe', 'Checked at runtime: the app blocked a link from content from navigating the window.');
-  }
-  const windows = of('RUNTIME_MARKER_NEW_WINDOW');
-  for (const issue of issues.filter(i => i.id === 'WINDOW_OPEN_HANDLER_JS_CHECK' || i.id === 'RUNTIME_NEW_WINDOW')) {
-    if (windows.some(r => r.properties && !r.properties.blocked)) mark(issue, 'confirmed', 'Confirmed at runtime: a link from content opened a new app window.');
-    else if (windows.length) mark(issue, 'safe', 'Checked at runtime: the app refused to open a window for a link from content.');
-  }
-  const commands = of('RUNTIME_MARKER_COMMAND');
-  for (const issue of of('COMMAND_INJECTION_JS_CHECK'))
-    if (commands.length) mark(issue, 'confirmed', `Confirmed at runtime: content reached a command line (${commands.map(c => c.properties.program).join(', ')}).`);
   const channels = new Map(of('RUNTIME_MARKER_IPC').map(r => [r.properties.channel, r.properties.sender]));
   for (const issue of of('IPC_SENDER_VALIDATION_JS_CHECK')) {
     const channel = issue.properties && issue.properties.channel;
-    if (channel && channels.has(channel)) mark(issue, 'observed', `Seen at runtime: content from other users reaches '${channel}'${channels.get(channel) ? ` (sent from ${channels.get(channel)})` : ''}, so this handler must check the sender and validate the value.`);
+    if (channel && channels.has(channel)) mark(issue, `Seen at runtime: marker data reached '${channel}'${channels.get(channel) ? ` (sent from ${channels.get(channel)})` : ''}. The handler's sender and value checks remain unverified.`);
   }
 }

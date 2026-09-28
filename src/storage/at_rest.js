@@ -79,10 +79,11 @@ const show = (value, reveal) => reveal ? String(value) : redact(value);
 
 // [kind, shown value] when a value is or holds a secret
 function secretIn(value, key, reveal) {
-  if (key && isSensitiveParam(key) && value.length >= 6 && !/^\d+$/.test(value)) return ['value under a secret-named key', show(value, reveal)];
   const hit = findSecrets(value)[0];
-  if (hit) return [hit.kind, show(hit.value, reveal)];
-  if (looksSecretValue(value) && value.length >= 24) return ['high-entropy value', show(value, reveal)];
+  if (hit) return [hit.kind, show(hit.value, reveal), 'pattern'];
+  // A long identifier under an analytics/session-id key is not necessarily a reusable credential.
+  if (key && isSensitiveParam(key) && value.length >= 6 && !/^\d+$/.test(value)) return ['value under a secret-named key', show(value, reveal), 'name'];
+  if (looksSecretValue(value) && value.length >= 24) return ['high-entropy value (identity unknown)', show(value, reveal), 'entropy'];
   return undefined;
 }
 
@@ -93,7 +94,7 @@ export function reviewWebStorage(profile, { reveal = false } = {}) {
   for (const [label, dir, decode] of stores) {
     for (const [origin, key, value] of decode(readStore(dir))) {
       const hit = secretIn(value, key, reveal);
-      if (hit) out.push({ store: label, origin, key, kind: hit[0], shown: hit[1] });
+      if (hit) out.push({ store: label, origin, key, kind: hit[0], shown: hit[1], basis: hit[2] });
     }
   }
   const idb = path.join(profile, 'IndexedDB');

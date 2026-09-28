@@ -57,24 +57,39 @@ export default class IpcSenderValidationJSCheck {
     const eventParam = handler.params && handler.params[0];
     if (!eventParam) return false; // the event object isn't even received
 
-    let validates = false;
-    // `({ senderFrame }) => ...`
-    if (eventParam.type === 'ObjectPattern') {
-      validates = eventParam.properties.some(p => p.key && SENDER_PROPERTIES.includes(p.key.name || p.key.value));
+    const eventNames = eventParam.type === 'Identifier' ? [eventParam.name] :
+      eventParam.type === 'ObjectPattern' ? eventParam.properties.filter(p => p.key && SENDER_PROPERTIES.includes(p.key.name || p.key.value)).map(p => p.value && p.value.name).filter(Boolean) : [];
+    if (!eventNames.length) return false;
+    // An expression-bodied handler can explicitly gate its result on a named sender assertion.
+    // General calls receiving `event` (including logging) do not count.
+    if (handler.body && handler.body.type === 'LogicalExpression' && handler.body.operator === '&&') {
+      const gate = handler.body.left;
+      const name = gate && gate.callee && (gate.callee.name || memberName(gate.callee));
+      if (gate && (gate.type === 'CallExpression' || gate.type === 'OptionalCallExpression') &&
+        /^(?:assert|validate|verify|is)(?:Trusted|Authorized|Allowed|Secure)(?:Sender|Origin)?$/i.test(name || '') &&
+        gate.arguments.some(arg => arg.type === 'Identifier' && eventNames.includes(arg.name))) return true;
     }
-
-    visit(handler.body, (node) => {
-      if (validates) return false;
-      if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
-        const { root, names } = memberChain(node);
-        if (names.includes('senderFrame') ||
-            (eventParam.type === 'Identifier' && root === eventParam.name && names.some(n => SENDER_PROPERTIES.includes(n))))
-          validates = true;
-      }
-      // a helper receiving the whole event, e.g. validateSender(event)
-      if ((node.type === 'CallExpression' || node.type === 'OptionalCallExpression') && eventParam.type === 'Identifier' &&
-          node.arguments.some(a => a.type === 'Identifier' && a.name === eventParam.name)) validates = true;
+    const referencesSender = (root) => {
+      let found = false;
+      visit(root, node => {
+        if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+          const chain = memberChain(node);
+          if (eventNames.includes(chain.root) && (eventParam.type === 'ObjectPattern' || chain.names.some(n => SENDER_PROPERTIES.includes(n)))) found = true;
+        } else if (node.type === 'Identifier' && eventParam.type === 'ObjectPattern' && eventNames.includes(node.name)) found = true;
+      });
+      return found;
+    };
+    let guarded = false;
+    visit(handler.body, node => {
+      if (node.type !== 'IfStatement' || !referencesSender(node.test)) return;
+      // Reading or logging senderFrame is not validation. Require a rejecting branch before the handler's work.
+      const rejects = branch => {
+        let found = false;
+        if (branch) visit(branch, child => { if (child.type === 'ReturnStatement' || child.type === 'ThrowStatement') found = true; });
+        return found;
+      };
+      if (rejects(node.consequent) || rejects(node.alternate)) guarded = true;
     });
-    return validates;
+    return guarded;
   }
 }

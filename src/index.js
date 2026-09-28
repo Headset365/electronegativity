@@ -50,6 +50,7 @@ async function main() {
     .option('--watch-args <args>', __('watchArgsOptionDescription'))
     .option('--watch-log <file>', __('watchLogOptionDescription'))
     .option('--watch-marker <token>', __('watchMarkerOptionDescription'))
+    .option('--active-tests', 'Opt in to a benign HTML execution probe in watch mode; logs a nonce if the renderer executes it')
     .option('--app <location>', __('appOptionDescription'))
     .option('--out <dir>', __('outOptionDescription'))
     .option('--sessions <count>', __('sessionsOptionDescription'))
@@ -75,6 +76,8 @@ async function main() {
     .parse(process.argv);
 
   const options = program.opts();
+  if (options.activeTests && !options.watch && !options.app) throw new Error('--active-tests requires --watch or --app');
+  if (options.activeTests && options.watchMarker && !/^[A-Za-z0-9_-]{8,80}$/.test(options.watchMarker)) throw new Error('--active-tests requires a marker of 8–80 letters, digits, _ or -');
   const forCli = !options.output;
 
   if (forCli) {
@@ -178,7 +181,7 @@ async function main() {
     let session;
     if (options.watch || options.watchLog) {
       try {
-        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker, capture, traffic, scope, screenshots,
+        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker || (options.activeTests ? generateMarker() : undefined), active: !!options.activeTests, capture, traffic, scope, screenshots,
           canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm() });
       } catch (error) {
         console.error(chalk.red(error.message));
@@ -345,7 +348,7 @@ async function guided(options, common, { watchArgs, headers, capture, traffic, s
   const marker = options.watchMarker || generateMarker();
   if (located.executable && sessions > 0) console.log(chalk.cyan(__('appMarker', { marker })));
   // one assistant for all sessions: what the static scan flagged for review, and what each session has shown so far
-  const assistant = createAssistant({ marker, staticIssues: staticResult.issues, files: writeMarkerFiles(outDir, marker) });
+  const assistant = createAssistant({ marker, active: !!options.activeTests, staticIssues: staticResult.issues, files: writeMarkerFiles(outDir, marker, !!options.activeTests) });
   if (located.executable && sessions > 0) assistant.intro();
   for (let n = 1; located.executable && n <= sessions; n++) {
     if (options.sessions === undefined) {
@@ -354,7 +357,7 @@ async function guided(options, common, { watchArgs, headers, capture, traffic, s
     }
     let session;
     try {
-      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, capture, traffic, scope,
+      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, active: !!options.activeTests, capture, traffic, scope,
         screenshots: screenshots && (path.isAbsolute(screenshots) ? screenshots : path.join(outDir, screenshots)),
         canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, assistant, confirm: interactiveConfirm() });
     } catch (error) {

@@ -9,7 +9,7 @@ import { readCacheEntry, reviewCaches } from '../src/storage/at_rest.js';
 import { sourceMapIssues } from '../src/production/sourcemaps.js';
 import { interactionOf, consequenceOf } from '../src/finder/consequences.js';
 import { splitOutputs, unwritableOutput } from '../src/util/file.js';
-import { maskCode } from '../src/report/share.js';
+import { maskCode, buildShare } from '../src/report/share.js';
 
 chaiShould();
 await _i18n();
@@ -85,6 +85,20 @@ contextBridge.exposeInMainWorld('util', { copy(t) { clipboard.writeText(t); }, l
       byChannel('get-theme')[0].severity.name.should.equal('INFORMATIONAL');
       byChannel('focus-window').map(i => i.properties.issue).should.deep.equal(['window-target']);
       byChannel('open-doc')[0].properties.should.include({ validatesArguments: true });
+    });
+
+    it('does not count logging a sender or an unused type expression as validation', async () => {
+      const { of } = await scan({ 'package.json': PACKAGE, 'main.js': `
+const { ipcMain, shell } = require('electron');
+ipcMain.handle('read', (event, filename) => {
+  console.log(event.senderFrame.url);
+  const unused = typeof filename;
+  return shell.openPath(filename);
+});` });
+      of('IPC_SENDER_VALIDATION_JS_CHECK').some(i => i.properties.channel === 'read').should.equal(true);
+      const handler = of('IPC_HANDLER_JS_CHECK').find(i => i.properties.channel === 'read');
+      handler.properties.validatesArguments.should.equal(false);
+      handler.properties.issue.should.equal('unvalidated');
     });
 
     it('maps each channel to the preloads that send it and the windows loading them', async () => {
@@ -348,6 +362,20 @@ fetch('http://10.20.30.40:8080/api');`,
       word.should.include({ severity: 'HIGH', file: 'main.js', line: 6, exploitableBy: 'Shared content' });
       word.code.should.equal('ipcMain.handle(\'open-in-word\', (event, name) => { exec(`start winword "${name}"`); });');
       report.counts.total.should.equal(report.findings.length);
+    });
+
+    it('preserves structured versions and full arrays while redacting bare hosts', () => {
+      const report = buildShare({ input: '/work/demo', version: '2.0.0', issues: [{
+        id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },
+        description: 'portal.example.test and https://portal.example.test/path?private=1', manualReview: true,
+        validation: { status: 'observed', text: 'Seen on portal.example.test, script not proven' },
+        properties: { package: 'electron', version: '34.5.8', advisories: Array.from({ length: 25 }, (_, i) => `CVE-2025-${String(i).padStart(4, '0')}`), name: 'sample@1.2.3' }
+      }] });
+      report.findings[0].properties.advisories.should.have.length(25);
+      report.findings[0].properties.name.should.equal('sample@1.2.3');
+      report.findings[0].properties.version.should.equal('34.5.8');
+      JSON.stringify(report).should.not.include('portal.example.test').and.not.include('private=1');
+      report.findings[0].runtimeEvidence.should.include('host-');
     });
 
     it('masks strings that could carry data in code, keeping code tokens', () => {

@@ -62,9 +62,12 @@ export function reviewDataAtRest({ names = [], userData, observedUserData, revie
         insecureCookieFlags: data.cookies.insecureFlags || [] };
       for (const w of data.webStorage) {
         const where = w.origin ? `${w.store} (${w.origin})` : w.store;
-        issues.push(finding('STORAGE_SECRET_AT_REST', path.join(profile, w.store === 'Local Storage' ? 'Local Storage/leveldb' : w.store), severity.HIGH, confidence.FIRM,
-          `${w.kind} kept in ${where}${w.key ? ` under the key '${w.key}'` : ''}: anything that can read the user's profile folder can take it`,
-          { store: w.store, origin: w.origin, key: w.key, kind: w.kind }, 'https://cwe.mitre.org/data/definitions/312.html', `${w.kind}: ${w.shown}`));
+        const uncertain = w.basis === 'entropy';
+        issues.push(finding('STORAGE_SECRET_AT_REST', path.join(profile, w.store === 'Local Storage' ? 'Local Storage/leveldb' : w.store),
+          uncertain ? severity.INFORMATIONAL : w.basis === 'name' ? severity.LOW : severity.MEDIUM,
+          uncertain ? confidence.TENTATIVE : confidence.FIRM,
+          `${w.kind} kept in ${where}${w.key ? ` under the key '${w.key}'` : ''}; ${uncertain ? 'the value may be an identifier, so determine whether it is a credential' : 'review whether this value grants access and who can read the profile'}`,
+          { store: w.store, origin: w.origin, key: w.key, kind: w.kind, basis: w.basis }, 'https://cwe.mitre.org/data/definitions/312.html', `${w.kind}: ${w.shown}`));
       }
       const cookies = data.cookies;
       for (const c of cookies.plaintext || [])

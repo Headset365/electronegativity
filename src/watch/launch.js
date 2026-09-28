@@ -58,7 +58,7 @@ export function resolveApp(target, extraArgs = []) {
  * (--inspect-brk, on a local port), the hook is loaded through it before any of the app's code runs, and the app is
  * resumed. That needs the EnableNodeCliInspectArguments fuse, on unless the build switched it off.
  */
-export function watchApp(target, { args = [], marker, capture = true, traffic = true, scope = [], screenshots, commands, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onNote = () => {} } = {}) {
+export function watchApp(target, { args = [], marker, active = false, capture = true, traffic = true, scope = [], screenshots, commands, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onNote = () => {} } = {}) {
   const { command, args: commandArgs, packaged, staticInput } = resolveApp(target, args);
   fs.writeFileSync(log, '');
   const quotedHook = HOOK.includes(' ') ? `"${HOOK}"` : HOOK;
@@ -68,6 +68,7 @@ export function watchApp(target, { args = [], marker, capture = true, traffic = 
     ELECTRONEGATIVITY_WATCH_LOG: log,
   };
   if (marker) env.ELECTRONEGATIVITY_WATCH_MARKER = String(marker);
+  if (active) env.ELECTRONEGATIVITY_WATCH_ACTIVE = '1';
   // the file the CLI writes send-marker commands to, for the hook to re-send the marker request through the app's session
   if (commands) env.ELECTRONEGATIVITY_WATCH_COMMANDS = commands;
   // download the front-end code pages run, for the static scan (capture/ next to the log)

@@ -48,6 +48,16 @@ export function analyzeWatchLog(records) {
   });
   const once = new Set();
   const first = (key) => !once.has(key) && once.add(key);
+  const activeSent = records.filter(r => r.kind === 'active-payload-sent');
+  const executed = records.filter(r => r.kind === 'active-payload-executed');
+  for (const r of executed) if (first(`active:${r.id}:${r.url}`))
+    add('RUNTIME_ACTIVE_SCRIPT', r.url, severity.MEDIUM, confidence.FIRM,
+      `A benign event-handler probe executed script in this renderer. The log does not establish which save route supplied it or whether a second account can reach it`,
+      { webContents: r.id, execution: 'observed' }, `${DOCS}#7-define-a-content-security-policy`);
+  if (activeSent.length && !executed.length)
+    add('RUNTIME_ACTIVE_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
+      `${activeSent.length} benign execution probe(s) were accepted by save requests, but no execution signal appeared in the watched pages. The content may not have been viewed; this is not a safe verdict`,
+      { sent: activeSent.length, execution: 'not observed' });
 
   const started = records.some(r => r.kind === 'start');
   const pages = records.filter(r => r.kind === 'page' && !INTERNAL_PAGES.test(r.url));
@@ -192,7 +202,7 @@ export function analyzeWatchLog(records) {
     if (r.event === 'marker') {
       if (!first(`marker:${origin(r.url)}:${r.frame ? 'frame' : 'top'}:${r.live}`)) continue;
       const where = `${r.url}${r.frame ? ` (inside a frame: ${r.frame})` : ''}`;
-      if (r.live) add('RUNTIME_MARKER', r.url, severity.HIGH, confidence.FIRM, `Planted marker content came back rendered as live HTML at ${where}: stored input reaches another view without being neutralized (the stored-content threat)`, { marker: r.detail, live: true, frame: r.frame }, `${DOCS}#7-define-a-content-security-policy`);
+      if (r.live) add('RUNTIME_MARKER', r.url, severity.LOW, confidence.FIRM, `Planted marker appeared as HTML at ${where}. This establishes rendering of markup, not script execution or access across accounts`, { marker: r.detail, live: true, frame: r.frame }, `${DOCS}#7-define-a-content-security-policy`);
       else add('RUNTIME_MARKER', r.url, severity.INFORMATIONAL, confidence.CERTAIN, `Planted marker appeared as text (escaped) at ${where}`, { marker: r.detail, live: false, frame: r.frame });
       continue;
     }
@@ -308,8 +318,8 @@ function markerEvidence(records, add, first, api, issues) {
     const frame = (r.frames || [])[0];
     const where = frame ? `${frame.url}:${frame.line}:${frame.column}` : 'an unknown script';
     if (!first(`marker-sink:${r.sink}:${where}`)) continue;
-    add('RUNTIME_MARKER_SINK', frame ? frame.url : r.url, severity.HIGH, confidence.CERTAIN,
-      `Markup carrying the planted marker was written into the page with ${r.sink} by ${where} (page ${r.url}${r.frame ? `, inside a frame: ${r.frame}` : ''}): content from another user reaches this HTML sink`,
+    add('RUNTIME_MARKER_SINK', frame ? frame.url : r.url, severity.LOW, confidence.FIRM,
+      `Marker markup was written into the page with ${r.sink} by ${where} (page ${r.url}${r.frame ? `, inside a frame: ${r.frame}` : ''}). Script execution and the input's trust boundary remain unverified`,
       { sink: r.sink, frames: r.frames, page: r.url, frame: r.frame }, 'https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html');
     // at the script location, so it lines up with the static finding there
     if (frame) issues[issues.length - 1].location = { line: frame.line, column: frame.column };
@@ -332,30 +342,30 @@ function markerEvidence(records, add, first, api, issues) {
     if (r.method === 'openExternal') {
       const web = /^(https?|mailto)$/i.test(r.scheme || '');
       if (!first(`marker-external:${web}:${r.scheme}`)) continue;
-      if (web) add('RUNTIME_MARKER_OPEN_EXTERNAL', r.target, severity.MEDIUM, confidence.CERTAIN, `A link from content (carrying the planted marker) was handed to the operating system by shell.openExternal (${r.scheme}:): content chooses what the OS opens; check that only http(s) and mailto are allowed`, { scheme: r.scheme }, `${DOCS}#15-do-not-use-shellopenexternal-with-untrusted-content`);
-      else add('RUNTIME_MARKER_OPEN_EXTERNAL', r.target, severity.HIGH, confidence.CERTAIN, `A ${r.scheme}: link from content (carrying the planted marker) was handed to the operating system by shell.openExternal: the app has no scheme allowlist`, { scheme: r.scheme }, `${DOCS}#15-do-not-use-shellopenexternal-with-untrusted-content`);
+      if (web) add('RUNTIME_MARKER_OPEN_EXTERNAL', r.target, severity.INFORMATIONAL, confidence.CERTAIN, `A marker link with the ${r.scheme}: scheme reached shell.openExternal. This does not test the scheme allowlist`, { scheme: r.scheme }, `${DOCS}#15-do-not-use-shellopenexternal-with-untrusted-content`);
+      else add('RUNTIME_MARKER_OPEN_EXTERNAL', r.target, severity.MEDIUM, confidence.FIRM, `A marker link with the ${r.scheme}: scheme reached shell.openExternal in this session. Review which handler and user action allowed it`, { scheme: r.scheme }, `${DOCS}#15-do-not-use-shellopenexternal-with-untrusted-content`);
     } else if (first(`marker-path:${r.method}`)) {
-      add('RUNTIME_MARKER_OPEN_PATH', r.target, severity.HIGH, confidence.CERTAIN, `A path from content (carrying the planted marker) was opened by shell.${r.method}: content chooses which file the app opens with its default program`, { method: r.method }, 'https://www.electronjs.org/docs/latest/api/shell');
+      add('RUNTIME_MARKER_OPEN_PATH', r.target, severity.MEDIUM, confidence.FIRM, `A marker path reached shell.${r.method}. Whether the caller can choose arbitrary paths remains unverified`, { method: r.method }, 'https://www.electronjs.org/docs/latest/api/shell');
     }
   }
   for (const r of records.filter(r => r.kind === 'will-navigate' && r.marker)) {
     if (!first(`marker-nav:${r.prevented}`)) continue;
     if (r.prevented) add('RUNTIME_MARKER_NAVIGATION', r.url, severity.INFORMATIONAL, confidence.CERTAIN, `A link from content (carrying the planted marker) tried to navigate an app window, and the app blocked it`, { blocked: true }, `${DOCS}#13-disable-or-limit-navigation`);
-    else add('RUNTIME_MARKER_NAVIGATION', r.url, severity.HIGH, confidence.CERTAIN, `A link from content (carrying the planted marker) navigated an app window to ${r.url}: that page runs with the window's preload and IPC access`, { blocked: false }, `${DOCS}#13-disable-or-limit-navigation`);
+    else add('RUNTIME_MARKER_NAVIGATION', r.url, severity.MEDIUM, confidence.FIRM, `Navigation for a marker link to ${r.url} was not blocked at will-navigate. Check the resulting page and its privileges`, { blocked: false }, `${DOCS}#13-disable-or-limit-navigation`);
   }
   for (const r of records.filter(r => r.kind === 'window-open' && r.marker)) {
     const denied = r.action === 'deny';
     if (!first(`marker-window:${denied}`)) continue;
     if (denied) add('RUNTIME_MARKER_NEW_WINDOW', r.url, severity.INFORMATIONAL, confidence.CERTAIN, 'A link from content (carrying the planted marker) tried to open a new window, and the app refused', { blocked: true }, `${DOCS}#14-disable-or-limit-creation-of-new-windows`);
-    else add('RUNTIME_MARKER_NEW_WINDOW', r.url, severity.MEDIUM, confidence.CERTAIN, `A link from content (carrying the planted marker) opened a new app window${r.default ? ': the app has no setWindowOpenHandler' : ''}`, { blocked: false }, `${DOCS}#14-disable-or-limit-creation-of-new-windows`);
+    else add('RUNTIME_MARKER_NEW_WINDOW', r.url, severity.LOW, confidence.FIRM, `A new-window request for a marker link was allowed${r.default ? ' by the default handler' : ''}. Check the resulting window and its privileges`, { blocked: false }, `${DOCS}#14-disable-or-limit-creation-of-new-windows`);
   }
   for (const r of records.filter(r => r.kind === 'ipc' && r.marker)) {
     if (first(`marker-ipc:${r.channel}`))
-      add('RUNTIME_MARKER_IPC', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN, `Content carrying the planted marker reached IPC channel '${r.channel}'${r.sender ? ` from ${r.sender}` : ''}: its handler receives content from other users, so it must validate the sender and the value`, { channel: r.channel, sender: r.sender });
+      add('RUNTIME_MARKER_IPC', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN, `Marker data reached IPC channel '${r.channel}'${r.sender ? ` from ${r.sender}` : ''}. This does not establish sender validation or a cross-account route`, { channel: r.channel, sender: r.sender });
   }
   for (const r of records.filter(r => r.kind === 'process' && r.marker)) {
     if (first(`marker-process:${r.program}`))
-      add('RUNTIME_MARKER_COMMAND', 'runtime', severity.HIGH, confidence.CERTAIN, `The planted marker reached a command the app runs (${r.program}, via ${r.method}): content controls part of a command line`, { program: r.program, method: r.method }, 'https://owasp.org/www-community/attacks/Command_Injection');
+      add('RUNTIME_MARKER_COMMAND', 'runtime', severity.MEDIUM, confidence.FIRM, `Marker data reached a command invocation (${r.program}, via ${r.method}). Command injection and argument control remain unverified`, { program: r.program, method: r.method }, 'https://owasp.org/www-community/attacks/Command_Injection');
   }
 }
 

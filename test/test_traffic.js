@@ -152,6 +152,18 @@ describe('Traffic', () => {
       check([ex('GET', 'https://app.test/x', { res: [['Set-Cookie', 'sid=abc; Secure; HttpOnly; Path=/']] })]).should.not.have.property('TRAFFIC_INSECURE_COOKIE');
     });
 
+    it('treats normal token issuance and numeric ids as inventory, not confirmed exposure', () => {
+      const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.aaaaaaaaaaaaaaaaaaaa';
+      const found = check([
+        ex('POST', 'https://app.test/api/login', { res: [['Content-Type', 'application/json']], rbody: JSON.stringify({ token: jwt }) }),
+        ex('GET', 'https://app.test/matters/42', { req: [['Authorization', 'Bearer test']] }),
+      ]);
+      found.should.not.have.property('TRAFFIC_STATE_CHANGE_NO_AUTH');
+      found.TRAFFIC_SECRET_IN_RESPONSE.severity.should.equal('INFORMATIONAL');
+      found.TRAFFIC_IDOR_CANDIDATE.severity.should.equal('INFORMATIONAL');
+      found.TRAFFIC_IDOR_CANDIDATE.description.should.include('Authorization was not tested');
+    });
+
     it('merges repeats into one finding with a count', () => {
       const found = check([ex('GET', 'http://app.test/a'), ex('GET', 'http://app.test/b')]);
       found.TRAFFIC_CLEARTEXT_HTTP.count.should.equal(2);

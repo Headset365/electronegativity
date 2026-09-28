@@ -6,6 +6,7 @@
 // unless asked for (--share-code), and then its strings and comments are masked. Review the file before sending it.
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { sensitiveTerms, makeSanitizer } from '../util/diagnostics.js';
 import { consequenceOf, interactionOf } from '../finder/consequences.js';
@@ -15,7 +16,6 @@ const { redactText, looksRandomSecret } = require('../traffic/secrets.cjs');
 
 const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const CONFIDENCES = ['CERTAIN', 'FIRM', 'TENTATIVE'];
-const PER_CHECK = 25;
 const MAX_CODE = 400;
 // inventories worth listing even though they are informational: they are the map a reviewer needs
 const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'IPC_HANDLER_JS_CHECK', 'IPC_CHANNEL_MAP_GLOBAL_CHECK', 'RUNTIME_WINDOW_SUMMARY',
@@ -24,7 +24,8 @@ const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'IPC_HANDL
 const SAFE_PROPERTIES = ['channel', 'capabilities', 'issue', 'validatesArguments', 'argumentsUsed', 'source', 'operation', 'call', 'hygiene', 'gate', 'behavior',
   'library', 'purpose', 'process', 'launcher', 'locate', 'shell', 'flags', 'directives', 'partition', 'event', 'blocks', 'store', 'kind', 'settings', 'preload',
   'window', 'world', 'members', 'channels', 'senders', 'windows', 'passThrough', 'live', 'sink', 'marker', 'permission', 'default', 'fields', 'method', 'maps',
-  'inline', 'withSources', 'total', 'counts', 'kev', 'backported', 'name', 'version', 'advisory', 'chromium'];
+  'inline', 'withSources', 'total', 'counts', 'kev', 'backported', 'name', 'version', 'advisory', 'advisories', 'package', 'chromium',
+  'basis', 'unmatched', 'entryPoints', 'blocked', 'status', 'validationStatus'];
 
 // Replaces what a sanitizer from the diagnostics report doesn't: user folders, query strings, e-mail and IP addresses, secrets
 function extraRedaction(text) {
@@ -32,7 +33,7 @@ function extraRedaction(text) {
     .replace(/\b[A-Za-z]:\\Users\\[^\\\s"'<>]+/g, 'C:\\Users\\<user>')
     .replace(/\/(home|Users)\/[^/\s"'<>]+/g, '/$1/<user>')
     .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s'"<>?#]*)[?#][^\s'"<>)]*/gi, '$1')
-    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<email>')
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b/g, '<email>')
     .replace(/\b(?!127\.)(\d{1,3}\.){3}\d{1,3}\b/g, '<ip>');
 }
 
@@ -61,7 +62,29 @@ const rank = (list, value) => { const i = list.indexOf(value); return i === -1 ?
 export function buildShare(scan) {
   const terms = sensitiveTerms(scan.input, scan.redact || []);
   const sanitize = makeSanitizer(terms);
-  const clean = (text) => extraRedaction(sanitize(String(text ?? '')));
+  // URL hosts also occur as bare cookie domains and in prose. Give each the same stable alias.
+  const hosts = new Map();
+  const collect = (value, key = '') => {
+    if (typeof value === 'string') {
+      for (const match of value.matchAll(/\b[a-z][a-z0-9+.-]*:\/\/[^\s'"<>?#)]+/gi)) {
+        try { const host = new URL(match[0]).hostname; if (host) hosts.set(host.toLowerCase(), `host-${crypto.createHash('sha256').update(host).digest('hex').slice(0, 8)}`); } catch { /* incomplete URL */ }
+      }
+      if (/^(?:host|domain)$/i.test(key) && /^[\w.-]+\.[A-Za-z]{2,}$/.test(value)) {
+        const host = value.replace(/^\./, '').toLowerCase();
+        hosts.set(host, `host-${crypto.createHash('sha256').update(host).digest('hex').slice(0, 8)}`);
+      }
+    } else if (Array.isArray(value)) value.forEach(v => collect(v, key));
+    else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) collect(v, k);
+  };
+  for (const issue of scan.issues || []) { collect(issue.description); collect(issue.file); collect(issue.properties); }
+  const clean = (text) => {
+    let value = String(text ?? '');
+    for (const [host, alias] of [...hosts].sort((a, b) => b[0].length - a[0].length))
+      value = value.replace(new RegExp(`(^|[^\\w.-])(${host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?=$|[^\\w.-])`, 'gi'), (_all, before) => before + alias);
+    return extraRedaction(sanitize(value));
+  };
+  const cleanValue = value => typeof value === 'string' ? clean(value) : Array.isArray(value) ? value.map(cleanValue) :
+    value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cleanValue(item)])) : value;
   const root = scan.input ? path.resolve(scan.input) : undefined;
   const place = (file) => {
     if (!file || file === 'N/A') return 'application-wide';
@@ -75,8 +98,7 @@ export function buildShare(scan) {
     for (const key of SAFE_PROPERTIES) {
       if (props[key] === undefined || props[key] === null || props[key] === '') continue;
       let value = props[key];
-      if (Array.isArray(value)) value = value.slice(0, 20);
-      out[key] = JSON.parse(clean(JSON.stringify(value)));
+      out[key] = cleanValue(value);
     }
     return Object.keys(out).length ? out : undefined;
   };
@@ -90,6 +112,7 @@ export function buildShare(scan) {
       interaction: interactionOf(issue.id),
       needsReview: !!issue.manualReview,
       runtime: issue.validation ? issue.validation.status : undefined,
+      runtimeEvidence: issue.validation ? clean(issue.validation.text) : undefined,
       file: place(issue.file),
       line: issue.location && issue.location.line ? issue.location.line : undefined,
       description: clean(issue.description),
@@ -117,7 +140,7 @@ function markdown(report) {
   lines.push('# Electronegativity findings (redacted for sharing)', '', `> ${report.about}`, '');
   lines.push(`- Tool ${report.tool}; Electron ${report.electron}${report.bundled.chromium ? ` (Chromium ${report.bundled.chromium}${report.bundled.node ? `, Node.js ${report.bundled.node}` : ''})` : ''}; ${report.watchSession ? 'includes a watch session' : 'static scan only'}`);
   lines.push(`- ${counts.total} findings: ${SEVERITIES.filter(s => counts.bySeverity[s]).map(s => `${counts.bySeverity[s]} ${s.toLowerCase()}`).join(', ')}${counts.acceptedOrSuppressed ? `; ${counts.acceptedOrSuppressed} accepted/suppressed, not listed` : ''}`);
-  lines.push(`- By who can exploit them: ${Object.entries(counts.byExploitableBy).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`, '');
+  lines.push(`- Potential source of input (based on check type): ${Object.entries(counts.byExploitableBy).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`, '');
 
   const groups = new Map();
   for (const f of report.findings) {
@@ -132,6 +155,7 @@ function markdown(report) {
     const where = `${f.file}${f.line ? `:${f.line}` : ''}`;
     const tags = [f.runtime ? `runtime: ${f.runtime}` : undefined, f.needsReview ? 'needs review' : undefined].filter(Boolean);
     lines.push(`${n}. **${f.severity}/${f.confidence}** \`${where}\`${tags.length ? ` (${tags.join(', ')})` : ''}: ${f.description}`);
+    if (f.runtimeEvidence) lines.push(`   - runtime evidence: ${f.runtimeEvidence}`);
     if (f.properties) lines.push(`   - details: \`${JSON.stringify(f.properties)}\``);
     if (f.code) lines.push('   ```js', `   ${f.code}`, '   ```');
   };
@@ -142,15 +166,14 @@ function markdown(report) {
       const bySeverity = SEVERITIES.filter(s => items.some(f => f.severity === s)).map(s => `${items.filter(f => f.severity === s).length} ${s.toLowerCase()}`).join(', ');
       const first = items[0];
       lines.push(`### ${id} (${bySeverity})`, '');
-      if (first.exploitableBy) lines.push(`Exploitable by: ${first.exploitableBy}. Victim interaction: ${first.interaction || 'n/a'}.`, '');
-      items.slice(0, PER_CHECK).forEach((f, i) => entry(f, i + 1));
-      if (items.length > PER_CHECK) lines.push(`${PER_CHECK + 1}. …and ${items.length - PER_CHECK} more`);
+      if (first.exploitableBy) lines.push(`Potential input source: ${first.exploitableBy}. Possible interaction: ${first.interaction || 'n/a'}. These are check-level threat models, not verified exploit conditions.`, '');
+      items.forEach((f, i) => entry(f, i + 1));
       lines.push('');
     }
   };
   section('Findings, most severe first', actionable);
   section('Inventory (informational)', inventory);
-  if (other.length) lines.push('## Other informational findings', '', ...other.map(([id, items]) => `- ${id}: ${items.length}`), '');
+  section('Other informational findings', other);
   return lines.join('\n');
 }
 
