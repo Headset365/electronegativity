@@ -1,0 +1,312 @@
+{
+  "tool": "Electronegativity",
+  "version": "2.0.0",
+  "generatedAt": "2026-09-28T23:50:39.527Z",
+  "input": "/home/user/electronegativity/test/apps/hardened-app",
+  "app": {
+    "name": "hardened-app",
+    "version": "1.0.0"
+  },
+  "suppressedByBaseline": 0,
+  "suppressed": [],
+  "electronVersion": "38.2.0",
+  "filesScanned": 5,
+  "globalChecks": 17,
+  "atomicChecks": 96,
+  "errors": [],
+  "dependencies": {
+    "rows": [
+      {
+        "name": "electron",
+        "version": "38.2.0",
+        "kinds": [
+          "Electron runtime"
+        ],
+        "files": [],
+        "dev": false,
+        "direct": true,
+        "advisories": [],
+        "support": {
+          "status": "unknown",
+          "detail": "Not looked up (offline)",
+          "supported": []
+        }
+      }
+    ],
+    "errors": [],
+    "offline": true,
+    "intel": {
+      "checked": false,
+      "kev": 0,
+      "malicious": 0
+    }
+  },
+  "summary": {
+    "LOW": 4,
+    "INFORMATIONAL": 7
+  },
+  "scores": {
+    "risk": 6,
+    "external": 6
+  },
+  "issues": [
+    {
+      "fingerprint": "e3aee8cf6e1c7bddcd6341f5",
+      "id": "PERMISSION_REQUEST_HANDLER_JS_CHECK",
+      "severity": "LOW",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs",
+      "line": 32,
+      "column": 2,
+      "sample": "session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {",
+      "description": "Permission handler: setPermissionRequestHandler grants some permissions after checking the requesting origin; review the allowlist",
+      "exploitableBy": "Shared content",
+      "consequence": "Without a permission handler, any page (including one reached through a link in shared content) gets camera, microphone, notifications and other permissions automatically.",
+      "interaction": "Viewing the content is enough when it runs as script; a click when it is a link",
+      "howToValidate": "Automatic: a watch session records the permissions pages were granted.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#5-handle-session-permission-requests-from-remote-content",
+      "properties": {
+        "handler": "setPermissionRequestHandler",
+        "assessed": true
+      }
+    },
+    {
+      "fingerprint": "20bef1d793cb4eaa5f717555",
+      "id": "PERMISSION_REQUEST_HANDLER_JS_CHECK",
+      "severity": "LOW",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs",
+      "line": 35,
+      "column": 2,
+      "sample": "session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {",
+      "description": "Permission handler: setPermissionCheckHandler grants some permissions after checking the requesting origin; review the allowlist",
+      "exploitableBy": "Shared content",
+      "consequence": "Without a permission handler, any page (including one reached through a link in shared content) gets camera, microphone, notifications and other permissions automatically.",
+      "interaction": "Viewing the content is enough when it runs as script; a click when it is a link",
+      "howToValidate": "Automatic: a watch session records the permissions pages were granted.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#5-handle-session-permission-requests-from-remote-content",
+      "properties": {
+        "handler": "setPermissionCheckHandler",
+        "assessed": true
+      }
+    },
+    {
+      "fingerprint": "3d7f3d5ab2b9c929e63fb042",
+      "id": "CERTIFICATE_PINNING_GLOBAL_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "N/A",
+      "line": 0,
+      "column": 0,
+      "description": "No certificate pinning found (session.setCertificateVerifyProc); consider pinning the certificates of the backends the application trusts",
+      "exploitableBy": "Network",
+      "consequence": "Without certificate pinning, a certificate from any trusted authority (e.g. a corporate TLS proxy) can intercept the app's traffic.",
+      "interaction": "None: an attacker on the network path acts while the app talks to its servers",
+      "reference": "https://www.electronjs.org/docs/latest/api/session#sessetcertificateverifyprocproc"
+    },
+    {
+      "fingerprint": "c928edf3370abe9e38fb651d",
+      "id": "IPC_CHANNEL_MAP_GLOBAL_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "FIRM",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs",
+      "line": 40,
+      "column": 2,
+      "description": "IPC channel: 'get-version' handled at index.mjs:40, sent from index.mts",
+      "exploitableBy": "Information",
+      "consequence": "Which windows can reach each IPC channel, through which preload.",
+      "interaction": "Not applicable",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/ipc",
+      "properties": {
+        "channel": "get-version",
+        "handler": "index.mjs:40",
+        "senders": [
+          "/home/user/electronegativity/test/apps/hardened-app/src/preload/index.mts"
+        ],
+        "windows": [],
+        "passThrough": []
+      }
+    },
+    {
+      "fingerprint": "f1791bba6462faaad919a311",
+      "id": "ELECTRON_VERSION_JSON_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "CERTAIN",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/hardened-app/package.json",
+      "line": 1,
+      "column": 0,
+      "sample": "{",
+      "description": "Gets the electron version used by inspecting the package.json file.",
+      "exploitableBy": "Information",
+      "consequence": "The Electron version the findings are based on.",
+      "interaction": "Not applicable",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#16-use-a-current-version-of-electron",
+      "properties": {
+        "versionNumber": "38.2.0",
+        "versionSpec": "^38.2.0"
+      }
+    },
+    {
+      "fingerprint": "4a9b5534358f69a3a1e48db5",
+      "id": "EXPOSED_API_JS_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/hardened-app/src/preload/index.mts",
+      "line": 4,
+      "column": 0,
+      "sample": "contextBridge.exposeInMainWorld('app', {",
+      "description": "API exposed to web content: window.app (getVersion, onUpdateAvailable); uses ipc (get-version, update-available)",
+      "exploitableBy": "Information",
+      "consequence": "What the preload exposes to pages: everything an XSS in those pages could call.",
+      "interaction": "Not applicable",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#20-do-not-expose-electron-apis-to-untrusted-web-content",
+      "properties": {
+        "world": "app",
+        "members": [
+          "getVersion",
+          "onUpdateAvailable"
+        ],
+        "capabilities": {
+          "getVersion": [
+            "ipc"
+          ],
+          "onUpdateAvailable": [
+            "ipc"
+          ]
+        },
+        "channels": [
+          "get-version",
+          "update-available"
+        ]
+      }
+    },
+    {
+      "fingerprint": "ad39a4bb7c0ef2a790f8ebb8",
+      "id": "OPEN_EXTERNAL_JS_CHECK",
+      "severity": "LOW",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs",
+      "line": 20,
+      "column": 4,
+      "sample": "shell.openExternal(parsed.toString());",
+      "description": "Review the use of openExternal (the value is validated first; review the allowlist)",
+      "exploitableBy": "Shared content",
+      "consequence": "A URL is handed to the operating system: if page content controls it, a crafted link (file:, smb:, a custom protocol) in shared content can launch programs or leak credentials.",
+      "interaction": "A click on a crafted link",
+      "howToValidate": "Automatic: in a watch session, put the link https://example.invalid/<marker> in shared content and click it, then a file:/// link the tool suggests. The report shows whether content reaches openExternal and whether non-web schemes get through.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#15-do-not-use-shellopenexternal-with-untrusted-content"
+    },
+    {
+      "fingerprint": "90a18126295c352c38a654cf",
+      "id": "PROTOCOL_HANDLER_JS_CHECK",
+      "severity": "LOW",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs",
+      "line": 25,
+      "column": 2,
+      "sample": "protocol.handle('app', (request) => {",
+      "description": "Review the use of custom protocol handlers (the handler serves files and checks paths; review the containment check)",
+      "exploitableBy": "Shared content",
+      "consequence": "A custom protocol serves files: crafted URLs in content may read files outside the app (path traversal).",
+      "interaction": "Opening a crafted deep link",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#18-avoid-usage-of-the-file-protocol-and-prefer-usage-of-custom-protocols"
+    },
+    {
+      "fingerprint": "b6d6e78b49a619a4f70c186d",
+      "id": "IPC_HANDLER_JS_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs",
+      "line": 40,
+      "column": 2,
+      "sample": "ipcMain.handle('get-version', (event) => {",
+      "description": "IPC handler: 'get-version'",
+      "exploitableBy": "Raises impact",
+      "consequence": "What a page can make the main process do through this channel: script injected into a window that can reach it inherits these capabilities.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#17-validate-the-sender-of-all-ipc-messages",
+      "properties": {
+        "channel": "get-version",
+        "capabilities": [],
+        "argumentsUsed": false,
+        "validatesArguments": true
+      }
+    },
+    {
+      "fingerprint": "d31c9ef6679891a6fd86eecd",
+      "id": "PRELOAD_JS_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "CERTAIN",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs",
+      "line": 49,
+      "column": 22,
+      "sample": "webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.mjs') }",
+      "description": "Preload script with context isolation; what it exposes through contextBridge is analyzed by CONTEXT_BRIDGE_EXPOSURE_JS_CHECK",
+      "exploitableBy": "Information",
+      "consequence": "A preload script runs with extra privileges in each page: review what it exposes.",
+      "interaction": "Not applicable",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#20-do-not-expose-electron-apis-to-untrusted-web-content"
+    },
+    {
+      "fingerprint": "a00cf25d5c57f0a3be4ebdfc",
+      "id": "WINDOW_SUMMARY_JS_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs",
+      "line": 46,
+      "column": 14,
+      "sample": "const win = new BrowserWindow({",
+      "description": "Window security settings: BrowserWindow (nodeIntegration off (default), contextIsolation on (default), sandbox on (default), webSecurity on (default), preload index.mjs)",
+      "exploitableBy": "Information",
+      "consequence": "Each window's effective security settings.",
+      "interaction": "Not applicable",
+      "reference": "https://www.electronjs.org/docs/latest/api/structures/web-preferences",
+      "properties": {
+        "window": "BrowserWindow",
+        "settings": {
+          "nodeIntegration": {
+            "value": false,
+            "source": "default"
+          },
+          "contextIsolation": {
+            "value": true,
+            "source": "default"
+          },
+          "sandbox": {
+            "value": true,
+            "source": "default"
+          },
+          "webSecurity": {
+            "value": true,
+            "source": "default"
+          },
+          "nodeIntegrationInSubFrames": {
+            "value": false,
+            "source": "default"
+          },
+          "webviewTag": {
+            "value": false,
+            "source": "default"
+          },
+          "allowRunningInsecureContent": {
+            "value": false,
+            "source": "default"
+          }
+        },
+        "preload": "index.mjs",
+        "partition": "default"
+      }
+    }
+  ]
+}

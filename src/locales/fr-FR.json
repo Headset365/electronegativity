@@ -251,9 +251,9 @@
 	"shareOptionDescription": "écrire les résultats expurgés pour les partager (pour demander de l'aide sans fournir l'application) : noms, hôtes, dossiers utilisateur, paramètres de requête, adresses e-mail et IP, secrets et code sont retirés ; Markdown, ou JSON pour un fichier .json. Avec --app, un par étape dans le dossier de résultats. Relisez-le avant de l'envoyer",
 	"shareCodeOptionDescription": "inclure le code de chaque résultat dans le rapport --share, avec ses chaînes et commentaires masqués",
 	"shareWritten": "Résultats expurgés pour le partage écrits dans {{{file}}} : relisez-le avant de l'envoyer",
-	"reportDirOptionDescription": "écrire les rapports de cette exécution dans leur propre dossier nommé electronegativity-<date et heure UTC>, créé dans le dossier indiqué (par défaut : le dossier courant) : report.html, report.json, diagnostics.json et shareable-report.md/.json (résultats sans noms d'application, d'entreprise, d'utilisateur ni de machine, domaines, adresses ni secrets, prêts à être envoyés à un relecteur ou à un agent IA). Avec --app, le dossier de résultats porte ce nom",
+	"reportDirOptionDescription": "écrire les rapports de cette exécution dans leur propre dossier nommé electronegativity-<date et heure UTC>, créé dans le dossier indiqué. Chaque exécution le fait par défaut, dans le dossier d'où l'outil a été lancé : report.html, report.json, diagnostics.json et shareable-report.md/.json (résultats sans noms d'application, d'entreprise, d'utilisateur ni de machine, domaines, adresses ni secrets, prêts à être envoyés à un relecteur ou à un agent IA). Avec --app, le dossier de résultats porte ce nom",
+	"noReportDirOptionDescription": "ne pas créer le dossier de rapports electronegativity-<date et heure> (seules les sorties demandées sont écrites)",
 	"reportFolder": "Dossier de rapports : {{{dir}}}",
 	"reportDirFailed": "Impossible de créer le dossier de rapports dans {{{dir}}} ({{{reason}}}). Indiquez un dossier accessible en écriture : --report-dir <dossier>.",
-	"reportDirWithOut": "Utilisez soit --report-dir (un nouveau dossier nommé electronegativity-<date et heure>), soit --out (un dossier de votre choix), pas les deux.",
 	"shareAudit": "Contrôle d'anonymisation : {{{count}}} valeur(s) identifiante(s) manquée(s) par les étapes précédentes ont été remplacées dans le rapport à partager"
 }

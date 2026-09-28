@@ -57,6 +57,7 @@ async function main() {
     .option('--app <location>', __('appOptionDescription'))
     .option('--out <dir>', __('outOptionDescription'))
     .option('--report-dir [folder]', __('reportDirOptionDescription'))
+    .option('--no-report-dir', __('noReportDirOptionDescription'))
     .option('--sessions <count>', __('sessionsOptionDescription'))
     .option('--no-watch-capture', __('watchCaptureOptionDescription'))
     .option('--remote <url>', __('remoteOptionDescription'), (value, previous) => [...(previous || []), value])
@@ -106,20 +107,20 @@ async function main() {
     console.log(__('startScan'));
   }
 
-  // --report-dir: this run's own folder, electronegativity-<date and time>, made inside the given folder (default: here)
+  // Every run gets its own folder, electronegativity-<date and time>, made in the folder the tool was run from (or inside
+  // --report-dir <folder>). --no-report-dir turns it off; --out (--app) names the results folder instead.
   let reportFolder;
-  if (options.reportDir !== undefined) {
-    if (options.out) {
-      console.error(chalk.red(__('reportDirWithOut')));
-      process.exit(2);
-    }
-    const parent = options.reportDir === true ? '.' : options.reportDir;
+  const scanning = options.input || options.app || options.watch || options.watchLog || options.remote || options.ingest || options.userData || options.canary;
+  if (options.reportDir !== false && scanning && !options.out) {
+    const parent = typeof options.reportDir === 'string' ? options.reportDir : '.';
     try {
       reportFolder = createReportFolder(parent);
     } catch (error) {
       console.error(chalk.red(__('reportDirFailed', { dir: path.resolve(parent), reason: error.code || error.message })));
       process.exit(2);
     }
+    // a run that ends before writing anything (bad input, nothing to scan) leaves no empty folder behind
+    process.once('exit', () => { try { fs.rmdirSync(reportFolder); } catch { /* not empty, or already gone */ } });
     console.log(chalk.gray(__('reportFolder', { dir: reportFolder })));
     if (!options.app) {
       // what a scan writes there, unless asked for elsewhere: the report, the findings redacted for sharing, diagnostics
@@ -358,7 +359,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
     const diagnostics = path.join(outDir, `${name}-diag.json`);
     // --share: a redacted findings report per step, next to the others
     // (--report-dir: both Markdown and JSON)
-    const shareTypes = reportFolder ? ['.md', '.json'] : options.share ? [/\.json$/i.test(options.share) ? '.json' : '.md'] : [];
+    const shareTypes = options.share ? [/\.json$/i.test(options.share) ? '.json' : '.md'] : reportFolder || options.out ? ['.md', '.json'] : [];
     const shares = shareTypes.map(type => path.join(outDir, `${name}-share${type}`));
     const result = await run({ ...common, input: located.code, output, diagnostics, share: shares.length ? shares : undefined, ...extra }, false);
     written.push(output, diagnostics, ...shares);

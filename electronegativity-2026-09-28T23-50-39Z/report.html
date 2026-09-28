@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Electronegativity report</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --panel: #ffffff; --text: #1d1f23; --muted: #5d6470; --border: #dfe2e7; --code: #f1f3f5;
+    --high: #c62828; --medium: #d9730d; --low: #b58900; --info: #5d6470; --accent: #2f6fdb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15171b; --panel: #1d2026; --text: #e6e8eb; --muted: #9aa3ae; --border: #2e333b; --code: #262a31;
+      --high: #ef5350; --medium: #f0883e; --low: #d4b106; --info: #9aa3ae; --accent: #6ea2ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 28px 0 12px; }
+  .meta { color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 20px; margin-bottom: 20px; }
+  .meta b { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; border-top: 4px solid var(--border); cursor: pointer; text-align: left; color: inherit; font: inherit; }
+  .card .n { font-size: 26px; font-weight: 700; }
+  .card .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .card.sev-high { border-top-color: var(--high); } .card.sev-medium { border-top-color: var(--medium); }
+  .card.sev-low { border-top-color: var(--low); } .card.sev-informational { border-top-color: var(--info); }
+  .card[aria-pressed="false"] { opacity: .45; }
+  .checks { display: flex; flex-wrap: wrap; gap: 6px; }
+  .checks button { background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+  .checks button.active { border-color: var(--accent); color: var(--accent); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 16px 0 10px; }
+  .toolbar input[type=search], .toolbar select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font: inherit; }
+  .toolbar input[type=search] { flex: 1 1 260px; }
+  .count { color: var(--muted); }
+  .table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  .badge { display: inline-block; min-width: 64px; text-align: center; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: 700; color: #fff; }
+  .badge.sev-high { background: var(--high); } .badge.sev-medium { background: var(--medium); }
+  .badge.sev-low { background: var(--low); } .badge.sev-informational { background: var(--info); }
+  .check { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; font-size: 13px; word-break: break-word; }
+  .review { font-family: system-ui, sans-serif; font-size: 11px; font-weight: 600; color: var(--medium); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+  .desc { margin: 2px 0 6px; }
+  .sample { background: var(--code); border-radius: 6px; padding: 6px 8px; margin: 6px 0; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+  .sample { max-height: 480px; overflow-y: auto; }
+  details.code { margin: 4px 0; font-size: 12px; }
+  details.code summary { width: fit-content; }
+  .cut { color: var(--muted); font-size: 12px; }
+  .consequence { margin: 2px 0 6px; padding: 6px 8px; border-left: 3px solid var(--border); background: var(--code); border-radius: 0 6px 6px 0; font-size: 13px; }
+  .consequence .interaction { display: block; margin-top: 3px; color: var(--muted); }
+  .evidence { font-size: 12px; color: var(--muted); margin: 2px 0 6px; }
+  .route { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-right: 4px; border: 1px solid currentColor; white-space: nowrap; }
+  .route-content { color: var(--high); } .route-escalation { color: var(--medium); } .route-network { color: var(--accent); }
+  .route-local, .route-info, .route-other { color: var(--muted); } .route-dependency { color: var(--low); }
+  .route-server, .route-anyone { color: var(--high); } .route-supply { color: var(--medium); } .route-thirdparty { color: var(--medium); }
+  .linkish { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
+  .validation { margin: 2px 0 6px; font-size: 13px; padding: 4px 8px; border-radius: 6px; }
+  .validation b { margin-right: 4px; }
+  .v-confirmed { background: color-mix(in srgb, var(--high) 12%, transparent); } .v-confirmed b { color: var(--high); }
+  .v-observed { background: color-mix(in srgb, var(--medium) 12%, transparent); } .v-observed b { color: var(--medium); }
+  .v-safe { background: color-mix(in srgb, #2e7d32 12%, transparent); } .v-safe b { color: #2e7d32; }
+  details.howto { font-size: 12px; margin: 2px 0 6px; } details.howto div { margin-top: 4px; color: var(--muted); }
+  .groups { display: grid; gap: 8px; }
+  details.group { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+  details.group > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; color: var(--text); list-style-position: outside; }
+  details.group .gid { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+  details.group .gcount { color: var(--muted); font-size: 12px; }
+  details.group .gevidence { font-size: 12px; color: var(--muted); }
+  details.group dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 10px 0 4px; font-size: 13px; }
+  details.group dt { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; padding-top: 2px; }
+  details.group dd { margin: 0; }
+  details.group ul.where { margin: 0 0 4px; padding-left: 18px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+  .v-confirmed-t { color: var(--high); font-weight: 600; } .v-observed-t { color: var(--medium); } .v-safe-t { color: #2e7d32; }
+  button.filter-check.active { font-weight: 600; }
+  @media (max-width: 720px) { details.group dl { grid-template-columns: 1fr; } }
+  .loc .session { font-family: system-ui, sans-serif; font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .mono, .deps .pkg { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+  .nowrap { white-space: nowrap; font-size: 12px; }
+  .deps td { font-size: 13px; }
+  .deps .files { overflow-wrap: anywhere; max-width: 260px; }
+  .support { font-weight: 600; font-size: 12px; white-space: nowrap; }
+  .support-unsupported { color: var(--high); } .support-outdated { color: var(--medium); } .support-unknown { color: var(--muted); }
+  .support-supported, .support-current { color: #2e7d32; }
+  .adv { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 5px; white-space: nowrap; border: 1px solid currentColor; }
+  .adv-critical, .adv-high { color: var(--high); } .adv-medium { color: var(--medium); } .adv-low { color: var(--low); } .adv-unrated { color: var(--muted); }
+  .refs { font-size: 11px; margin-top: 2px; font-family: system-ui, sans-serif; } .refs a { color: var(--accent); }
+  .advlist { margin: 6px 0 0; padding-left: 18px; min-width: 280px; } .advlist li { margin-bottom: 4px; font-size: 12px; }
+  .depsummary { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 4px 0; color: var(--muted); } .depsummary b { color: var(--text); }
+  .loc { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; min-width: 180px; }
+  .pos { white-space: nowrap; }
+  details summary { cursor: pointer; color: var(--accent); }
+  .conf { font-size: 12px; color: var(--muted); }
+  a { color: var(--accent); }
+  .ref, .advisories { font-size: 12px; }
+  .empty { padding: 32px; text-align: center; color: var(--muted); }
+  .errors li { font-family: ui-monospace, monospace; font-size: 12px; margin-bottom: 4px; word-break: break-word; }
+  footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
+  @media (max-width: 720px) {
+    .table-wrap { background: none; border: 0; }
+    thead { display: none; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    tr.finding { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; padding: 4px 0; }
+    tr.finding[hidden], tr.dep[hidden] { display: none; }
+    td { border: 0; padding: 4px 12px; }
+    .loc { min-width: 0; }
+  }
+  .surface td.risk, .surface .risk { color: var(--high, #c62828); font-weight: 600; }
+  .surface td.unknown { color: var(--muted, #777); font-style: italic; }
+  .surface small { color: var(--muted, #777); }
+  .note { color: var(--muted, #777); font-size: 13px; margin: 0 0 8px; }
+  .table-wrap + .table-wrap, .table-wrap + .note { margin-top: 12px; }
+  @media print { .toolbar, .checks { display: none; } .card { cursor: default; } body { background: #fff; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Electronegativity report</h1>
+  <div class="meta">
+    <span>Target: <b>/home/user/electronegativity/test/apps/hardened-app</b></span>
+    <span>Electron: <b>38.2.0</b></span>
+    <span>Files scanned: <b>5</b></span>
+    <span>Checks: <b>96</b> atomic, <b>17</b> global</span>
+    <span>Generated: <b>2026-09-28T23:50:39.514Z</b></span>
+  </div>
+
+  <div class="cards" role="group" aria-label="Filter by severity">
+    <button type="button" class="card sev-high" data-sev="HIGH" aria-pressed="true"><div class="n">0</div><div class="l">high</div></button>
+    <button type="button" class="card sev-medium" data-sev="MEDIUM" aria-pressed="true"><div class="n">0</div><div class="l">medium</div></button>
+    <button type="button" class="card sev-low" data-sev="LOW" aria-pressed="true"><div class="n">4</div><div class="l">low</div></button>
+    <button type="button" class="card sev-informational" data-sev="INFORMATIONAL" aria-pressed="true"><div class="n">5</div><div class="l">Info</div></button>
+    <div class="card"><div class="n">7</div><div class="l">Need manual review</div></div>
+    <div class="card" title="Every distinct finding, weighted by severity and confidence, with diminishing returns"><div class="n">6</div><div class="l">Risk score</div></div>
+    <div class="card" title="Only what someone other than the user can exploit: shared content, anyone with the app, the network, other users through the server, third parties, the supply chain, known vulnerabilities"><div class="n">6</div><div class="l">External-only score</div></div>
+  </div>
+
+
+
+  <h2>Renderer attack surface</h2>
+  <p class="note">What script running in each window could reach if content the window renders were ever interpreted as code. Values come from the code, or from the defaults of the Electron version in use.</p>
+  <div class="table-wrap"><table class="surface">
+    <thead><tr><th>Window</th><th>Created at</th><th>nodeIntegration</th><th>contextIsolation</th><th>sandbox</th><th>webSecurity</th><th>Preload</th><th>Page script reaches</th></tr></thead>
+    <tbody>
+      <tr><td>BrowserWindow</td><td class="loc">/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs:46</td><td>off <small>default</small></td><td>on <small>default</small></td><td>on <small>default</small></td><td>on <small>default</small></td><td>index.mjs</td><td>exposed APIs only</td></tr>
+    </tbody>
+  </table></div>
+  <div class="table-wrap"><table class="surface">
+    <thead><tr><th>Exposed to pages as</th><th>Members</th><th>Defined at</th></tr></thead>
+    <tbody>
+      <tr><td>window.app</td><td><code>getVersion</code> <code>onUpdateAvailable</code></td><td class="loc">/home/user/electronegativity/test/apps/hardened-app/src/preload/index.mts:4</td></tr>
+    </tbody>
+  </table></div>
+  <h2>Findings by type (8)</h2>
+  <p class="note">Each type of finding once: what it is, what it implies and its impact, with where it was found. Open one for details; "Show these findings" filters the list below.</p>
+  <div class="groups">
+    <details class="group" data-route="content">
+      <summary><span class="badge sev-low">LOW</span>
+        <span class="gid">PERMISSION_REQUEST_HANDLER_JS_CHECK</span> <span class="gcount">×2</span>
+        <span class="route route-content">Shared content</span>
+        <span class="gevidence"><span>2 to review</span></span></summary>
+      <dl>
+        <dt>What it is</dt><dd>Permission handler</dd>
+        <dt>Implication</dt><dd>Without a permission handler, any page (including one reached through a link in shared content) gets camera, microphone, notifications and other permissions automatically.</dd>
+        <dt>Impact</dt><dd>Reachable without access to the device: another user can trigger it with content they save, share or link to.<br>Rated low: limited harm, or hard to reach.</dd>
+        <dt>How to validate</dt><dd>Automatic: a watch session records the permissions pages were granted.</dd>
+        <dt>Where</dt><dd><ul class="where"><li>/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs:32</li><li>/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs:35</li></ul>
+          <button type="button" class="linkish filter-check" data-check="PERMISSION_REQUEST_HANDLER_JS_CHECK">Show these 2 findings below</button></dd>
+      </dl>
+    </details>
+    <details class="group" data-route="content">
+      <summary><span class="badge sev-low">LOW</span>
+        <span class="gid">OPEN_EXTERNAL_JS_CHECK</span> <span class="gcount">×1</span>
+        <span class="route route-content">Shared content</span>
+        <span class="gevidence"><span>1 to review</span></span></summary>
+      <dl>
+        <dt>What it is</dt><dd>Review the use of openExternal</dd>
+        <dt>Implication</dt><dd>A URL is handed to the operating system: if page content controls it, a crafted link (file:, smb:, a custom protocol) in shared content can launch programs or leak credentials.</dd>
+        <dt>Impact</dt><dd>Reachable without access to the device: another user can trigger it with content they save, share or link to.<br>Worst case: One click on a crafted link in shared content makes Windows open whatever it points to: a program, a file share (leaking the user&#39;s Windows credentials), or another app&#39;s protocol handler.<br>Rated low: limited harm, or hard to reach.</dd>
+        <dt>How to validate</dt><dd>Automatic: in a watch session, put the link https://example.invalid/&lt;marker&gt; in shared content and click it, then a file:/// link the tool suggests. The report shows whether content reaches openExternal and whether non-web schemes get through.</dd>
+        <dt>Where</dt><dd><ul class="where"><li>/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs:20</li></ul>
+          <button type="button" class="linkish filter-check" data-check="OPEN_EXTERNAL_JS_CHECK">Show these 1 finding below</button></dd>
+      </dl>
+    </details>
+    <details class="group" data-route="content">
+      <summary><span class="badge sev-low">LOW</span>
+        <span class="gid">PROTOCOL_HANDLER_JS_CHECK</span> <span class="gcount">×1</span>
+        <span class="route route-content">Shared content</span>
+        <span class="gevidence"><span>1 to review</span></span></summary>
+      <dl>
+        <dt>What it is</dt><dd>Review the use of custom protocol handlers</dd>
+        <dt>Implication</dt><dd>A custom protocol serves files: crafted URLs in content may read files outside the app (path traversal).</dd>
+        <dt>Impact</dt><dd>Reachable without access to the device: another user can trigger it with content they save, share or link to.<br>Rated low: limited harm, or hard to reach.</dd>
+        
+        <dt>Where</dt><dd><ul class="where"><li>/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs:25</li></ul>
+          <button type="button" class="linkish filter-check" data-check="PROTOCOL_HANDLER_JS_CHECK">Show these 1 finding below</button></dd>
+      </dl>
+    </details>
+    <details class="group" data-route="escalation">
+      <summary><span class="badge sev-informational">INFO</span>
+        <span class="gid">IPC_HANDLER_JS_CHECK</span> <span class="gcount">×1</span>
+        <span class="route route-escalation">Raises impact</span>
+        </summary>
+      <dl>
+        <dt>What it is</dt><dd>IPC handler</dd>
+        <dt>Implication</dt><dd>What a page can make the main process do through this channel: script injected into a window that can reach it inherits these capabilities.</dd>
+        <dt>Impact</dt><dd>Not an entry point on its own: it decides how far injected content gets (from the page to the preload, Node.js or the operating system), so it raises the impact of every content finding.<br>Informational.</dd>
+        
+        <dt>Where</dt><dd><ul class="where"><li>/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs:40</li></ul>
+          <button type="button" class="linkish filter-check" data-check="IPC_HANDLER_JS_CHECK">Show these 1 finding below</button></dd>
+      </dl>
+    </details>
+    <details class="group" data-route="network">
+      <summary><span class="badge sev-informational">INFO</span>
+        <span class="gid">CERTIFICATE_PINNING_GLOBAL_CHECK</span> <span class="gcount">×1</span>
+        <span class="route route-network">Network</span>
+        <span class="gevidence"><span>1 to review</span></span></summary>
+      <dl>
+        <dt>What it is</dt><dd>No certificate pinning found (session.setCertificateVerifyProc); consider pinning the certificates of the backends the application trusts</dd>
+        <dt>Implication</dt><dd>Without certificate pinning, a certificate from any trusted authority (e.g. a corporate TLS proxy) can intercept the app&#39;s traffic.</dd>
+        <dt>Impact</dt><dd>Needs a position on the network path (Wi-Fi, a proxy, a compromised server or CDN).<br>Informational.</dd>
+        
+        <dt>Where</dt><dd><ul class="where"><li>Application-wide</li></ul>
+          <button type="button" class="linkish filter-check" data-check="CERTIFICATE_PINNING_GLOBAL_CHECK">Show these 1 finding below</button></dd>
+      </dl>
+    </details>
+    <details class="group" data-route="info">
+      <summary><span class="badge sev-informational">INFO</span>
+        <span class="gid">ELECTRON_VERSION_JSON_CHECK</span> <span class="gcount">×1</span>
+        <span class="route route-info">Information</span>
+        <span class="gevidence"><span>1 to review</span></span></summary>
+      <dl>
+        <dt>What it is</dt><dd>Gets the electron version used by inspecting the package.json file.</dd>
+        <dt>Implication</dt><dd>The Electron version the findings are based on.</dd>
+        <dt>Impact</dt><dd>Inventory and coverage: nothing to fix on its own.<br>Informational.</dd>
+        
+        <dt>Where</dt><dd><ul class="where"><li>/home/user/electronegativity/test/apps/hardened-app/package.json:1</li></ul>
+          <button type="button" class="linkish filter-check" data-check="ELECTRON_VERSION_JSON_CHECK">Show these 1 finding below</button></dd>
+      </dl>
+    </details>
+    <details class="group" data-route="info">
+      <summary><span class="badge sev-informational">INFO</span>
+        <span class="gid">IPC_CHANNEL_MAP_GLOBAL_CHECK</span> <span class="gcount">×1</span>
+        <span class="route route-info">Information</span>
+        </summary>
+      <dl>
+        <dt>What it is</dt><dd>IPC channel</dd>
+        <dt>Implication</dt><dd>Which windows can reach each IPC channel, through which preload.</dd>
+        <dt>Impact</dt><dd>Inventory and coverage: nothing to fix on its own.<br>Informational.</dd>
+        
+        <dt>Where</dt><dd><ul class="where"><li>/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs:40</li></ul>
+          <button type="button" class="linkish filter-check" data-check="IPC_CHANNEL_MAP_GLOBAL_CHECK">Show these 1 finding below</button></dd>
+      </dl>
+    </details>
+    <details class="group" data-route="info">
+      <summary><span class="badge sev-informational">INFO</span>
+        <span class="gid">PRELOAD_JS_CHECK</span> <span class="gcount">×1</span>
+        <span class="route route-info">Information</span>
+        <span class="gevidence"><span>1 to review</span></span></summary>
+      <dl>
+        <dt>What it is</dt><dd>Review the use of preload scripts</dd>
+        <dt>Implication</dt><dd>A preload script runs with extra privileges in each page: review what it exposes.</dd>
+        <dt>Impact</dt><dd>Inventory and coverage: nothing to fix on its own.<br>Informational.</dd>
+        
+        <dt>Where</dt><dd><ul class="where"><li>/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs:49</li></ul>
+          <button type="button" class="linkish filter-check" data-check="PRELOAD_JS_CHECK">Show these 1 finding below</button></dd>
+      </dl>
+    </details>
+  </div>
+
+  <h2 id="findings">Findings</h2>
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Filter by check, file, description or code" aria-label="Filter findings">
+    <label>Confidence <select id="confidence">
+      <option value="0">Any</option><option value="2">CERTAIN</option><option value="1">FIRM or higher</option>
+    </select></label>
+    <label>Exploitable by <select id="route">
+      <option value="">Anyone</option><option value="content">Shared content (4)</option><option value="escalation">Raises impact (1)</option><option value="network">Network (1)</option><option value="info">Information (3)</option>
+    </select></label>
+    <label>Validation <select id="validation">
+      <option value="">Any</option><option value="confirmed">Confirmed at runtime</option><option value="observed">Seen at runtime</option><option value="safe">Ruled out at runtime</option><option value="open">Needs review, not validated</option>
+    </select></label>
+    <label><input type="checkbox" id="manual"> Manual review only</label>
+    <button type="button" id="expand" class="linkish">Expand all code</button>
+    <span class="count" id="count"></span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Severity</th><th>Finding</th><th>Location</th><th>Confidence</th></tr></thead>
+      <tbody>
+      <tr class="finding" data-severity="LOW" data-confidence="FIRM" data-check="OPEN_EXTERNAL_JS_CHECK" data-manual="1" data-route="content" data-validation="open" data-new="0" data-text="open_external_js_check /home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs review the use of openexternal (the value is validated first; review the allowlist) shell.openexternal(parsed.tostring()); a url is handed to the operating system: if page content controls it, a crafted link (file:, smb:, a custom protocol) in shared content can launch programs or leak credentials." data-index="0">
+        <td><span class="badge sev-low">LOW</span></td>
+        <td>
+          <div class="check">OPEN_EXTERNAL_JS_CHECK <span class="review" title="Requires manual review">review</span></div>
+          <div class="desc">Review the use of openExternal (the value is validated first; review the allowlist)</div>
+          <div class="consequence"><span class="route route-content" title="Who can exploit it">Shared content</span> A URL is handed to the operating system: if page content controls it, a crafted link (file:, smb:, a custom protocol) in shared content can launch programs or leak credentials. <span class="interaction">Victim interaction: A click on a crafted link.</span></div>
+          
+          <details class="howto"><summary>How to validate</summary><div>Automatic: in a watch session, put the link https://example.invalid/&lt;marker&gt; in shared content and click it, then a file:/// link the tool suggests. The report shows whether content reaches openExternal and whether non-web schemes get through.</div></details>
+          
+          <details class="code"><summary>Code (38 characters)</summary><pre class="sample"><code>shell.openExternal(parsed.toString());</code></pre></details>
+          
+          <a class="ref" href="https://www.electronjs.org/docs/latest/tutorial/security#15-do-not-use-shellopenexternal-with-untrusted-content" target="_blank" rel="noopener noreferrer">Reference</a>
+        </td>
+        <td class="loc">/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs<span class="pos">:20:4</span></td>
+        <td><span class="conf">FIRM</span></td>
+      </tr>
+      <tr class="finding" data-severity="LOW" data-confidence="FIRM" data-check="PERMISSION_REQUEST_HANDLER_JS_CHECK" data-manual="1" data-route="content" data-validation="open" data-new="0" data-text="permission_request_handler_js_check /home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs permission handler: setpermissionrequesthandler grants some permissions after checking the requesting origin; review the allowlist session.defaultsession.setpermissionrequesthandler((webcontents, permission, callback) =&gt; { without a permission handler, any page (including one reached through a link in shared content) gets camera, microphone, notifications and other permissions automatically." data-index="1">
+        <td><span class="badge sev-low">LOW</span></td>
+        <td>
+          <div class="check">PERMISSION_REQUEST_HANDLER_JS_CHECK <span class="review" title="Requires manual review">review</span></div>
+          <div class="desc">Permission handler: setPermissionRequestHandler grants some permissions after checking the requesting origin; review the allowlist</div>
+          <div class="consequence"><span class="route route-content" title="Who can exploit it">Shared content</span> Without a permission handler, any page (including one reached through a link in shared content) gets camera, microphone, notifications and other permissions automatically. <span class="interaction">Victim interaction: Viewing the content is enough when it runs as script; a click when it is a link.</span></div>
+          
+          <details class="howto"><summary>How to validate</summary><div>Automatic: a watch session records the permissions pages were granted.</div></details>
+          
+          <details class="code"><summary>Code (91 characters)</summary><pre class="sample"><code>session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) =&gt; {</code></pre></details>
+          
+          <a class="ref" href="https://www.electronjs.org/docs/latest/tutorial/security#5-handle-session-permission-requests-from-remote-content" target="_blank" rel="noopener noreferrer">Reference</a>
+        </td>
+        <td class="loc">/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs<span class="pos">:32:2</span></td>
+        <td><span class="conf">FIRM</span></td>
+      </tr>
+      <tr class="finding" data-severity="LOW" data-confidence="FIRM" data-check="PERMISSION_REQUEST_HANDLER_JS_CHECK" data-manual="1" data-route="content" data-validation="open" data-new="0" data-text="permission_request_handler_js_check /home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs permission handler: setpermissioncheckhandler grants some permissions after checking the requesting origin; review the allowlist session.defaultsession.setpermissioncheckhandler((webcontents, permission, requestingorigin) =&gt; { without a permission handler, any page (including one reached through a link in shared content) gets camera, microphone, notifications and other permissions automatically." data-index="2">
+        <td><span class="badge sev-low">LOW</span></td>
+        <td>
+          <div class="check">PERMISSION_REQUEST_HANDLER_JS_CHECK <span class="review" title="Requires manual review">review</span></div>
+          <div class="desc">Permission handler: setPermissionCheckHandler grants some permissions after checking the requesting origin; review the allowlist</div>
+          <div class="consequence"><span class="route route-content" title="Who can exploit it">Shared content</span> Without a permission handler, any page (including one reached through a link in shared content) gets camera, microphone, notifications and other permissions automatically. <span class="interaction">Victim interaction: Viewing the content is enough when it runs as script; a click when it is a link.</span></div>
+          
+          <details class="howto"><summary>How to validate</summary><div>Automatic: a watch session records the permissions pages were granted.</div></details>
+          
+          <details class="code"><summary>Code (97 characters)</summary><pre class="sample"><code>session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) =&gt; {</code></pre></details>
+          
+          <a class="ref" href="https://www.electronjs.org/docs/latest/tutorial/security#5-handle-session-permission-requests-from-remote-content" target="_blank" rel="noopener noreferrer">Reference</a>
+        </td>
+        <td class="loc">/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs<span class="pos">:35:2</span></td>
+        <td><span class="conf">FIRM</span></td>
+      </tr>
+      <tr class="finding" data-severity="LOW" data-confidence="FIRM" data-check="PROTOCOL_HANDLER_JS_CHECK" data-manual="1" data-route="content" data-validation="open" data-new="0" data-text="protocol_handler_js_check /home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs review the use of custom protocol handlers (the handler serves files and checks paths; review the containment check) protocol.handle(&#39;app&#39;, (request) =&gt; { a custom protocol serves files: crafted urls in content may read files outside the app (path traversal)." data-index="3">
+        <td><span class="badge sev-low">LOW</span></td>
+        <td>
+          <div class="check">PROTOCOL_HANDLER_JS_CHECK <span class="review" title="Requires manual review">review</span></div>
+          <div class="desc">Review the use of custom protocol handlers (the handler serves files and checks paths; review the containment check)</div>
+          <div class="consequence"><span class="route route-content" title="Who can exploit it">Shared content</span> A custom protocol serves files: crafted URLs in content may read files outside the app (path traversal). <span class="interaction">Victim interaction: Opening a crafted deep link.</span></div>
+          
+          
+          
+          <details class="code"><summary>Code (37 characters)</summary><pre class="sample"><code>protocol.handle(&#39;app&#39;, (request) =&gt; {</code></pre></details>
+          
+          <a class="ref" href="https://www.electronjs.org/docs/latest/tutorial/security#18-avoid-usage-of-the-file-protocol-and-prefer-usage-of-custom-protocols" target="_blank" rel="noopener noreferrer">Reference</a>
+        </td>
+        <td class="loc">/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs<span class="pos">:25:2</span></td>
+        <td><span class="conf">FIRM</span></td>
+      </tr>
+      <tr class="finding" data-severity="INFORMATIONAL" data-confidence="CERTAIN" data-check="ELECTRON_VERSION_JSON_CHECK" data-manual="1" data-route="info" data-validation="open" data-new="0" data-text="electron_version_json_check /home/user/electronegativity/test/apps/hardened-app/package.json gets the electron version used by inspecting the package.json file. { the electron version the findings are based on." data-index="4">
+        <td><span class="badge sev-informational">INFO</span></td>
+        <td>
+          <div class="check">ELECTRON_VERSION_JSON_CHECK <span class="review" title="Requires manual review">review</span></div>
+          <div class="desc">Gets the electron version used by inspecting the package.json file.</div>
+          <div class="consequence"><span class="route route-info" title="Who can exploit it">Information</span> The Electron version the findings are based on.</div>
+          
+          
+          
+          <details class="code"><summary>Code (1 characters)</summary><pre class="sample"><code>{</code></pre></details>
+          
+          <a class="ref" href="https://www.electronjs.org/docs/latest/tutorial/security#16-use-a-current-version-of-electron" target="_blank" rel="noopener noreferrer">Reference</a>
+        </td>
+        <td class="loc">/home/user/electronegativity/test/apps/hardened-app/package.json<span class="pos">:1:0</span></td>
+        <td><span class="conf">CERTAIN</span></td>
+      </tr>
+      <tr class="finding" data-severity="INFORMATIONAL" data-confidence="CERTAIN" data-check="IPC_HANDLER_JS_CHECK" data-manual="0" data-route="escalation" data-validation="none" data-new="0" data-text="ipc_handler_js_check /home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs ipc handler: &#39;get-version&#39; ipcmain.handle(&#39;get-version&#39;, (event) =&gt; { what a page can make the main process do through this channel: script injected into a window that can reach it inherits these capabilities." data-index="5">
+        <td><span class="badge sev-informational">INFO</span></td>
+        <td>
+          <div class="check">IPC_HANDLER_JS_CHECK</div>
+          <div class="desc">IPC handler: &#39;get-version&#39;</div>
+          <div class="consequence"><span class="route route-escalation" title="Who can exploit it">Raises impact</span> What a page can make the main process do through this channel: script injected into a window that can reach it inherits these capabilities. <span class="interaction">Victim interaction: None of its own: it decides how far content that is already injected gets.</span></div>
+          
+          
+          
+          <details class="code"><summary>Code (42 characters)</summary><pre class="sample"><code>ipcMain.handle(&#39;get-version&#39;, (event) =&gt; {</code></pre></details>
+          
+          <a class="ref" href="https://www.electronjs.org/docs/latest/tutorial/security#17-validate-the-sender-of-all-ipc-messages" target="_blank" rel="noopener noreferrer">Reference</a>
+        </td>
+        <td class="loc">/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs<span class="pos">:40:2</span></td>
+        <td><span class="conf">CERTAIN</span></td>
+      </tr>
+      <tr class="finding" data-severity="INFORMATIONAL" data-confidence="CERTAIN" data-check="PRELOAD_JS_CHECK" data-manual="1" data-route="info" data-validation="open" data-new="0" data-text="preload_js_check /home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs preload script with context isolation; what it exposes through contextbridge is analyzed by context_bridge_exposure_js_check webpreferences: { preload: path.join(import.meta.dirname, &#39;../preload/index.mjs&#39;) } a preload script runs with extra privileges in each page: review what it exposes." data-index="6">
+        <td><span class="badge sev-informational">INFO</span></td>
+        <td>
+          <div class="check">PRELOAD_JS_CHECK <span class="review" title="Requires manual review">review</span></div>
+          <div class="desc">Preload script with context isolation; what it exposes through contextBridge is analyzed by CONTEXT_BRIDGE_EXPOSURE_JS_CHECK</div>
+          <div class="consequence"><span class="route route-info" title="Who can exploit it">Information</span> A preload script runs with extra privileges in each page: review what it exposes.</div>
+          
+          
+          
+          <details class="code"><summary>Code (83 characters)</summary><pre class="sample"><code>webPreferences: { preload: path.join(import.meta.dirname, &#39;../preload/index.mjs&#39;) }</code></pre></details>
+          
+          <a class="ref" href="https://www.electronjs.org/docs/latest/tutorial/security#20-do-not-expose-electron-apis-to-untrusted-web-content" target="_blank" rel="noopener noreferrer">Reference</a>
+        </td>
+        <td class="loc">/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs<span class="pos">:49:22</span></td>
+        <td><span class="conf">CERTAIN</span></td>
+      </tr>
+      <tr class="finding" data-severity="INFORMATIONAL" data-confidence="FIRM" data-check="CERTIFICATE_PINNING_GLOBAL_CHECK" data-manual="1" data-route="network" data-validation="open" data-new="0" data-text="certificate_pinning_global_check n/a no certificate pinning found (session.setcertificateverifyproc); consider pinning the certificates of the backends the application trusts  without certificate pinning, a certificate from any trusted authority (e.g. a corporate tls proxy) can intercept the app&#39;s traffic." data-index="7">
+        <td><span class="badge sev-informational">INFO</span></td>
+        <td>
+          <div class="check">CERTIFICATE_PINNING_GLOBAL_CHECK <span class="review" title="Requires manual review">review</span></div>
+          <div class="desc">No certificate pinning found (session.setCertificateVerifyProc); consider pinning the certificates of the backends the application trusts</div>
+          <div class="consequence"><span class="route route-network" title="Who can exploit it">Network</span> Without certificate pinning, a certificate from any trusted authority (e.g. a corporate TLS proxy) can intercept the app&#39;s traffic. <span class="interaction">Victim interaction: None: an attacker on the network path acts while the app talks to its servers.</span></div>
+          
+          
+          
+          
+          
+          <a class="ref" href="https://www.electronjs.org/docs/latest/api/session#sessetcertificateverifyprocproc" target="_blank" rel="noopener noreferrer">Reference</a>
+        </td>
+        <td class="loc">Application-wide<span class="pos"></span></td>
+        <td><span class="conf">FIRM</span></td>
+      </tr>
+      <tr class="finding" data-severity="INFORMATIONAL" data-confidence="FIRM" data-check="IPC_CHANNEL_MAP_GLOBAL_CHECK" data-manual="0" data-route="info" data-validation="none" data-new="0" data-text="ipc_channel_map_global_check /home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs ipc channel: &#39;get-version&#39; handled at index.mjs:40, sent from index.mts  which windows can reach each ipc channel, through which preload." data-index="8">
+        <td><span class="badge sev-informational">INFO</span></td>
+        <td>
+          <div class="check">IPC_CHANNEL_MAP_GLOBAL_CHECK</div>
+          <div class="desc">IPC channel: &#39;get-version&#39; handled at index.mjs:40, sent from index.mts</div>
+          <div class="consequence"><span class="route route-info" title="Who can exploit it">Information</span> Which windows can reach each IPC channel, through which preload.</div>
+          
+          
+          
+          
+          
+          <a class="ref" href="https://www.electronjs.org/docs/latest/tutorial/ipc" target="_blank" rel="noopener noreferrer">Reference</a>
+        </td>
+        <td class="loc">/home/user/electronegativity/test/apps/hardened-app/src/main/index.mjs<span class="pos">:40:2</span></td>
+        <td><span class="conf">FIRM</span></td>
+      </tr>
+      </tbody>
+    </table>
+    <div class="empty" id="empty" hidden>No findings match the current filters.</div>
+  </div>
+
+
+  <h2 id="dependencies">Dependencies (1)</h2>
+  <p class="note">Every package and library found: npm packages (lockfile or node_modules), library copies and bundles recognized by their banners, and the Electron runtime. Release dates and versions come from the npm registry, support windows from <a href="https://endoflife.date" target="_blank" rel="noopener noreferrer">endoflife.date</a> where the project publishes one, and advisories from <a href="https://osv.dev" target="_blank" rel="noopener noreferrer">OSV</a>. <b>Scanned with --offline: nothing was looked up.</b></p>
+  <div class="depsummary"><span><b>0</b> with known vulnerabilities</span><span><b>0</b> unsupported</span><span><b>0</b> not on the latest version</span></div>
+  <div class="toolbar">
+    <input type="search" id="depsearch" placeholder="Filter by package, version or file" aria-label="Filter dependencies">
+    <label><input type="checkbox" id="depissues"> Only vulnerable, unsupported or older major</label>
+    <span class="count" id="depcount"></span>
+  </div>
+  <div class="table-wrap">
+    <table class="deps">
+      <thead><tr><th>Package</th><th>Version found</th><th>Released</th><th>Latest</th><th>Latest released</th><th>Behind</th><th>Support</th><th>Supported versions</th><th>Known vulnerabilities</th></tr></thead>
+      <tbody>
+      <tr class="dep" data-issue="0" data-text="electron 38.2.0 electron runtime ">
+        <td><a class="pkg" href="https://www.npmjs.com/package/electron" target="_blank" rel="noopener noreferrer">electron</a><div class="muted">Electron runtime · direct</div></td>
+        <td class="mono">38.2.0</td>
+        <td class="nowrap">?</td>
+        <td class="mono">?</td>
+        <td class="nowrap">?</td>
+        <td><span class="muted">?</span></td>
+        <td><span class="support support-unknown">Unknown</span><div class="muted">Not looked up (offline)</div></td>
+        <td><span class="muted">?</span></td>
+        <td><span class="muted">none known</span></td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>Generated by Electronegativity 2.0.0. Findings marked "review" need a manual assessment; absence of findings does not prove the absence of vulnerabilities.</footer>
+</main>
+<script>
+(() => {
+  const confidenceValue = { CERTAIN: 2, FIRM: 1, TENTATIVE: 0 };
+  const rows = [...document.querySelectorAll('tr.finding')];
+  const cards = [...document.querySelectorAll('.card[data-sev]')];
+  const checkButtons = [...document.querySelectorAll('button.filter-check')];
+  const search = document.getElementById('search');
+  const confidence = document.getElementById('confidence');
+  const manual = document.getElementById('manual');
+  const route = document.getElementById('route');
+  const validation = document.getElementById('validation');
+  const expand = document.getElementById('expand');
+  const onlyNew = document.getElementById('onlynew');
+  let activeCheck = null;
+
+  function apply() {
+    const severities = new Set(cards.filter(c => c.getAttribute('aria-pressed') === 'true').map(c => c.dataset.sev));
+    const q = search.value.trim().toLowerCase();
+    const minConfidence = Number(confidence.value);
+    let visible = 0;
+    for (const row of rows) {
+      const show = severities.has(row.dataset.severity) &&
+        confidenceValue[row.dataset.confidence] >= minConfidence &&
+        (!manual.checked || row.dataset.manual === '1') &&
+        (!route.value || row.dataset.route === route.value) &&
+        (!validation.value || row.dataset.validation === validation.value) &&
+        (!onlyNew || !onlyNew.checked || row.dataset.new === '1') &&
+        (!activeCheck || row.dataset.check === activeCheck) &&
+        (!q || row.dataset.text.includes(q));
+      row.hidden = !show;
+      if (show) visible++;
+    }
+    document.getElementById('count').textContent = visible + ' of ' + rows.length + ' findings';
+    if (rows.length) document.getElementById('empty').hidden = visible > 0;
+  }
+
+  cards.forEach(card => card.addEventListener('click', () => {
+    card.setAttribute('aria-pressed', card.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+    apply();
+  }));
+  checkButtons.forEach(button => button.addEventListener('click', () => {
+    activeCheck = activeCheck === button.dataset.check ? null : button.dataset.check;
+    checkButtons.forEach(b => {
+      const active = b.dataset.check === activeCheck;
+      if (!b.dataset.label) b.dataset.label = b.textContent;
+      b.classList.toggle('active', active);
+      b.textContent = active ? 'Showing only these below (click to show all)' : b.dataset.label;
+    });
+    apply();
+    if (activeCheck) document.getElementById('findings').scrollIntoView({ behavior: 'smooth' });
+  }));
+  [search, confidence, manual, route, validation, onlyNew].filter(Boolean).forEach(el => el.addEventListener('input', apply));
+  const depRows = [...document.querySelectorAll('tr.dep')];
+  const depSearch = document.getElementById('depsearch');
+  const depIssues = document.getElementById('depissues');
+  function applyDeps() {
+    const q = depSearch.value.trim().toLowerCase();
+    let visible = 0;
+    for (const row of depRows) {
+      row.hidden = !((!depIssues.checked || row.dataset.issue === '1') && (!q || row.dataset.text.includes(q)));
+      if (!row.hidden) visible++;
+    }
+    document.getElementById('depcount').textContent = visible + ' of ' + depRows.length + ' packages';
+  }
+  if (depSearch) {
+    [depSearch, depIssues].forEach(el => el.addEventListener('input', applyDeps));
+    applyDeps();
+  }
+  expand.addEventListener('click', () => {
+    const open = expand.textContent.startsWith('Expand');
+    document.querySelectorAll('tr.finding:not([hidden]) details.code').forEach(d => { d.open = open; });
+    expand.textContent = open ? 'Collapse all code' : 'Expand all code';
+  });
+  apply();
+})();
+</script>
+</body>
+</html>

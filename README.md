@@ -163,7 +163,8 @@ $ electronegativity -h
 | -i, --input  | input (directory, .js, .html, .asar, an installed app's folder or executable, or an installer or package: NSIS or Squirrel `.exe`, `.7z`, `.zip`, `.nupkg`) |
 | --app <location> | guided run: find the app in this install folder (or its executable), scan it, then walk through watch sessions, writing every report to one results folder |
 | --out <dir> | results folder for `--app` (default `electronegativity-results-<date>`) |
-| --report-dir [folder] | put this run's reports in a new folder named `electronegativity-<UTC date and time>`, made inside `folder` (default: the current folder), see [Report folder](#report-folder) |
+| --report-dir [folder] | every run already puts its reports in a new folder named `electronegativity-<UTC date and time>`, made in the folder you ran the tool from; give a folder to make it there instead, see [Report folder](#report-folder) |
+| --no-report-dir | don't create that folder; write only the outputs you ask for |
 | --sessions <count> | number of watch sessions `--app` runs without asking (`0` for the static scan only) |
 | -l, --checks | only run the specified checks, passed in csv format |
 | -x, --exclude-checks <excludedCheckNames> | skip the specified checks list, passed in csv format |
@@ -356,14 +357,14 @@ Removed: the app, product, author and publisher names from `package.json` and th
 
 ### Report folder
 
-`--report-dir` gives each run its own folder, so runs never overwrite each other and everything for a run is in one place:
+Every run gets its own folder, made in the folder you ran the tool from, so runs never overwrite each other and everything for a run is in one place. `--report-dir <folder>` makes it inside another folder instead; `--no-report-dir` turns it off:
 
 ```
-$ electronegativity -i ./my-app --report-dir ./reports --redact "Acme,acme.internal"
-Report folder: /home/me/reports/electronegativity-2026-09-28T14-30-05Z
+$ electronegativity -i ./my-app --redact "Acme,acme.internal"
+Report folder: /home/me/electronegativity-2026-09-28T14-30-05Z
 ```
 
-The folder (created inside the folder you give, made if missing; without a value, inside the current folder) holds:
+The folder (inside the folder you give, made if missing) holds:
 
 | File | Content |
 |---|---|
@@ -371,7 +372,7 @@ The folder (created inside the folder you give, made if missing; without a value
 | `shareable-report.md`, `shareable-report.json` | the findings with client information removed, to send to a reviewer or an AI agent, see [Sharing findings](#sharing-findings) |
 | `diagnostics.json` | sanitized troubleshooting information |
 
-Add `-o` or `--diagnostics` to write those files elsewhere as well. With `--app`, the results folder gets this name, with a Markdown and JSON shareable report per step (`static-share.md`, `session-1-share.json`...); `--report-dir` and `--out` can't be combined. A second run in the same second gets `-2` after the name.
+Add `-o` or `--diagnostics` to write those files elsewhere as well. With `--app`, the results folder gets this name, with a Markdown and JSON shareable report per step (`static-share.md`, `session-1-share.json`...); With `--out <dir>` that folder is used instead of a new one. Nothing is created when the run ends before writing anything (no input, an unreadable installer). A second run in the same second gets `-2` after the name.
 
 ### Ignoring Lines or Files
 
