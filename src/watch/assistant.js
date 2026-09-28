@@ -66,6 +66,8 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
     paths: [], commands: [], ipc: new Map(), entries: new Set(),
     // set for the current session when the tool can re-send the marker request itself: { confirm(question)->bool, send(command) }
     channel: undefined, confirming: false, autoSent: new Set(),
+    // requests waiting to be asked about while a question is open, and the endpoint keys already on that list
+    queue: [], queued: new Set(),
   };
   const review = staticIssues.filter(i => i.manualReview || HTML_REVIEW.has(i.id) || LINK_REVIEW.has(i.id) || i.id === 'OPEN_PATH_JS_CHECK');
   const count = (ids) => review.filter(i => ids.has(i.id)).length;
@@ -102,6 +104,52 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
       (String(i.file) === frame.url || String(frame.url).endsWith(`/${path.basename(String(i.file))}`)));
   }
 
+  const listNames = (names) => names.slice(0, 8).join(', ') + (names.length > 8 ? `, and ${names.length - 8} more` : '');
+
+  // Tell the tester to put the marker in a save request by hand, when we can't (or won't) send it ourselves.
+  function manualFor({ key, html, text }) {
+    say.next(`Saw ${key}${html.length ? ` carrying HTML in: ${listNames(html)}` : ''}${text.length ? `${html.length ? '; text in' : ' with fields'}: ${listNames(text)}` : ''}. Send it again with the marker: ${forms.text} in the text fields${html.length ? ` and ${forms.html} in ${listNames(html)}` : ''}. Use the app (the editor's HTML/source view if it has one), or replay this request from your proxy.`);
+  }
+
+  // Show exactly what we would send for one save request, ask the tester, then send it or fall back to a manual note.
+  // Only one question is open at a time; when it resolves, the next queued request is asked about.
+  function askAndSend(request) {
+    const { key, r, route, html, text } = request;
+    const channel = state.channel;
+    if (!channel || !channel.confirm || !channel.send) return manualFor(request);
+    const fill = r.fields.map(f => ({ name: f.name, html: !!f.html }));
+    const shown = fill.map(f => `${f.name}=${f.html ? forms.html : forms.text}`);
+    say.next(`Saw ${key}${html.length ? ` carrying HTML in: ${listNames(html)}` : ''}${text.length ? `${html.length ? '; text in' : ' with fields'}: ${listNames(text)}` : ''}. I can re-send it for you, through the app's own session, with the marker in: ${listNames(fill.map(f => f.name))} — ${shown.slice(0, 8).join('; ')}${shown.length > 8 ? '; …' : ''}.`);
+    state.confirming = true;
+    Promise.resolve(channel.confirm(`[validate] Send ${key} with the marker now? [Y/n] `))
+      .then(yes => {
+        if (yes) {
+          channel.send({ kind: 'send-marker', replay: r.replay, method: r.method, route, fields: fill });
+          say.next(`Sending ${key} with the marker…`);
+        } else {
+          say.note('Not sending it. To check this endpoint yourself:');
+          manualFor(request);
+        }
+      })
+      .catch(() => manualFor(request))
+      .finally(() => {
+        state.confirming = false;
+        drainQueue();
+      });
+  }
+
+  // After a question resolves, ask about the next waiting request, skipping any whose endpoint already carried the
+  // marker in the meantime (covered some other way).
+  function drainQueue() {
+    while (state.queue.length) {
+      const next = state.queue.shift();
+      state.queued.delete(next.key);
+      if (state.sent.has(next.key)) continue;
+      askAndSend(next);
+      return;
+    }
+  }
+
   function handle(r) {
     if (!r || typeof r !== 'object') return;
     if (r.kind === 'start' && r.platform) state.platform = r.platform;
@@ -123,29 +171,18 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
           const html = r.fields.filter(f => f.html).map(f => f.name);
           const text = r.fields.filter(f => !f.html).map(f => f.name);
           state.asked.set(key, { html, text });
-          const list = (names) => names.slice(0, 8).join(', ') + (names.length > 8 ? `, and ${names.length - 8} more` : '');
-          const manual = () => say.next(`Saw ${key}${html.length ? ` carrying HTML in: ${list(html)}` : ''}${text.length ? `${html.length ? '; text in' : ' with fields'}: ${list(text)}` : ''}. Send it again with the marker: ${forms.text} in the text fields${html.length ? ` and ${forms.html} in ${list(html)}` : ''}. Use the app (the editor's HTML/source view if it has one), or replay this request from your proxy.`);
+          const request = { key, r, route, html, text };
           const channel = state.channel;
           // if the tool can re-send the request itself, show exactly what it would send and ask before doing it
-          if (channel && channel.confirm && channel.send && r.replay !== undefined && !state.confirming) {
-            const fill = r.fields.map(f => ({ name: f.name, html: !!f.html }));
-            const shown = fill.map(f => `${f.name}=${f.html ? forms.html : forms.text}`);
-            say.next(`Saw ${key}${html.length ? ` carrying HTML in: ${list(html)}` : ''}${text.length ? `${html.length ? '; text in' : ' with fields'}: ${list(text)}` : ''}. I can re-send it for you, through the app's own session, with the marker in: ${list(fill.map(f => f.name))} — ${shown.slice(0, 8).join('; ')}${shown.length > 8 ? '; …' : ''}.`);
-            state.confirming = true;
-            Promise.resolve(channel.confirm(`[validate] Send ${key} with the marker now? [Y/n] `))
-              .then(yes => {
-                if (yes) {
-                  channel.send({ kind: 'send-marker', replay: r.replay, method: r.method, route, fields: fill });
-                  say.next(`Sending ${key} with the marker…`);
-                } else {
-                  say.note('Not sending it. To check this endpoint yourself:');
-                  manual();
-                }
-              })
-              .catch(() => manual())
-              .finally(() => { state.confirming = false; });
+          if (channel && channel.confirm && channel.send && r.replay !== undefined) {
+            if (state.confirming) {
+              // a question is already open: wait our turn instead of falling back to manual instructions
+              if (!state.queued.has(key)) { state.queued.add(key); state.queue.push(request); }
+            } else {
+              askAndSend(request);
+            }
           } else {
-            manual();
+            manualFor(request);
           }
         }
         break;
@@ -279,7 +316,13 @@ export function createAssistant({ marker, staticIssues = [], files, print = (lin
   // The current session's channel for re-sending the marker request: confirm(question)->bool and send(command). Set at
   // the start of a session that can do this (an interactive terminal, a marker) and cleared when it ends.
   function useChannel(channel) { state.channel = channel || undefined; }
-  function clearChannel() { state.channel = undefined; }
+  function clearChannel() {
+    // nothing we were about to ask about should silently vanish: tell the tester how to send each one by hand
+    for (const request of state.queue) manualFor(request);
+    state.queue = [];
+    state.queued.clear();
+    state.channel = undefined;
+  }
 
   return { intro, handle, summary, printSummary, useChannel, clearChannel };
 }

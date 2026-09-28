@@ -74,6 +74,65 @@ describe('Validation assistant', () => {
     lines.some(l => /Send it again with the marker/.test(l)).should.equal(true);
   });
 
+  it('asks one question at a time and works through the queue', async () => {
+    const commands = [];
+    const gate = [];
+    const { assistant, lines } = assistantWith();
+    assistant.useChannel({ confirm: (q) => new Promise(resolve => gate.push({ q, resolve })), send: (c) => commands.push(c) });
+    const api = (name, replay) => ({ kind: 'api', method: 'PUT', url: `https://srv.test/api/${name}`, status: 200, replay, fields: [{ name: 'body', html: true, marker: false }] });
+    assistant.handle(api('a', 1));
+    assistant.handle(api('b', 2));
+    gate.should.have.length(1, 'only one question is open at first');
+    gate[0].q.should.include('PUT https://srv.test/api/a');
+    gate[0].resolve(true);
+    await new Promise(resolve => setImmediate(resolve));
+    commands.should.deep.equal([{ kind: 'send-marker', replay: 1, method: 'PUT', route: 'https://srv.test/api/a', fields: [{ name: 'body', html: true }] }]);
+    gate.should.have.length(2, 'the next question follows once the first is answered');
+    gate[1].q.should.include('PUT https://srv.test/api/b');
+    gate[1].resolve(false);
+    await new Promise(resolve => setImmediate(resolve));
+    commands.should.have.length(1, 'answering no sends nothing');
+    lines.some(l => /Send it again with the marker/.test(l) && /api\/b/.test(l)).should.equal(true);
+  });
+
+  it('asks about a repeated endpoint only once', async () => {
+    const gate = [];
+    const { assistant } = assistantWith();
+    assistant.useChannel({ confirm: (q) => new Promise(resolve => gate.push({ q, resolve })), send: () => {} });
+    const rec = { kind: 'api', method: 'POST', url: 'https://srv.test/api/notes', status: 201, replay: 1, fields: [{ name: 'text', html: true, marker: false }] };
+    assistant.handle(rec);
+    assistant.handle(rec);
+    gate.should.have.length(1);
+    gate[0].resolve(true);
+    await new Promise(resolve => setImmediate(resolve));
+    gate.should.have.length(1, 'the duplicate was never queued');
+  });
+
+  it('skips a queued endpoint that meanwhile carried the marker', async () => {
+    const commands = [];
+    const gate = [];
+    const { assistant } = assistantWith();
+    assistant.useChannel({ confirm: (q) => new Promise(resolve => gate.push({ q, resolve })), send: (c) => commands.push(c) });
+    assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/a', status: 200, replay: 1, fields: [{ name: 'body', html: true, marker: false }] });
+    assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/b', status: 200, replay: 2, fields: [{ name: 'body', html: true, marker: false }] });
+    // b is sent some other way while a's question is open
+    assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/b', status: 200, fields: [{ name: 'body', html: true, marker: true }] });
+    gate[0].resolve(true);
+    await new Promise(resolve => setImmediate(resolve));
+    gate.should.have.length(1, 'b was skipped, not asked, because it already carried the marker');
+    commands.should.deep.equal([{ kind: 'send-marker', replay: 1, method: 'PUT', route: 'https://srv.test/api/a', fields: [{ name: 'body', html: true }] }]);
+  });
+
+  it('prints the manual instructions for anything still queued when the session ends', () => {
+    const gate = [];
+    const { assistant, lines } = assistantWith();
+    assistant.useChannel({ confirm: (q) => new Promise(resolve => gate.push({ q, resolve })), send: () => {} });
+    assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/a', status: 200, replay: 1, fields: [{ name: 'body', html: true, marker: false }] });
+    assistant.handle({ kind: 'api', method: 'PUT', url: 'https://srv.test/api/b', status: 200, replay: 2, fields: [{ name: 'title', html: false, marker: false }] });
+    assistant.clearChannel();
+    lines.some(l => /Send it again with the marker/.test(l) && /api\/b/.test(l)).should.equal(true);
+  });
+
   it('reports a request it re-sent itself, and does not announce the same one twice', () => {
     const { assistant, lines } = assistantWith();
     assistant.handle({ kind: 'marker-request', ok: true, status: 200, method: 'PUT', route: 'https://srv.test/api/matters/{id}/documents', fields: ['title', 'body'], html: ['body'] });
