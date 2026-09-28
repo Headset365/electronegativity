@@ -9,11 +9,11 @@ if (logFile && process.versions.electron && process.type === 'browser') {
   // it: before its own code can register IPC handlers or create windows. ES module apps get it through the ESM
   // loader instead, so also try again as soon as the app's entry point has started.
   const Module = require('module');
-  const originalLoad = Module._load;
   let started = false;
   let wrappedElectron;
-  Module._load = function (request, ...rest) {
-    const loaded = originalLoad.call(this, request, ...rest);
+  // wraps a module loader so the first load of `electron` is instrumented, and the app gets the wrapped module
+  const wrapLoader = (load) => function (request, ...rest) {
+    const loaded = load.call(this, request, ...rest);
     if (request === 'electron' && loaded && loaded.app) {
       if (!started) {
         started = true;
@@ -24,10 +24,24 @@ if (logFile && process.versions.electron && process.type === 'browser') {
     }
     return loaded;
   };
+  const originalLoad = Module._load;
+  let currentLoad = wrapLoader(originalLoad);
+  // Electron installs its own Module._load (which answers `electron` itself) after NODE_OPTIONS=--require has run on
+  // some releases (34): keep wrapping whatever loader is installed later, so `electron` still passes through here
+  try {
+    Object.defineProperty(Module, '_load', {
+      configurable: true,
+      enumerable: true,
+      get() { return currentLoad; },
+      set(load) { currentLoad = typeof load === 'function' ? wrapLoader(load) : load; },
+    });
+  } catch {
+    Module._load = currentLoad;
+  }
   setImmediate(() => {
     if (started) return;
     try {
-      const loaded = originalLoad.call(Module, 'electron', null, false);
+      const loaded = Module._load.call(Module, 'electron', null, false);
       if (loaded && loaded.app) {
         started = true;
         instrument(loaded, true);
