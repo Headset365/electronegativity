@@ -58,6 +58,7 @@ const CONSEQUENCES = {
   FILE_HANDLER: ['content', 'Deep links, file associations and command lines handed to the app are attacker-controlled: a link in a shared document or email can trigger this code.'],
   FILE_PROTOCOL: ['escalation', 'Pages with file:// access can read local files if script is ever injected into them.'],
   FUSES: ['local', 'Build hardening left at insecure defaults. It matters to someone who can start or modify the app on the device (e.g. RunAsNode turns it into a Node.js interpreter), not to other users\' content.'],
+  GLOBAL_EXPOSURE: ['info', 'Direct global assignments found in source. Whether an untrusted page receives them depends on the script context and isolation.'],
   PACKAGED_FUSES: ['local', 'Build hardening read from the shipped executable. It matters to someone who can start or modify the app on the device (e.g. RunAsNode turns it into a Node.js interpreter), not to other users\' content.'],
   HTTP_RESOURCES: ['network', 'Content loaded over plain http can be modified by anyone on the network path (Wi-Fi, proxy).'],
   HTTP_RESOURCES_WITH_NODE_INTEGRATION: ['network', 'Plain http content is loaded into a window with Node.js: someone on the network path gets code execution on the machine.'],

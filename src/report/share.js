@@ -18,7 +18,7 @@ const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const CONFIDENCES = ['CERTAIN', 'FIRM', 'TENTATIVE'];
 const MAX_CODE = 400;
 // inventories worth listing even though they are informational: they are the map a reviewer needs
-const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'IPC_HANDLER_JS_CHECK', 'IPC_CHANNEL_MAP_GLOBAL_CHECK', 'RUNTIME_WINDOW_SUMMARY',
+const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'GLOBAL_EXPOSURE_JS_CHECK', 'IPC_HANDLER_JS_CHECK', 'IPC_CHANNEL_MAP_GLOBAL_CHECK', 'RUNTIME_WINDOW_SUMMARY',
   'DOCUMENT_PIPELINE_JS_CHECK', 'WORD_LAUNCH_JS_CHECK', 'RUNTIME_IPC', 'WINDOW_SESSION_GLOBAL_CHECK', 'RUNTIME_WINDOW_SESSION'];
 // properties that describe the finding, not the app's data
 const SAFE_PROPERTIES = ['channel', 'capabilities', 'issue', 'validatesArguments', 'argumentsUsed', 'source', 'operation', 'call', 'hygiene', 'gate', 'behavior',

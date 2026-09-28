@@ -2,6 +2,10 @@
 import fs from 'node:fs';
 import { severity, confidence } from '../finder/attributes.js';
 import { trafficIssues } from '../traffic/ingest.js';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { EXECUTION } = require('./campaign.cjs');
 
 const DOCS = 'https://www.electronjs.org/docs/latest/tutorial/security';
 const LOCAL_HOSTS = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/;
@@ -58,6 +62,49 @@ export function analyzeWatchLog(records) {
     add('RUNTIME_ACTIVE_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
       `${activeSent.length} benign execution probe(s) were accepted by save requests, but no execution signal appeared in the watched pages. The content may not have been viewed; this is not a safe verdict`,
       { sent: activeSent.length, execution: 'not observed' });
+  const campaignCases = [];
+  for (const sent of records.filter(r => r.kind === 'campaign-send')) {
+    const views = records.filter(r => r.kind === 'campaign-view' && r.case === sent.case);
+    const signals = records.filter(r => r.kind === 'campaign-result' && r.case === sent.case);
+    const resources = records.filter(r => r.kind === 'campaign-resource' && r.case === sent.case);
+    const execution = signals.some(r => r.signal === 'executed');
+    const delivery = sent.ok ? 'accepted' : sent.status ? 'rejected' : 'failed';
+    const view = views.some(r => r.opened) ? 'opened' : 'not observed';
+    const caseState = { case: sent.case, delivery, view, execution: EXECUTION.has(sent.case) ? (execution ? 'observed' : 'not observed') : 'not applicable',
+      resources: resources.map(r => r.resource),
+      signals: [...new Set(signals.map(r => r.signal))] };
+    campaignCases.push(caseState);
+    add('RUNTIME_CAMPAIGN_CASE', sent.route || 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
+      `Campaign ${sent.case}: request ${delivery}${sent.status ? ` (HTTP ${sent.status})` : ''}, saved view ${view}, script ${caseState.execution}${resources.length ? `, local resource requests ${resources.length}` : ''}. Silence is not a safe verdict`,
+      caseState);
+    if (!sent.ok) continue;
+    for (const resource of resources)
+      add('RUNTIME_CAMPAIGN_RESOURCE', 'http://127.0.0.1', severity.INFORMATIONAL, confidence.CERTAIN,
+        `The configured ${sent.case} payload caused a request to the tool's loopback ${resource.resource} receiver. This does not establish access to other internal services or response readability`,
+        { case: sent.case, resource: resource.resource, cookiePresent: resource.cookiePresent, authorizationPresent: resource.authorizationPresent });
+    if (sent.case.startsWith('api-') && signals.some(r => r.signal === 'api-invoked'))
+      add('RUNTIME_CAMPAIGN_API', signals.find(r => r.signal === 'api-invoked').url, severity.INFORMATIONAL, confidence.CERTAIN,
+        `The ${sent.case} probe called a configured page API; ${signals.some(r => r.signal === 'api-resolved') ? 'the call resolved' : signals.some(r => r.signal === 'api-rejected') ? 'the call rejected' : 'the outcome was not observed'}. No IPC authorization or privileged effect is inferred from the call result`,
+        { case: sent.case, outcome: signals.some(r => r.signal === 'api-resolved') ? 'resolved' : signals.some(r => r.signal === 'api-rejected') ? 'rejected' : 'unknown' });
+    if (execution && EXECUTION.has(sent.case))
+      add('RUNTIME_CAMPAIGN_SCRIPT', signals[0]?.url || 'runtime', severity.MEDIUM, confidence.FIRM,
+        `The ${sent.case} probe executed through a configured save/view workflow. Account boundaries and exposed privileges require separate evidence`,
+        { case: sent.case, delivery, view, execution: 'observed' });
+    for (const [signal, id, sev] of [['fs-read', 'RUNTIME_CAMPAIGN_FS_READ', severity.HIGH],
+      ['node-available', 'RUNTIME_CAMPAIGN_NODE', severity.LOW], ['electron-available', 'RUNTIME_CAMPAIGN_ELECTRON', severity.MEDIUM],
+      ['eval-allowed', 'RUNTIME_CAMPAIGN_EVAL', severity.LOW]]) if (signals.some(r => r.signal === signal))
+      add(id, signals.find(r => r.signal === signal).url, sev, confidence.FIRM,
+        signal === 'fs-read' ? 'Renderer script read a unique, tool-created file canary through Node fs' :
+          `${sent.case} probe reported ${signal} in the page world; assess the window and origin`,
+        { case: sent.case, signal, delivery });
+  }
+  for (const error of records.filter(r => r.kind === 'campaign-error'))
+    add('RUNTIME_CAMPAIGN_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
+      `Campaign could not start: ${error.message}`, { error: error.message });
+  for (const restore of records.filter(r => r.kind === 'campaign-restore' && !r.ok))
+    add('RUNTIME_CAMPAIGN_RESTORE', 'runtime', severity.MEDIUM, confidence.CERTAIN,
+      `The campaign could not restore the original test field${restore.status ? ` (HTTP ${restore.status})` : ''}; inspect the disposable record`,
+      { status: restore.status, error: restore.error });
 
   const started = records.some(r => r.kind === 'start');
   const pages = records.filter(r => r.kind === 'page' && !INTERNAL_PAGES.test(r.url));
@@ -283,6 +330,8 @@ export function analyzeWatchLog(records) {
     if (shot) issue.properties = { ...(issue.properties || {}), screenshot: shot.file };
   }
   return { issues, summary: { screenshots, started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic,
+    campaign: campaignCases.length ? { attempted: campaignCases.length, accepted: campaignCases.filter(c => c.delivery === 'accepted').length,
+      executed: campaignCases.filter(c => c.execution === 'observed').length, cases: campaignCases } : undefined,
     userData: paths && paths.userData } };
 }
 

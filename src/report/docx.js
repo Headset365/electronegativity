@@ -10,7 +10,7 @@ import { scores } from './scores.js';
 const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const COLORS = { HIGH: 'C00000', MEDIUM: 'E26B0A', LOW: 'BF8F00', INFORMATIONAL: '595959' };
 // inventory, shown as tables rather than findings
-const INVENTORY = new Set(['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'RUNTIME_WINDOW_SUMMARY', 'RUNTIME_IPC', 'RUNTIME_COVERAGE', 'RUNTIME_WINDOW_COVERAGE',
+const INVENTORY = new Set(['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'GLOBAL_EXPOSURE_JS_CHECK', 'RUNTIME_WINDOW_SUMMARY', 'RUNTIME_IPC', 'RUNTIME_COVERAGE', 'RUNTIME_WINDOW_COVERAGE',
   'CREDENTIAL_ACCESS_JS_CHECK', 'DEPENDENCY_INVENTORY_LOCK_CHECK']);
 const ROUTE_ORDER = ['content', 'anyone', 'network', 'server', 'thirdparty', 'supply', 'escalation', 'local', 'dependency', 'info', 'other'];
 const APPENDIX = 'AppendixA';

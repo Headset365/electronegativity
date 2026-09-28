@@ -287,7 +287,7 @@ function dependencySection(deps) {
  * @param {Array} issues findings, as returned by run()
  * @param {Object} meta { version, input, electronVersion, filesScanned, globalChecks, atomicChecks, errors, generatedAt }
  */
-const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'RUNTIME_WINDOW_SUMMARY', 'RUNTIME_IPC', 'RUNTIME_COVERAGE', 'RUNTIME_WINDOW_COVERAGE', 'CREDENTIAL_ACCESS_JS_CHECK'];
+const INVENTORY = ['WINDOW_SUMMARY_JS_CHECK', 'EXPOSED_API_JS_CHECK', 'GLOBAL_EXPOSURE_JS_CHECK', 'RUNTIME_WINDOW_SUMMARY', 'RUNTIME_IPC', 'RUNTIME_COVERAGE', 'RUNTIME_WINDOW_COVERAGE', 'CREDENTIAL_ACCESS_JS_CHECK'];
 
 // Where the code reads and writes credentials, unprotected first, and what the data-at-rest review and the --canary
 // trace found on disk
@@ -402,14 +402,14 @@ function attackSurface(windows, apis, runtime = '', hasRuntime = false) {
   <div class="table-wrap"><table class="surface">
     <thead><tr><th>Exposed to pages as</th><th>Members</th><th>Defined at</th></tr></thead>
     <tbody>${apis.map(a => { const p = a.properties || {}; return `
-      <tr><td>window.${escapeHtml(p.world)}</td><td>${p.members && p.members.length ? p.members.map(m => `<code>${escapeHtml(m)}</code>`).join(' ') : 'not listed statically'}</td><td class="loc">${escapeHtml(place(a))}</td></tr>`; }).join('')}
+      <tr><td>${a.id === 'GLOBAL_EXPOSURE_JS_CHECK' ? escapeHtml(p.world) + ' (direct assignment)' : 'window.' + escapeHtml(p.world)}</td><td>${p.members && p.members.length ? p.members.map(m => `<code>${escapeHtml(m)}</code>`).join(' ') : 'not listed statically'}</td><td class="loc">${escapeHtml(place(a))}</td></tr>`; }).join('')}
     </tbody>
   </table></div>` : ''}${runtime}`;
 }
 
 export function renderHtmlReport(allIssues, meta) {
   const windows = allIssues.filter(i => i.id === 'WINDOW_SUMMARY_JS_CHECK');
-  const apis = allIssues.filter(i => i.id === 'EXPOSED_API_JS_CHECK');
+  const apis = allIssues.filter(i => i.id === 'EXPOSED_API_JS_CHECK' || i.id === 'GLOBAL_EXPOSURE_JS_CHECK');
   const runtime = runtimeSurface(allIssues.filter(i => i.id === 'RUNTIME_WINDOW_SUMMARY'), allIssues.filter(i => i.id === 'RUNTIME_IPC'),
     allIssues.filter(i => i.id === 'RUNTIME_COVERAGE'), meta.runtime, allIssues.filter(i => i.id === 'RUNTIME_WINDOW_COVERAGE'));
   const issues = allIssues.filter(i => !INVENTORY.includes(i.id));

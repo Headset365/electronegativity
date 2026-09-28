@@ -135,3 +135,40 @@ export class ExposedApiJSCheck {
       description: `${this.description}: window.${key} (${shown})${usage}`, properties: { world: key, members, capabilities: uses, channels: [...channels] } })];
   }
 }
+
+// Direct globals in renderer/preload code are a separate exposure route from contextBridge.
+// This is an inventory of assignments, not proof that a particular page receives the value.
+export class GlobalExposureJSCheck {
+  constructor() {
+    this.id = 'GLOBAL_EXPOSURE_JS_CHECK';
+    this.description = __('GLOBAL_EXPOSURE_JS_CHECK');
+    this.type = sourceTypes.JAVASCRIPT;
+    this.shortenedURL = 'https://www.electronjs.org/docs/latest/tutorial/context-isolation';
+  }
+
+  match(node, astHelper, scope) {
+    let names;
+    let value;
+    let world;
+    if (node.type === 'AssignmentExpression' && node.left.type === 'MemberExpression' &&
+      node.left.object.type === 'Identifier' && ['window', 'globalThis'].includes(node.left.object.name)) {
+      world = node.left.object.name;
+      names = [node.left.computed ? constantValue(node.left.property, scope) : memberName(node.left)];
+      value = node.right;
+    } else if (isCall(node) && node.callee.type === 'MemberExpression' && node.callee.object.type === 'Identifier' &&
+      node.callee.object.name === 'Object' && node.arguments[0]?.type === 'Identifier' &&
+      ['window', 'globalThis'].includes(node.arguments[0].name)) {
+      world = node.arguments[0].name;
+      const method = memberName(node.callee);
+      if (method === 'assign') { value = node.arguments[1]; names = memberEntries(value, scope).map(([name]) => name); }
+      if (method === 'defineProperty') { names = [constantValue(node.arguments[1], scope)]; value = node.arguments[2]; }
+    }
+    names = (names || []).filter(name => typeof name === 'string' && name && !['location', 'name', 'onload', 'onerror'].includes(name));
+    if (names.length === 0) return null;
+    const fn = handlerFunction(value, scope, []);
+    const caps = fn ? capabilities(fn, []).list : [];
+    return [finding(this, node, { severity: severity.INFORMATIONAL, confidence: world === 'window' ? confidence.CERTAIN : confidence.FIRM,
+      description: `${this.description}: ${world}.${names.join(', ')} assigned; whether untrusted pages receive it depends on the script context and isolation`,
+      properties: { world, members: names, capabilities: caps } })];
+  }
+}

@@ -160,7 +160,7 @@ function canReplayBody(text) {
  * @param {string} marker the planted marker token
  * @param {Array<{ name: string, html?: boolean }>} fields the fields to put the marker into (field names as bodyFields reports them)
  */
-function fillMarkerBody(text, marker, fields, active = false) {
+function fillMarkerBody(text, marker, fields, active = false, replacement) {
   if (!marker || !Array.isArray(fields) || fields.length === 0) return null;
   if (active && !/^[A-Za-z0-9_-]{8,80}$/.test(marker)) return null;
   const want = new Map();
@@ -175,7 +175,7 @@ function fillMarkerBody(text, marker, fields, active = false) {
         const leaf = path || '(body)';
         if (!want.has(leaf)) return undefined;
         matched = true;
-        return markerFormValue(want.get(leaf), marker, active);
+        return replacement === undefined ? markerFormValue(want.get(leaf), marker, active) : replacement;
       });
     } catch {
       return null;
@@ -187,7 +187,8 @@ function fillMarkerBody(text, marker, fields, active = false) {
     let matched = false;
     for (const [name, value] of new URLSearchParams(trimmed)) {
       if (want.has(name)) {
-        out.append(name, markerFormValue(want.get(name), marker, active));
+        out.append(name, replacement === undefined ? markerFormValue(want.get(name), marker, active) :
+          (typeof replacement === 'string' ? replacement : JSON.stringify(replacement)));
         matched = true;
       } else out.append(name, value);
     }
@@ -225,6 +226,7 @@ function instrument(electron, late) {
   // confirmed at runtime (content reaching openExternal, a navigation, IPC, a command line), without logging the values
   const MARKER = process.env.ELECTRONEGATIVITY_WATCH_MARKER || '';
   const ACTIVE = process.env.ELECTRONEGATIVITY_WATCH_ACTIVE === '1' && /^[A-Za-z0-9_-]{8,80}$/.test(MARKER);
+  const CAMPAIGN = process.env.ELECTRONEGATIVITY_WATCH_CAMPAIGN === '1' && ACTIVE;
   const hasMarker = (value) => {
     if (!MARKER || value === undefined || value === null) return false;
     try {
@@ -336,6 +338,14 @@ function instrument(electron, late) {
       const url = redact(detail.sourceId || '');
       if (ACTIVE && message.trim() === `ENG_ACTIVE_EXEC:${MARKER}`)
         write('active-payload-executed', { id, url: redact((electron.webContents.fromId(id) || {}).getURL?.() || detail.sourceId || '') });
+      if (CAMPAIGN && message.startsWith(`ENG_CAMPAIGN:${MARKER}:`)) {
+        const match = /^ENG_CAMPAIGN:[A-Za-z0-9_-]+:([a-z-]+):([a-z-]+)$/.exec(message.trim());
+        if (match) {
+          const { CASES } = require(path.join(__dirname, 'campaign.cjs'));
+          if (CASES.includes(match[1])) write('campaign-result', { case: match[1], signal: match[2], id,
+            url: redact((electron.webContents.fromId(id) || {}).getURL?.() || detail.sourceId || '') });
+        }
+      }
       consoleSecrets(message, 'renderer', url);
       const level = typeof detail.level === 'number' ? detail.level : ({ error: 3, warning: 2 })[detail.level];
       if (/Content Security Policy/i.test(message) && /Refused to/i.test(message)) {
@@ -559,11 +569,10 @@ function instrument(electron, late) {
       // unreadable body
     }
     // a write request carrying HTML with a body we can rebuild: keep what it takes to re-send it with the marker, but
-    // only when the command channel is open (otherwise it could never be sent) and only for HTML — a plain-text save is
-    // left for the tester, so we don't hold requests we'd never offer to send
+    // only when the command channel is open. Campaign capture also accepts an ordinary plain-text seed request.
     const html = MARKUP.test(text);
     let replay;
-    if (COMMANDS && html && WRITE_METHODS.has(String(details.method).toUpperCase()) && fields.length > 0 && /^https?:/i.test(details.url) && canReplayBody(text)) {
+    if (COMMANDS && (html || CAMPAIGN) && WRITE_METHODS.has(String(details.method).toUpperCase()) && fields.length > 0 && /^https?:/i.test(details.url) && canReplayBody(text)) {
       replay = ++replayCounter;
       replayable.set(replay, { method: String(details.method).toUpperCase(), url: details.url, text, ses });
       replayIdByRequest.set(details.id, replay);
@@ -945,6 +954,67 @@ function instrument(electron, late) {
   // only the harmless marker goes into the body. The channel is polled like the log is followed, one line at a time.
   if (COMMANDS) safely(() => {
     const runCommand = (cmd) => {
+      if (cmd && cmd.kind === 'run-campaign' && CAMPAIGN) {
+        const { runCampaign, RESOURCES, startResourceReceiver } = require(path.join(__dirname, 'campaign.cjs'));
+        const profile = cmd.profile;
+        const entry = profile && profile.mode === 'capture' ? replayable.get(cmd.replay) : undefined;
+        const request = entry ? { method: entry.method, url: entry.url, body: entry.text, headers: entry.headers || {} } : profile && profile.request;
+        if (!profile || !request || !['POST', 'PUT', 'PATCH'].includes(request.method) || !/^https?:\/\//i.test(request.url)) {
+          write('campaign-error', { message: 'No matching replayable request or valid profile request' });
+          return;
+        }
+        let canaryDir;
+        const canary = () => {
+          if (!canaryDir) canaryDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'electronegativity-canary-'));
+          const value = require('crypto').randomBytes(16).toString('hex');
+          const file = path.join(canaryDir, 'read-only.txt');
+          fs.writeFileSync(file, value, { mode: 0o600 });
+          return { path: file, value };
+        };
+        const windowsForCampaign = () => electron.webContents.getAllWebContents().filter(c => !c.isDestroyed() && c.getType?.() === 'window' &&
+            (!profile.windowUrl || c.getURL().startsWith(profile.windowUrl)));
+        const view = async (name) => {
+          const windows = windowsForCampaign();
+          if (windows.length !== 1) return false; // no guessing among different accounts/windows
+          const target = windows[0];
+          try {
+            if (profile.view === 'reload') target.reload();
+            else await target.loadURL(profile.view);
+            if (name === 'javascript-url') {
+              await new Promise(resolve => setTimeout(resolve, 600));
+              const clicked = await target.executeJavaScript(`(() => { const a = [...document.querySelectorAll('a[data-eng-campaign]')].find(x => x.getAttribute('data-eng-campaign') === ${JSON.stringify(MARKER)}); if (!a) return false; a.click(); return true; })()`, false);
+              write('campaign-action', { case: name, clicked: !!clicked });
+            }
+            return true;
+          } catch { return false; }
+        };
+        let resourceServer;
+        const resourceReceiver = async () => {
+          if (!profile.cases.some(name => RESOURCES.has(name))) return undefined;
+          const receiver = await startResourceReceiver(MARKER, write);
+          resourceServer = receiver.server;
+          return receiver.url;
+        };
+        app.whenReady().then(async () => {
+          const ses = entry?.ses || electron.session.defaultSession;
+          if (!ses || typeof ses.fetch !== 'function') throw new Error('session.fetch is unavailable (needs Electron 25+)');
+          for (let tries = 0; tries < 50 && windowsForCampaign().length !== 1; tries++)
+            await new Promise(resolve => setTimeout(resolve, 200));
+          if (windowsForCampaign().length !== 1) throw new Error('Campaign requires one matching app window; set windowUrl for multiple windows');
+          const resourceBase = await resourceReceiver();
+          await runCampaign({ profile: { ...profile, request, resourceBase }, marker: MARKER, fetch: (url, options) => ses.fetch(url, options),
+            fill: fillMarkerBody, view, write, canary });
+        }).then(() => { if (profile.closeOnDone !== false) app.quit(); })
+          .catch(error => {
+            write('campaign-error', { message: String(error.message).slice(0, 160) });
+            if (profile.closeOnDone !== false) app.quit();
+          })
+          .finally(() => {
+            if (resourceServer) resourceServer.close();
+            if (canaryDir) try { fs.rmSync(canaryDir, { recursive: true, force: true }); } catch { /* best effort */ }
+          });
+        return;
+      }
       if (!cmd || cmd.kind !== 'send-marker') return;
       const done = (data) => write('marker-request', { route: cmd.route, method: cmd.method, ...data });
       const entry = replayable.get(cmd.replay);

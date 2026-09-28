@@ -27,7 +27,7 @@ export function parseHeaders(list = []) {
  * session log `watchLog`, and analyzes it. Returns { runtime, watchDiagnostics, watchLog, staticInput }.
  * @throws when the app can't be started or the log can't be read
  */
-export async function observeSession({ watch, watchLog, args = [], marker, active = false, capture = true, traffic = true, scope = [], canaries = [], searchDirs = [], userData,
+export async function observeSession({ watch, watchLog, args = [], marker, active = false, campaign, capture = true, traffic = true, scope = [], canaries = [], searchDirs = [], userData,
   assistant, staticIssues = [], confirm, screenshots }) {
   let log = watchLog;
   let packagedApp;
@@ -56,31 +56,35 @@ export async function observeSession({ watch, watchLog, args = [], marker, activ
     const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-'));
     const logFile = path.join(logDir, 'session.jsonl');
     if (!assistant) {
-      assistant = createAssistant({ marker, active, staticIssues, files: marker ? writeMarkerFiles(logDir, marker, active) : undefined });
+      assistant = createAssistant({ marker, active, campaign, staticIssues, files: marker ? writeMarkerFiles(logDir, marker, active) : undefined });
       assistant.intro();
     }
     fs.writeFileSync(logFile, '');
     // when the terminal is interactive and there is a marker, let the assistant re-send the marker request itself
     // (after a Y/N): it writes a command here and the hook, reading it, replays the request through the app's session
     let commandsFile;
-    if (marker && confirm && assistant.useChannel) {
+    if (marker && (confirm || campaign) && assistant.useChannel) {
       commandsFile = path.join(logDir, 'commands.jsonl');
       fs.writeFileSync(commandsFile, '');
-      assistant.useChannel({ confirm, cancel: typeof confirm.cancel === 'function' ? () => confirm.cancel() : undefined,
+      assistant.useChannel({ confirm, cancel: typeof confirm?.cancel === 'function' ? () => confirm.cancel() : undefined,
         send: (command) => { try { fs.appendFileSync(commandsFile, JSON.stringify(command) + '\n'); } catch { /* best effort */ } } });
+      if (campaign?.mode === 'request') fs.appendFileSync(commandsFile, JSON.stringify({ kind: 'run-campaign', profile: campaign }) + '\n');
     }
     const stopFollowing = followLog(logFile, record => assistant.handle(record));
     try {
-      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, active, capture, traffic, scope, screenshots, log: logFile, commands: commandsFile,
+      log = await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, active, campaign: !!campaign, capture, traffic, scope, screenshots, log: logFile, commands: commandsFile,
         onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
       stopFollowing();
       if (assistant.clearChannel) assistant.clearChannel();
+      if (campaign && commandsFile) try { fs.unlinkSync(commandsFile); } catch { /* best effort */ }
     }
     assistant.printSummary();
     console.log(chalk.gray(__('watchLogSaved', { file: log })));
   }
   const records = readWatchLog(log);
+  if (campaign && !records.some(r => r.kind === 'campaign-done' || r.kind === 'campaign-error'))
+    records.push({ kind: 'campaign-error', message: 'No completed campaign was observed; check the app hook, test window and capture workflow' });
   const runtime = analyzeWatchLog(records);
   // for --diagnostics: what the hook captured, by kind, and anything that went wrong inside it
   const recordKinds = {};
@@ -88,7 +92,7 @@ export async function observeSession({ watch, watchLog, args = [], marker, activ
   const start = records.find(r => r.kind === 'start');
   const watchDiagnostics = {
     mode: watch ? 'launched' : 'log', packaged: !!packagedApp, hookStarted: !!start, lateStart: !!(start && start.late),
-    electron: start && start.electron, markerSet: !!marker, activeTests: active, records: recordKinds,
+    electron: start && start.electron, markerSet: !!marker, activeTests: active, campaign: campaign && { mode: campaign.mode, route: campaign.route, cases: campaign.cases }, records: recordKinds,
     hookErrors: records.filter(r => r.kind === 'hook-error').slice(0, 20).map(r => r.message),
     // field names stay out of the shared diagnostics: only how many there were and whether the marker was sent
     summary: { ...runtime.summary, fuses: undefined, api: runtime.summary.api.map(({ fields, ...endpoint }) => ({ ...endpoint, fields: fields.length, markerSent: fields.some(f => f.marker) })) },

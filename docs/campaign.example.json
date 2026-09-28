@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "request": {
+    "method": "PUT",
+    "url": "http://127.0.0.1:3000/api/documents/42",
+    "body": "{\"documentId\":42,\"body\":\"Disposable test document\"}",
+    "headers": {}
+  },
+  "field": "body",
+  "view": "http://127.0.0.1:3000/documents/42",
+  "windowUrl": "http://127.0.0.1:3000/",
+  "waitMs": 1800,
+  "closeOnDone": true,
+  "restoreOnDone": true,
+  "cases": [
+    "text", "html", "event-handler", "script-tag", "svg-handler", "javascript-url",
+    "node", "electron", "fs-read", "eval",
+    "null", "boolean", "number", "array", "object", "empty", "long",
+    "external-image", "external-svg", "external-script", "external-frame",
+    "external-stylesheet", "external-font", "external-media", "redirect-image"
+  ]
+}

@@ -180,6 +180,7 @@
 	"END_OF_LIFE_LIBRARY_GLOBAL_CHECK": "Library version that no longer receives security fixes",
 	"WINDOW_SUMMARY_JS_CHECK": "Window security settings",
 	"EXPOSED_API_JS_CHECK": "API exposed to web content",
+	"GLOBAL_EXPOSURE_JS_CHECK": "Global object exposed by an assignment",
 	"watchOptionDescription": "run the app (its folder, packaged executable or .app bundle) and report what happens while you use it; close the app when done",
 	"watchArgsOptionDescription": "extra command line arguments for the app started by --watch",
 	"watchLogOptionDescription": "analyze the log of an earlier --watch session instead of starting the app",

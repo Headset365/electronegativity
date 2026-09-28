@@ -10,6 +10,7 @@ import { activeHtml } from './active.js';
 import path from 'node:path';
 import chalk from 'chalk';
 import { apiRoute } from './analyze.js';
+import { campaignMatch } from './campaign.js';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 const WEB_SCHEMES = new Set(['http', 'https', 'mailto']);
@@ -57,7 +58,7 @@ const originOf = (url) => {
 /**
  * @param {{ marker?: string, staticIssues?: Array, files?: { page, file }, print?: Function }} options
  */
-export function createAssistant({ marker, active = false, staticIssues = [], files, print = (line) => console.log(line) } = {}) {
+export function createAssistant({ marker, active = false, campaign, staticIssues = [], files, print = (line) => console.log(line) } = {}) {
   const forms = marker ? markerForms(marker) : undefined;
   const say = {
     next: (text) => print(chalk.cyan(`[validate] → ${text}`)),
@@ -69,7 +70,7 @@ export function createAssistant({ marker, active = false, staticIssues = [], fil
   const first = (key) => !once.has(key) && once.add(key);
   const state = {
     platform: process.platform, pageOrigins: new Map(), asked: new Map(), sent: new Map(), rendered: [], sinks: [], links: [],
-    paths: [], commands: [], ipc: new Map(), entries: new Set(), activeSent: 0, activeExecuted: false,
+    paths: [], commands: [], ipc: new Map(), entries: new Set(), activeSent: 0, activeExecuted: false, campaignSent: false,
     // set for the current session when the tool can re-send the marker request itself: { confirm(question)->bool, send(command) }
     channel: undefined, confirming: false, autoSent: new Set(),
     // requests waiting to be asked about while a question is open, and the endpoint keys already on that list
@@ -98,6 +99,7 @@ export function createAssistant({ marker, active = false, staticIssues = [], fil
     const ipc = count(new Set(['IPC_SENDER_VALIDATION_JS_CHECK']));
     if (html) say.next(`The static scan found ${html} place(s) that write data as HTML. Save the HTML marker and view it to trace where markup appears. This does not establish script execution.`);
     if (active && files?.activePage) say.next(`Optional execution probe in ${files.activePage}: place it in an HTML field and view the saved content. It only writes a unique console signal. The tool will record execution if that signal appears.`);
+    if (campaign) say.note(`Campaign ${campaign.route}: ${campaign.cases.length} bounded cases will run automatically for the configured test field. Use a disposable record and a prepared test session.`);
     if (links) say.next(`${links} finding(s) are about links and navigation. Add the link ${forms.link} to shared content (a document, a comment) and click it; also try Ctrl+click and middle-click.`);
     if (paths) say.next(`${paths} finding(s) open files with their default program. If the app handles attachments or file names from content, attach ${files ? files.file : forms.file} and open it from the app.`);
     if (ipc) say.note(`${ipc} IPC handler(s) don't check which page sent the message. That can't be tested by using the app: read each handler for an event.senderFrame check. The report lists which origins used each channel.`);
@@ -165,6 +167,14 @@ export function createAssistant({ marker, active = false, staticIssues = [], fil
     if (!marker) return;
     switch (r.kind) {
       case 'api': {
+        if (campaign) {
+          if (campaignMatch(campaign, r) && !state.campaignSent && state.channel?.send) {
+            state.campaignSent = true;
+            state.channel.send({ kind: 'run-campaign', replay: r.replay, profile: campaign });
+            say.note(`Captured ${campaign.route}; starting the configured campaign without per-case prompts.`);
+          }
+          break;
+        }
         if (!WRITE_METHODS.has(String(r.method).toUpperCase()) || !Array.isArray(r.fields) || r.fields.length === 0 || (r.status && r.status >= 400)) break;
         const route = apiRoute(r.url) || r.url;
         const key = `${r.method} ${route}`;
@@ -232,6 +242,13 @@ export function createAssistant({ marker, active = false, staticIssues = [], fil
       case 'active-payload-executed':
         if (!state.activeExecuted) say.bad(`The benign probe executed in a renderer at ${r.url}. Review the content route and the page's privileges.`);
         state.activeExecuted = true;
+        break;
+      case 'campaign-result':
+        if (r.signal === 'executed' || r.signal === 'fs-read' || r.signal === 'eval-allowed')
+          say.note(`Campaign ${r.case}: ${r.signal} in ${r.url}.`);
+        break;
+      case 'campaign-done':
+        say.note(`Campaign finished ${r.cases} cases. The report separates delivery, rendering and execution evidence.`);
         break;
       case 'sink': {
         if (!r.live) break;

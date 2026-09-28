@@ -121,6 +121,18 @@ ipcMain.handle('read', (event, filename) => {
       util.properties.capabilities.should.deep.equal({ copy: ['clipboard'], load: ['files'] });
     });
 
+    it('inventories direct window globals that contextBridge does not cover', async () => {
+      const { of } = await scan({ 'package.json': PACKAGE, 'preload.js': `
+window.files = { open: (p) => require('fs').readFileSync(p) };
+Object.assign(window, { bridge: () => 1, count: 2 });
+Object.defineProperty(window, 'legacy', { value: () => 1 });
+window.location = '/home';` });
+      const globals = of('GLOBAL_EXPOSURE_JS_CHECK');
+      globals.flatMap(i => i.properties.members).should.include.members(['files', 'bridge', 'count', 'legacy']);
+      globals.flatMap(i => i.properties.members).should.not.include('location');
+      globals.every(i => i.severity.name === 'INFORMATIONAL').should.equal(true);
+    });
+
     it('treats a pass-through preload as reaching every channel', async () => {
       const { of } = await scan({ 'package.json': PACKAGE, 'main.js': `
 const { ipcMain, BrowserWindow } = require('electron');
