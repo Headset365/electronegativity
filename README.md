@@ -63,6 +63,19 @@ To update a global install, run the `npm install -g` command again.
 * In source folders, tests, fixtures, vendored code, tooling folders (`scripts`, `tools`, dot-folders) and minified files are skipped by default (`--all-files` to include them). In a packaged app (`app.asar`, `resources/app`) and in front-end code downloaded from a server, everything that ships is scanned, including `scripts/` and `.min.js` bundles, and the packages in its `node_modules` stand in for the missing lockfile in the dependency advisory and end-of-life checks. Bundles of libraries (`vendor.min.js`, `chunk-vendors.js`) are recognized by the banner of the first library. Vendored code includes bower and jspm folders (`.bowerrc`) and copied libraries, recognized by a header comment naming the file with a version and license (e.g. `js/jquery.js`).
 * Validated on Signal Desktop, Element, VS Code, Mattermost, GitHub Desktop, Hyper and Electron Fiddle: no parse errors, and the remaining HIGH findings were confirmed by hand. Cross-checked against old releases with published vulnerabilities, see [Known vulnerabilities](#known-vulnerabilities).
 
+### Merged from Electron-Dynamic
+
+The black-box side of [Electron-Dynamic](https://github.com/Headset365/Electron-Dynamic) (`electron-audit`) now lives here, in JavaScript and with no new dependencies:
+
+* **Installers and packages** (`-i Setup.exe`): electron-builder NSIS installers and portable executables (solid or not, deflate or LZMA; the app-*.7z inside, with its own pure-JavaScript 7z / LZMA / LZMA2 / BCJ / BCJ2 reader), Squirrel.Windows `Setup.exe`, `.7z`, `.zip` and `.nupkg`. The installer's own signature, the URL protocols and file types it registers, and web installers' package URLs are reported. See [Installers and packages](#installers-and-packages).
+* **Traffic checks**: cleartext HTTP and WebSockets, secrets in URLs, responses and WebSocket messages, credentials or user input sent to third parties, IDOR candidates, reflected input, Basic auth and cookie flags, on a saved capture (`--ingest capture.har` or Burp XML) or live in watch mode, where every window's DevTools protocol connection, the session's `webRequest` events and the main process's Node `http`/`https` feed them. Watch mode also reports secrets written to the consoles, uncaught exceptions and CSP violations. See [Traffic](#traffic).
+* **Data at rest** (`--user-data`, and after every watch session): secrets in Local Storage, Session Storage and IndexedDB (a read-only LevelDB reader) and unencrypted cookies, and **where a remembered password went** (`--canary`): plaintext, UTF-16, base64 at any offset, hex, URL encoding, decoded LevelDB stores and the Windows registry, with a before/after comparison of the app's folders and the Credential Manager. See [Data at rest](#data-at-rest).
+* **Storage and secrets in code**: files written with secrets, `electron-store` without (or with a constant) `encryptionKey`, cookies set without their flags, a *Saved credentials* inventory of every read and write of a credential with its protection, and hard-coded secrets (provider keys, secret-named assignments, entropy in configuration files, native modules and helper binaries).
+* **The packaged executable**: app.asar compared with the integrity hash embedded at build time, the code signature (verified by Windows or macOS when the scan runs there), exploit mitigations (ASLR, DEP, CFG; PIE, NX, RELRO), and `resources/app-update.yml`.
+* **Vulnerability intelligence**: CISA KEV (exploited in the wild) and FIRST EPSS on every advisory, malicious package versions, and the Chromium CVEs the bundled Chromium misses, minus the fixes Electron's release notes say were backported.
+* **Reports**: a Word report (`-o report.docx`) grouped by who can exploit each finding, with Appendix A of outdated components; a CycloneDX 1.5 SBOM (`-o report.cdx.json`); several outputs in one run (`-o report.html,report.json`); risk and external-only scores; your own notes per check (`--finding-notes`).
+* **Triage**: accepted risks by check, file or text with an owner and an expiry date (`--suppress`), expiry dates on baseline entries, and a comparison with the previous scan (`--compare`). See [CI/CD](#cicd).
+
 ## Checks
 
 Checks run on JavaScript/TypeScript, HTML, `package.json`/`electron-builder.json` and lockfiles. Global checks combine the findings of several files, e.g. to report a protection that is missing from the whole application.
@@ -81,7 +94,12 @@ Checks run on JavaScript/TypeScript, HTML, `package.json`/`electron-builder.json
 | Downloads and updates | `DOWNLOAD_JS_CHECK` (auto-opened downloads, server-chosen file names), `UPDATE_SECURITY_*` (HTTP feeds, unverified signatures, downgrades) |
 | Outdated software | `ELECTRON_VERSION_JSON_CHECK`, `AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK`, `UNSUPPORTED_VERSION_GLOBAL_CHECK`, `DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK` (also for library copies bundled with the app), `END_OF_LIFE_LIBRARY_GLOBAL_CHECK` (AngularJS, jQuery 1.x/2.x, Bootstrap 2-4; works offline) |
 | Attack surface inventory | `WINDOW_SUMMARY_JS_CHECK`, `EXPOSED_API_JS_CHECK` (informational, shown as tables in the HTML report) |
-| Runtime (`--watch`) | `RUNTIME_NODE_INTEGRATION`, `RUNTIME_CONTEXT_ISOLATION`, `RUNTIME_SANDBOX`, `RUNTIME_WEB_SECURITY`, `RUNTIME_CSP`, `RUNTIME_INSECURE_LOAD`, `RUNTIME_NAVIGATION`, `RUNTIME_NEW_WINDOW`, `RUNTIME_WEBVIEW`, `RUNTIME_OPEN_EXTERNAL`, `RUNTIME_OPEN_PATH`, `RUNTIME_PERMISSION`, `RUNTIME_PERMISSION_CHECK`, `RUNTIME_CERTIFICATE_ERROR`, `RUNTIME_DOM_INJECTION`, `RUNTIME_MARKER`, `RUNTIME_IPC`, `RUNTIME_COVERAGE`, `RUNTIME_WINDOW_COVERAGE`, `PACKAGED_FUSES` |
+| Storage and secrets | `PLAINTEXT_SECRETS_JS_CHECK`, `SECRET_FILE_WRITE_JS_CHECK`, `ELECTRON_STORE_ENCRYPTION_JS_CHECK`, `COOKIE_FLAGS_JS_CHECK`, `CREDENTIAL_ACCESS_JS_CHECK` (the *Saved credentials* table), `HARDCODED_SECRET` (code, configuration files, native modules and helper binaries; `-l`/`-x HardcodedSecretsCheck`) |
+| Packaged executable | `ASAR_INTEGRITY`, `CODE_SIGNING`, `BINARY_HARDENING`, `UPDATE_SECURITY_PACKAGED` (`-l`/`-x PackagedBinaryCheck`); for installers `INSTALLER_FILE_HANDLER` |
+| Vulnerability intelligence | `MALICIOUS_DEPENDENCY`, `CHROMIUM_ADVISORIES` (with an HTML or JSON report: KEV and EPSS in the dependency table) |
+| Traffic (`--ingest`, `--watch`) | `TRAFFIC_CLEARTEXT_HTTP`, `TRAFFIC_SECRET_IN_URL`, `TRAFFIC_AUTH_TO_THIRD_PARTY`, `TRAFFIC_USER_INPUT_TO_THIRD_PARTY`, `TRAFFIC_STATE_CHANGE_NO_AUTH`, `TRAFFIC_IDOR_CANDIDATE`, `TRAFFIC_REFLECTED_INPUT`, `TRAFFIC_BASIC_AUTH`, `TRAFFIC_SECRET_IN_RESPONSE`, `TRAFFIC_INSECURE_COOKIE`, `TRAFFIC_WS_CLEARTEXT`, `TRAFFIC_WS_SECRET_IN_URL`, `TRAFFIC_WS_HTML_MESSAGE`, `TRAFFIC_WS_SECRET_IN_MESSAGE` |
+| Data at rest (`--user-data`, `--canary`, `--watch`) | `STORAGE_SECRET_AT_REST`, `STORAGE_COOKIE_AT_REST`, `STORAGE_CREDENTIAL_AT_REST`, `STORAGE_CREDENTIAL_TRACE` |
+| Runtime (`--watch`) | `RUNTIME_SECRET_IN_CONSOLE`, `RUNTIME_UNCAUGHT_EXCEPTION`, `RUNTIME_CSP_VIOLATION`, `RUNTIME_NODE_INTEGRATION`, `RUNTIME_CONTEXT_ISOLATION`, `RUNTIME_SANDBOX`, `RUNTIME_WEB_SECURITY`, `RUNTIME_CSP`, `RUNTIME_INSECURE_LOAD`, `RUNTIME_NAVIGATION`, `RUNTIME_NEW_WINDOW`, `RUNTIME_WEBVIEW`, `RUNTIME_OPEN_EXTERNAL`, `RUNTIME_OPEN_PATH`, `RUNTIME_PERMISSION`, `RUNTIME_PERMISSION_CHECK`, `RUNTIME_CERTIFICATE_ERROR`, `RUNTIME_DOM_INJECTION`, `RUNTIME_MARKER`, `RUNTIME_IPC`, `RUNTIME_COVERAGE`, `RUNTIME_WINDOW_COVERAGE`, `PACKAGED_FUSES` |
 
 The outdated software checks need network access: they query [releases.electronjs.org](https://releases.electronjs.org) (cached for 12 hours) and the [OSV](https://osv.dev) vulnerability database. Offline, they print a warning and are skipped; `--offline` skips them without trying.
 
@@ -136,7 +154,7 @@ $ electronegativity -h
 |    Option    |                 Description                       |
 |:------------:|:-------------------------------------------------:|
 | -V           | output the version number                         |
-| -i, --input  | input (directory, .js, .html, .asar, or an installed app's folder or executable) |
+| -i, --input  | input (directory, .js, .html, .asar, an installed app's folder or executable, or an installer or package: NSIS or Squirrel `.exe`, `.7z`, `.zip`, `.nupkg`) |
 | --app <location> | guided run: find the app in this install folder (or its executable), scan it, then walk through watch sessions, writing every report to one results folder |
 | --out <dir> | results folder for `--app` (default `electronegativity-results-<date>`) |
 | --sessions <count> | number of watch sessions `--app` runs without asking (`0` for the static scan only) |
@@ -144,7 +162,7 @@ $ electronegativity -h
 | -x, --exclude-checks <excludedCheckNames> | skip the specified checks list, passed in csv format |
 | -s, --severity | only return findings with the specified level of severity or above |
 | -c, --confidence | only return findings with the specified level of confidence or above |
-| -o, --output <filename> | save the results to a file: `.html` report, `.json`, `.sarif` or `.csv`. The `-s` and `-c` thresholds apply |
+| -o, --output <filename> | save the results to a file: `.html` report, `.json`, `.sarif`, `.csv`, `.docx` (Word report) or `.cdx.json` (CycloneDX SBOM); several at once separated by commas. The `-s` and `-c` thresholds apply |
 | -r, --relative | show relative path for files |
 | -v, --verbose <bool> | show the description for the findings, defaults to true |
 | -u, --upgrade <current version..target version> | run Electron upgrade checks, eg -u 22..32 to check an upgrade from Electron 22 to 32 (covers Electron 5 to 32) |
@@ -157,6 +175,17 @@ $ electronegativity -h
 | --fail-on <severity> | exit with code 1 when a reported finding has this severity or higher (`high`, `medium`, `low`, `informational`); 2 for invalid arguments |
 | --remote <url> | also scan the front end served at this URL: its page, scripts, source maps and the templates and chunks the code names (can be repeated) |
 | --remote-header <header> | header sent with `--remote` and watch-mode downloads to the same site, e.g. `"Cookie: session=..."` for a test account (can be repeated) |
+| --ingest <file> | run the traffic checks on a saved capture: a HAR file or Burp Suite "Save items" XML (can be repeated; works without `-i`), see [Traffic](#traffic) |
+| --scope <domain> | a domain the app itself uses, for the traffic checks to tell its hosts from third parties (learned from the traffic when not given; can be repeated) |
+| --no-watch-traffic | in watch mode, don't run the traffic checks inside the app |
+| --user-data <dir> | review the app's profile folder for secrets at rest; `auto` finds it by the app's name (watch mode reviews it after the session), see [Data at rest](#data-at-rest) |
+| --canary <password> | a unique test password typed into the app with "remember me": find where it was stored and whether it is encrypted (can be repeated) |
+| --search-dir <dir> | another folder to search for the `--canary` password (can be repeated) |
+| --show-secrets | keep the full values of secrets found at rest in the report (don't share such a report) |
+| --no-nvd | don't look up the Chromium CVEs of the app's Electron version in NVD |
+| --finding-notes <file> | your own notes per check or family, shown in the HTML, JSON and Word reports (see `docs/finding-notes.example.json`) |
+| --suppress <file> | accepted risks by fingerprint, check or file, with a reason, owner and expiry date (see `docs/suppressions.example.json`) |
+| --compare <report> | an earlier JSON report: mark each finding new, unchanged or changed, and list what was fixed |
 | --diagnostics <file> | write a sanitized troubleshooting report, see [Diagnostics](#diagnostics) |
 | --redact <terms> | extra terms to remove from the diagnostics report, comma separated |
 | -h, --help   | output usage information                          |
@@ -182,6 +211,36 @@ $ electronegativity -i /path/to/electron/app -v -u 22..32
 ```
 
 Note: if you're running into the Fatal Error "JavaScript heap out of memory", you can run node using ```node --max-old-space-size=4096 electronegativity -i /path/to/asar/archive -o result.csv```
+
+### Installers and packages
+
+Point `-i` at what the vendor ships: the app inside is unpacked to a temporary folder and scanned, with its executable, and the installer reports on itself.
+
+```
+$ electronegativity -i MyApp-Setup-1.2.3.exe -o report.html,report.docx
+```
+
+NSIS installers built by electron-builder (solid or not, zlib/deflate or LZMA; with bzip2 the script header can't be read, but the stored app still is) and portable executables, Squirrel.Windows `Setup.exe` (the `.nupkg` in its resources), and `.7z`, `.zip` and `.nupkg` packages are read in JavaScript, on any host. A multi-architecture installer is scanned through its x64 app. NSIS web installers download the app at install time: the tool names the package URL instead. Encrypted 7z archives are refused. The installer's signature (`CODE_SIGNING`), the URL protocols and file types it registers (`INSTALLER_FILE_HANDLER`), its size and SHA-256 are reported.
+
+### Traffic
+
+The traffic checks look at what the app sends and receives, without sending anything themselves:
+
+```
+$ electronegativity --ingest capture.har -o report.html                    # a HAR from DevTools or a proxy
+$ electronegativity -i ./MyApp --ingest burp-items.xml --scope example.com  # Burp "Save items", with the code
+```
+
+Watch mode runs the same checks inside the app during the session: each window's DevTools protocol connection gives the headers actually sent (cookies included), response headers and text bodies, and WebSocket frames; the session's `webRequest` events cover requests no window sees (`electron.net`, service workers); Node's `http`/`https` in the main process are observed too (headers only). Only the findings leave the app, with secrets reduced to a short prefix. When the app attaches its own debugger to a window, the observer steps aside for that window. The first-party scope is the site the app's windows load and the hosts that set its cookies, or `--scope`. A Burp capture of https traffic also confirms `CERTIFICATE_PINNING_GLOBAL_CHECK`: the proxy's certificate was accepted.
+
+### Data at rest
+
+```
+$ electronegativity --watch "C:\Program Files\MyApp" --canary "Zq7-test-Pw!2026" -o report.html
+$ electronegativity -i ./MyApp --user-data "%APPDATA%\MyApp" -o report.html
+```
+
+After a watch session (or with `--user-data`), the app's profile folder is read, never written: Local Storage, Session Storage and IndexedDB are decoded (LevelDB, Snappy included) and searched for secrets, and the cookie store (read from a copy, with Node's SQLite) for cookies kept unencrypted or under Chromium's fixed-key fallback. With `--canary`, type a unique throwaway password into the app's login with "remember me" ticked, and pass the same value: the app's folders (`%APPDATA%`, `%LOCALAPPDATA%`, `%PROGRAMDATA%` and `~/.config` by app, package and publisher name, the updater folder, dot-folders, the install folder, the profile the app reported, `--search-dir`) and its `HKCU\Software` key are searched for it in plaintext and reversible encodings. In watch mode the folders and the Windows Credential Manager are recorded before the app starts, so when the password isn't found the report shows where the app did write, and which files hold DPAPI or safeStorage ciphertext. Nothing is decrypted, and values are redacted unless `--show-secrets` is given.
 
 ### Guided run of an installed app
 
@@ -307,7 +366,13 @@ Then gate pull requests on new findings only:
     sarif_file: electronegativity.sarif
 ```
 
-The SARIF upload shows the findings as GitHub code scanning alerts.
+The SARIF upload shows the findings as GitHub code scanning alerts, with stable fingerprints (`partialFingerprints`).
+
+Baseline entries accept two optional fields, `owner` and `expires` (`YYYY-MM-DD`): an expired entry stops applying and its finding is reported again. To accept whole groups of findings, give a suppressions file with a reason for each rule, e.g. `{"check": "TRAFFIC_*", "file": "*.internal.example.com*", "reason": "internal test hosts", "owner": "platform", "expires": "2026-12-31"}` (see `docs/suppressions.example.json`): accepted findings are listed apart in the reports, marked as suppressed in SARIF, and don't count for the scores or `--fail-on`. `--compare previous.json` marks each finding new, unchanged or changed in severity (SARIF `baselineState`), adds a "New since the previous scan only" filter to the HTML report, and lists what was fixed.
+
+```
+$ electronegativity -i . --suppress accepted-risks.json --compare last-release.json -o report.json,report.html
+```
 
 ### Programmatically
 

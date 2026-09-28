@@ -142,6 +142,20 @@ the limits that remain, so the boundaries of the analysis stay clear.
   watch mode downloads with the app's own session. Templates or chunks guessed from the code are fetched without the
   session after a watch session unless `--remote-header` is given.
 - **Minified code without source maps.** Scanned as is; the data-flow checks follow it less well than original sources.
+- **Installers.** `-i` unpacks NSIS installers (zlib and LZMA script headers), 7z archives (LZMA, LZMA2, BCJ, BCJ2,
+  Deflate, Copy) and zip-based packages (MSIX/APPX, `.nupkg`, Squirrel). Not handled: NSIS installers whose script
+  header is bzip2-compressed, encrypted 7z archives (refused with a message), macOS `.dmg`/`.pkg`, and Linux
+  AppImage/`.deb`/`.rpm`. Extract those by hand (`7z x`, `hdiutil attach`, `--appimage-extract`, `dpkg-deb -x`,
+  `rpm2cpio | cpio -id`) and pass the folder.
+- **Operating system checks.** Signature verification (`Get-AuthenticodeSignature`, `codesign`), credential lookups
+  (`cmdkey`, `security`, `secret-tool`) and registry reads (`reg query`) have been tested with mocked command output
+  only, not on real Windows and macOS hosts.
+- **Main-process traffic.** Watch mode records requests from Node's `http`/`https` modules and the renderer, but only
+  the headers of main-process responses, and requests made with Node's global `fetch` (undici) are not seen.
+- **No interception certificate.** `--ingest` reads captures from Burp or a HAR file; the tool does not install its own
+  CA or proxy traffic itself. Runtime file writes by the app are found by the canary search, not observed as they happen.
+- **Chromium advisories.** Looked up from NVD by Chromium version; without `NVD_API_KEY` the lookup is rate-limited and
+  slow (`--no-nvd` skips it).
 
 ## Requested, not implemented
 
