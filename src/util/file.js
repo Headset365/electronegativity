@@ -10,6 +10,7 @@ import { consequenceOf, validationHint } from '../finder/consequences.js';
 import { cycloneDx } from '../report/cyclonedx.js';
 import { renderDocx } from '../report/docx.js';
 import { scores } from '../report/scores.js';
+import { fingerprints } from './baseline.js';
 
 const VER = pkg.version;
 const MANIFEST_FILES = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'electron-builder.json', 'electron-builder.yml', 'electron-builder.yaml'];
@@ -239,15 +240,25 @@ function reportProperties(properties) {
   return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
+// a suppressed finding in the reports: what it was and why it is accepted
+const suppressedEntry = (issue, fingerprint) => ({ id: issue.id, severity: issue.severity.name, file: issue.file, line: issue.location ? issue.location.line : undefined,
+  description: issue.description, fingerprint, ...issue.suppression });
+
 function jsonReport(result, meta) {
   const summary = {};
   for (const issue of result) summary[issue.severity.name] = (summary[issue.severity.name] || 0) + 1;
+  const prints = fingerprints(result, meta.input);
+  const suppressed = meta.suppressed || [];
+  const suppressedPrints = fingerprints(suppressed, meta.input);
   return JSON.stringify({
     tool: 'Electronegativity',
     ...meta,
     summary,
     scores: scores(result),
-    issues: result.map(issue => ({
+    suppressed: suppressed.map((issue, i) => suppressedEntry(issue, suppressedPrints[i].fingerprint)),
+    issues: result.map((issue, i) => ({
+      fingerprint: prints[i].fingerprint,
+      comparison: issue.comparison,
       id: issue.id,
       severity: issue.severity.name,
       confidence: issue.confidence.name,
@@ -324,7 +335,14 @@ export function writeIssues(root, isRelative, filename, result, isSarif, meta = 
     }
 
     const seenRules = new Set();
-    result.forEach(issue => {
+    const prints = fingerprints(result, root);
+    const suppressedIssues = meta.suppressed || [];
+    const suppressedPrints = fingerprints(suppressedIssues, root);
+    const BASELINE_STATE = { new: 'new', unchanged: 'unchanged', changed: 'updated' };
+    const reportedCount = result.length;
+    [...result, ...suppressedIssues].forEach((issue, index) => {
+      const suppressedIssue = index >= reportedCount;
+      const fingerprint = suppressedIssue ? suppressedPrints[index - reportedCount].fingerprint : prints[index].fingerprint;
       if (!seenRules.has(issue.id)) {
         issues.runs[0].tool.driver.rules.push({
           id: issue.id,
@@ -347,8 +365,11 @@ export function writeIssues(root, isRelative, filename, result, isSarif, meta = 
         level: `${issue.manualReview ? 'note' : 'warning'}`,
         message: {
           text: issue.description
-        }
+        },
+        partialFingerprints: { 'electronegativity/v1': fingerprint },
       };
+      if (!suppressedIssue && issue.comparison) result.baselineState = BASELINE_STATE[issue.comparison];
+      if (suppressedIssue) result.suppressions = [{ kind: 'external', status: 'accepted', justification: [issue.suppression.reason, issue.suppression.owner && `owner: ${issue.suppression.owner}`, issue.suppression.expires && `until ${issue.suppression.expires}`].filter(Boolean).join('; ') }];
 
       result.locations = [
         {

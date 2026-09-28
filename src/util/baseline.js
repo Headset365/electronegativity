@@ -44,8 +44,10 @@ export function loadBaseline(file) {
  * Splits issues into the ones to report and the ones accepted by the baseline.
  * Returns { kept, suppressed, stale } where stale are baseline entries that no longer match anything.
  */
-export function applyBaseline(issues, baseline, root) {
-  const accepted = new Map(baseline.findings.map(f => [f.fingerprint, f]));
+export function applyBaseline(issues, baseline, root, today = new Date().toISOString().slice(0, 10)) {
+  // an entry past its expiry date (YYYY-MM-DD) no longer accepts its finding
+  const expired = baseline.findings.filter(f => f.expires && String(f.expires) < today);
+  const accepted = new Map(baseline.findings.filter(f => !expired.includes(f)).map(f => [f.fingerprint, f]));
   const prints = fingerprints(issues, root);
   const kept = [];
   const suppressed = [];
@@ -54,18 +56,19 @@ export function applyBaseline(issues, baseline, root) {
     const entry = accepted.get(prints[i].fingerprint);
     if (entry) {
       matched.add(entry.fingerprint);
-      suppressed.push({ ...issue, baselineReason: entry.reason });
+      suppressed.push({ ...issue, baselineReason: entry.reason, suppression: { reason: entry.reason, owner: entry.owner, expires: entry.expires, source: 'baseline' } });
     } else {
       kept.push(issue);
     }
   });
-  const stale = baseline.findings.filter(f => !matched.has(f.fingerprint));
-  return { kept, suppressed, stale };
+  const stale = baseline.findings.filter(f => !matched.has(f.fingerprint) && !expired.includes(f));
+  return { kept, suppressed, stale, expired };
 }
 
 // Writes the current findings as a baseline, keeping the reasons already recorded for known findings
 export function writeBaseline(file, issues, root, previous) {
   const reasons = new Map((previous ? previous.findings : []).map(f => [f.fingerprint, f.reason]));
+  const extra = new Map((previous ? previous.findings : []).map(f => [f.fingerprint, { owner: f.owner, expires: f.expires }]));
   const prints = fingerprints(issues, root);
   const findings = issues.map((issue, i) => ({
     fingerprint: prints[i].fingerprint,
@@ -73,7 +76,10 @@ export function writeBaseline(file, issues, root, previous) {
     severity: issue.severity.name,
     file: prints[i].file,
     code: prints[i].code,
-    reason: reasons.get(prints[i].fingerprint) || ''
+    reason: reasons.get(prints[i].fingerprint) || '',
+    // who accepted it, and until when (optional; kept when the baseline is rewritten)
+    ...(extra.get(prints[i].fingerprint) && extra.get(prints[i].fingerprint).owner ? { owner: extra.get(prints[i].fingerprint).owner } : {}),
+    ...(extra.get(prints[i].fingerprint) && extra.get(prints[i].fingerprint).expires ? { expires: extra.get(prints[i].fingerprint).expires } : {}),
   }));
   fs.writeFileSync(file, JSON.stringify({ version: BASELINE_VERSION, generatedAt: new Date().toISOString(), findings }, null, 2) + '\n');
   return findings.length;

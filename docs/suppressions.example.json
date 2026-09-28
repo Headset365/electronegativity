@@ -1,0 +1,8 @@
+{
+  "_comment": "Accepted risks for --suppress. Each entry needs a 'reason' and at least one of 'fingerprint' (from the JSON or SARIF report), 'check' (a check id, or a family ending in '*' such as 'TRAFFIC_*') or 'file' (a glob over the finding's file or host). Optional: 'match' (a substring of the description or code), 'owner', 'expires' (YYYY-MM-DD; an expired entry stops applying and is reported). Suppressed findings are listed apart, leave the scores and --fail-on, and are marked as suppressed in SARIF.",
+  "suppressions": [
+    { "fingerprint": "0123456789abcdef01234567", "reason": "Accepted: tracked in SEC-123", "owner": "appsec", "expires": "2026-12-31" },
+    { "check": "PACKAGED_FUSES", "match": "LoadBrowserProcessSpecificV8Snapshot", "reason": "Not applicable to this build" },
+    { "check": "TRAFFIC_*", "file": "*.internal.example.com*", "reason": "Internal test hosts only", "owner": "platform team" }
+  ]
+}

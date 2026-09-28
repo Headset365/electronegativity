@@ -29,6 +29,29 @@ function sampleBlock(sample) {
 }
 
 const VALIDATION_LABELS = { confirmed: 'Confirmed at runtime', observed: 'Seen at runtime', safe: 'Ruled out at runtime' };
+// accepted risks (--baseline, --suppress) and the comparison with the previous scan (--compare)
+function triageSection(meta) {
+  const suppressed = meta.suppressed || [];
+  const comparison = meta.comparison;
+  let out = '';
+  if (comparison) out += `
+  <h2>Since the previous scan</h2>
+  <p class="note">Compared with ${escapeHtml(comparison.file)}: <b>${escapeHtml(comparison.new)}</b> new, <b>${escapeHtml(comparison.unchanged)}</b> unchanged, <b>${escapeHtml(comparison.changed.length)}</b> with a different severity, <b>${escapeHtml(comparison.fixed.length)}</b> fixed.</p>${comparison.changed.length ? `
+  <ul>${comparison.changed.map(c => `<li><code>${escapeHtml(c.id)}</code> in ${escapeHtml(c.file)}: ${escapeHtml(c.from)} → ${escapeHtml(c.to)}</li>`).join('')}</ul>` : ''}${comparison.fixed.length ? `
+  <details><summary>Fixed since (${escapeHtml(comparison.fixed.length)})</summary><ul>${comparison.fixed.map(f => `<li><span class="badge sev-${escapeHtml(String(f.severity).toLowerCase())}">${escapeHtml(f.severity)}</span> <code>${escapeHtml(f.id)}</code> ${escapeHtml(f.file)}${f.line ? `:${escapeHtml(f.line)}` : ''} ${escapeHtml(f.description)}</li>`).join('')}</ul></details>` : ''}`;
+  if (suppressed.length) out += `
+  <h2>Accepted risks (${suppressed.length})</h2>
+  <p class="note">Findings accepted in the baseline or the suppressions file: they are not counted in the scores or by --fail-on.</p>
+  <div class="table-wrap"><table class="surface">
+    <thead><tr><th>Finding</th><th>Location</th><th>Reason</th><th>Owner</th><th>Until</th></tr></thead>
+    <tbody>${suppressed.map(i => `
+      <tr><td><span class="badge sev-${escapeHtml(i.severity.name.toLowerCase())}">${escapeHtml(i.severity.name)}</span> <code>${escapeHtml(i.id)}</code><div class="muted">${escapeHtml(String(i.description).slice(0, 200))}</div></td><td class="loc">${escapeHtml(place(i))}</td>
+        <td>${escapeHtml((i.suppression && i.suppression.reason) || i.baselineReason || '')}</td><td>${escapeHtml((i.suppression && i.suppression.owner) || '')}</td><td>${escapeHtml((i.suppression && i.suppression.expires) || '')}</td></tr>`).join('')}
+    </tbody>
+  </table></div>`;
+  return out;
+}
+
 // your own notes on the finding (--finding-notes)
 function notesBlock(notes) {
   if (!notes) return '';
@@ -58,10 +81,10 @@ function findingRow(issue, index) {
   const searchText = [issue.id, issue.file, issue.description, String(issue.sample ?? '').slice(0, SAMPLE_LIMIT), consequence && consequence.text].join(' ').toLowerCase();
 
   return `
-      <tr class="finding" data-severity="${sev}" data-confidence="${conf}" data-check="${escapeHtml(issue.id)}" data-manual="${issue.manualReview ? 1 : 0}" data-route="${route}" data-validation="${escapeHtml(validationState(issue))}" data-text="${escapeHtml(searchText)}" data-index="${index}">
+      <tr class="finding" data-severity="${sev}" data-confidence="${conf}" data-check="${escapeHtml(issue.id)}" data-manual="${issue.manualReview ? 1 : 0}" data-route="${route}" data-validation="${escapeHtml(validationState(issue))}" data-new="${issue.comparison === 'new' || issue.comparison === 'changed' ? 1 : 0}" data-text="${escapeHtml(searchText)}" data-index="${index}">
         <td><span class="badge sev-${sev.toLowerCase()}">${sev === 'INFORMATIONAL' ? 'INFO' : sev}</span></td>
         <td>
-          <div class="check">${escapeHtml(issue.id)}${issue.manualReview ? ' <span class="review" title="Requires manual review">review</span>' : ''}</div>
+          <div class="check">${escapeHtml(issue.id)}${issue.manualReview ? ' <span class="review" title="Requires manual review">review</span>' : ''}${issue.comparison === 'new' ? ' <span class="review" title="Not in the previous report">new</span>' : issue.comparison === 'changed' ? ' <span class="review" title="Its severity changed since the previous report">severity changed</span>' : ''}</div>
           <div class="desc">${escapeHtml(issue.description)}</div>
           ${consequence ? `<div class="consequence"><span class="route route-${route}" title="Who can exploit it">${escapeHtml(consequence.label)}</span> ${escapeHtml(consequence.text)}</div>` : ''}
           ${validationBlock(issue)}
@@ -475,7 +498,8 @@ ${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check=
     <label>Validation <select id="validation">
       <option value="">Any</option><option value="confirmed">Confirmed at runtime</option><option value="observed">Seen at runtime</option><option value="safe">Ruled out at runtime</option><option value="open">Needs review, not validated</option>
     </select></label>
-    <label><input type="checkbox" id="manual"> Manual review only</label>
+    <label><input type="checkbox" id="manual"> Manual review only</label>${meta.comparison ? `
+    <label><input type="checkbox" id="onlynew"> New since the previous scan only</label>` : ''}
     <button type="button" id="expand" class="linkish">Expand all code</button>
     <span class="count" id="count"></span>
   </div>
@@ -487,6 +511,7 @@ ${[...byCheck.entries()].map(([id, e]) => `    <button type="button" data-check=
     </table>
     <div class="empty" id="empty"${sorted.length === 0 ? '' : ' hidden'}>${sorted.length === 0 ? 'No issues found.' : 'No findings match the current filters.'}</div>
   </div>
+${triageSection(meta)}
 ${dependencySection(meta.dependencies)}
 ${errors.length > 0 ? `
   <h2>Files that could not be analyzed (${errors.length})</h2>
@@ -505,6 +530,7 @@ ${errors.length > 0 ? `
   const route = document.getElementById('route');
   const validation = document.getElementById('validation');
   const expand = document.getElementById('expand');
+  const onlyNew = document.getElementById('onlynew');
   let activeCheck = null;
 
   function apply() {
@@ -518,6 +544,7 @@ ${errors.length > 0 ? `
         (!manual.checked || row.dataset.manual === '1') &&
         (!route.value || row.dataset.route === route.value) &&
         (!validation.value || row.dataset.validation === validation.value) &&
+        (!onlyNew || !onlyNew.checked || row.dataset.new === '1') &&
         (!activeCheck || row.dataset.check === activeCheck) &&
         (!q || row.dataset.text.includes(q));
       row.hidden = !show;
@@ -536,7 +563,7 @@ ${errors.length > 0 ? `
     checkButtons.forEach(b => b.classList.toggle('active', b.dataset.check === activeCheck));
     apply();
   }));
-  [search, confidence, manual, route, validation].forEach(el => el.addEventListener('input', apply));
+  [search, confidence, manual, route, validation, onlyNew].filter(Boolean).forEach(el => el.addEventListener('input', apply));
   const depRows = [...document.querySelectorAll('tr.dep')];
   const depSearch = document.getElementById('depsearch');
   const depIssues = document.getElementById('depissues');

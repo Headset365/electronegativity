@@ -28,6 +28,7 @@ import { linkCredentialStores } from './finder/checks/AtomicChecks/StorageChecks
 import { analyzeBinary } from './binary/index.js';
 import { installerIssues } from './unpack/findings.js';
 import { loadFindingNotes, applyFindingNotes } from './report/notes.js';
+import { loadSuppressions, applySuppressions, compareWithReport } from './util/triage.js';
 import { enrichDependencies, chromiumAdvisories, electronReleases, chromiumOf, kevCatalog } from './intel/index.js';
 
 export default async function run(options, forCli = false) {
@@ -348,12 +349,27 @@ async function scan(options, forCli) {
   let suppressed = [];
   let stale = [];
   let previousBaseline;
+  let expired = [];
   if (options.baseline && input_exists(options.baseline)) {
     previousBaseline = loadBaseline(options.baseline);
-    ({ kept: issues, suppressed, stale } = applyBaseline(issues, previousBaseline, options.input));
+    ({ kept: issues, suppressed, stale, expired } = applyBaseline(issues, previousBaseline, options.input));
+  }
+  const baselineSuppressed = suppressed.length;
+  const triageNotes = expired.map(e => `baseline entry for ${e.id} in ${e.file} expired on ${e.expires}: the finding is reported again`);
+  // accepted risks by check, file or text (--suppress), with reasons, owners and expiry dates
+  if (options.suppress) {
+    const { entries, notes } = loadSuppressions(options.suppress);
+    const applied = applySuppressions(issues, entries, options.input);
+    issues = applied.kept;
+    suppressed = [...suppressed, ...applied.suppressed];
+    triageNotes.push(...notes, ...applied.notes);
+  }
+  for (const note of triageNotes) {
+    errors.push({ file: 'triage', message: note, tolerable: true });
+    if (forCli) console.log(chalk.yellow(note));
   }
   if (options.writeBaseline) {
-    const all = [...issues, ...suppressed];
+    const all = [...issues, ...suppressed.filter(i => !i.suppression || i.suppression.source === 'baseline')];
     const count = writeBaseline(options.writeBaseline, all, options.input, previousBaseline || (input_exists(options.writeBaseline) ? loadBaseline(options.writeBaseline) : undefined));
     if (forCli) console.log(chalk.green(__('baselineWritten', { count, file: options.writeBaseline })));
   }
@@ -386,11 +402,15 @@ async function scan(options, forCli) {
   const reported = issues.filter(issue => issue.severity.value >= options.severitySet.value && issue.confidence.value >= options.confidenceSet.value);
 
   if (options.findingNotes) applyFindingNotes(reported, loadFindingNotes(options.findingNotes));
+  // new, unchanged or changed since an earlier JSON report (--compare), and what was fixed since
+  const comparison = options.compare ? compareWithReport(reported, options.compare, options.input, suppressed) : undefined;
   const manifest = topManifest(filenames, loader) || {};
   for (const output of outputs) {
     writeIssues(options.input, options.isRelative, output, reported, options.isSarif && outputs.length === 1, {
       app: { name: manifest.productName || manifest.name, version: manifest.version },
-      suppressedByBaseline: suppressed.length,
+      suppressedByBaseline: baselineSuppressed,
+      suppressed,
+      comparison,
       electronVersion: electronVersion || null,
       filesScanned: filenames.length,
       globalChecks: globalChecker._enabled_checks.length,
@@ -465,6 +485,7 @@ async function scan(options, forCli) {
     dependencies,
     suppressed,
     staleBaselineEntries: stale,
+    comparison,
     traffic: traffic && traffic.summary,
     atRest: atRest && atRest.summary,
     binary: binary && binary.summary,

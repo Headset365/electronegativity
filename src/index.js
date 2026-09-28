@@ -64,6 +64,8 @@ async function main() {
     .option('--show-secrets', __('showSecretsOptionDescription'))
     .option('--no-nvd', __('nvdOptionDescription'))
     .option('--finding-notes <file>', __('findingNotesOptionDescription'))
+    .option('--suppress <file>', __('suppressOptionDescription'))
+    .option('--compare <report>', __('compareOptionDescription'))
     .option('--diagnostics <file>', __('diagnosticsOptionDescription'))
     .option('--redact <terms>', __('redactOptionDescription'))
     .parse(process.argv);
@@ -140,6 +142,8 @@ async function main() {
     reveal: !!options.showSecrets,
     nvd: options.nvd !== false,
     findingNotes: options.findingNotes,
+    suppress: options.suppress,
+    compare: options.compare,
   };
 
   try {

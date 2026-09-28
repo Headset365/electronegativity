@@ -229,5 +229,7 @@
 	"installerUnpacked": "{{kind}} {{{file}}} décompressé : analyse de l'application qu'il contient",
 	"installerNoApp": "Aucune application Electron (resources/app.asar ou resources/app) n'a été trouvée dans le paquet",
 	"nvdOptionDescription": "ne pas rechercher dans NVD les CVE Chromium de la version d'Electron de l'application (lent sans NVD_API_KEY)",
-	"findingNotesOptionDescription": "un fichier JSON avec vos propres notes par vérification ou famille (explication, étapes, impact, recommandation), affichées dans les rapports HTML et Word ; voir docs/finding-notes.example.json"
+	"findingNotesOptionDescription": "un fichier JSON avec vos propres notes par vérification ou famille (explication, étapes, impact, recommandation), affichées dans les rapports HTML et Word ; voir docs/finding-notes.example.json",
+	"suppressOptionDescription": "un fichier JSON de risques acceptés par empreinte, vérification (TRAFFIC_*) ou fichier, chacun avec une raison et éventuellement un responsable et une date d'expiration : les résultats correspondants sont listés à part et ne comptent ni dans les scores ni pour --fail-on ; voir docs/suppressions.example.json",
+	"compareOptionDescription": "un rapport JSON antérieur de cette application : chaque résultat est marqué nouveau, inchangé ou de gravité modifiée, et ce qui a été corrigé depuis est listé"
 }
