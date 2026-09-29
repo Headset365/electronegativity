@@ -33,10 +33,39 @@ const definitions = [
 ];
 
 const other = ['Other Security Observations', null, 'Additional scanner observations require assessment.', 'Investigate the listed observations and apply the linked guidance.', 'CWE-693: Protection Mechanism Failure'];
+// These paragraphs describe the problem type; the check bullets below them state what the scan actually found.
+const introductions = {
+  'Renderer Isolation Weakened': 'One or more renderers in {app} have reduced separation from privileged application code. The listed settings can increase the harm from untrusted page content if that content reaches the affected window.',
+  'Chromium Security Features Disabled': '{app} changes browser security settings or starts Chromium with switches that weaken its protections. These changes apply to the affected content regardless of whether a particular exploit was observed during the scan.',
+  'Privileged APIs Exposed to Untrusted Content': '{app} exposes privileged APIs or a shared session to content with a different trust level. The affected bridge, preload or session needs to be restricted to the origins and operations the application intends to trust.',
+  'IPC Handlers Trust Renderer Input': 'The listed IPC entry points in {app} accept data from renderers or expose main-process behaviour. Sender identity, argument shape and the permitted operation need to be checked at the handler boundary.',
+  'Unsafe Hand-off of URLs and Files to the Operating System': '{app} passes URLs or paths to operating-system APIs. If a document, link or renderer can control those values, a crafted input may cause the host to open an unintended resource.',
+  'Code or Command Execution from Untrusted Data': '{app} contains an execution path involving data that may come from a less trusted source. The listed evidence identifies the path; control of the command or code must be established before treating it as a confirmed exploit.',
+  'Microsoft Word Integration': '{app} launches Microsoft Word or opens documents that may be supplied by other people. The launch arguments, document path and preservation of Mark-of-the-Web determine whether this flow exposes a user to additional risk.',
+  'Deep Link, Protocol and File Association Handling': '{app} accepts external URLs or files through registered handlers. These entry points cross from an untrusted operating-system input into application code and should accept only recognised actions and paths.',
+  'Insufficient Navigation and Window Controls': 'The affected windows in {app} may navigate to unintended destinations or open additional content. Controls must cover redirects, popups and embedded views as well as direct navigation.',
+  'Missing Permission Handlers': '{app} has a missing or permissive decision point for browser permissions. A request should be checked against the requesting origin and the specific capability before it is granted.',
+  'Cross-Site Scripting Exposure in Content Rendering': '{app} has a path that may render untrusted data as HTML or script-bearing content. A sink or live markup observation alone does not prove attacker control or script execution unless the runtime evidence says so.',
+  'Missing or Weak Content Security Policy': 'The affected pages in {app} have a missing or permissive Content Security Policy. A restrictive policy can limit the effects of injected markup, but it does not replace safe rendering.',
+  'Document Parsing Risks': '{app} imports or parses documents through the listed components. The risk depends on the document formats, parser versions and whether an untrusted document reaches those paths.',
+  'Insecure Electron Fuse Configuration': 'The packaged Electron settings for {app} leave one or more hardening fuses in an insecure state. These settings affect local execution and package integrity; they do not by themselves show a remote attack path.',
+  'Application Code Not Protected Against Inspection or Tampering': 'The distributed code in {app} may be easier to inspect or modify than intended. Source maps expose implementation details, while asar integrity depends on the packaged digest and matching fuses.',
+  'Executable Signing and Exploit Mitigations (hardening)': 'The executable or installer for {app} lacks one or more release hardening measures. Signing and platform mitigations reduce tampering and exploitation opportunities but do not prove an active vulnerability.',
+  'Insecure Update Mechanism': 'The update configuration in {app} may accept releases without adequate transport or publisher verification. The update channel is a supply path and must be checked in the packaged build.',
+  'Development and Debugging Features in Production': 'The production package of {app} retains development or debugging behaviour. The listed items can expose information or expand the actions available to someone using the app.',
+  'Hard-coded Secrets in the Application Package': '{app} contains material identified as a secret in its distributed files. Anyone with the package can inspect those files; the value and its privileges should be checked before rotation.',
+  'Sensitive Data Stored Insecurely': '{app} stores or writes sensitive data through the listed paths. The effective exposure depends on the data involved, its protection at rest and access to the user profile or package.',
+  'Insecure Transport and Certificate Validation': '{app} loads or sends data through insecure transport settings or bypasses certificate checks. The affected URL, certificate path or cookie determines which traffic may be exposed.',
+  'Sensitive Data Exposed in Network Traffic': 'The captured traffic from {app} contains data or destinations that may disclose credentials or user input. The listed hosts and fields need to be checked against the client’s intended data flows.',
+  'Outdated Electron Runtime': 'The Electron release used by {app} may be outside support or missing upstream security fixes. The relevant installed version and advisory evidence determine the upgrade target.',
+  'Outdated Third-Party Components': '{app} contains dependencies with a reported advisory or unsupported release line. The component inventory lists versions, support information and available fixes for prioritisation.',
+  'Known Malicious Package': 'A package version identified as malicious is present in the dependency inventory for {app}. Its role in the build and any exposure of credentials or developer machines should be investigated promptly.',
+  'Other Security Observations': '{app} has a reportable scanner observation outside the named groups. The check description and evidence below identify the affected component and what needs to be assessed.',
+};
 const evidenceOnly = /^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|PRELOAD|IPC_RENDERER_CHANNEL|RUNTIME_IPC$|RUNTIME_MARKER_SENT|CREDENTIAL_ACCESS|DEPENDENCY_INVENTORY|ELECTRON_VERSION)/;
 const observations = new Set(['SOURCE_MAP_SHIPPED', 'STORAGE_CACHED_RESPONSES', 'CERTIFICATE_PINNING', 'WORD_LAUNCH']);
 const normalId = id => String(id || '').replace(/_(JS|HTML|JSON|GLOBAL|LOCK)_CHECK$/, '');
-const location = i => `${i.file || 'Application-wide'}${i.location?.line ? `:${i.location.line}` : ''}`;
+const location = i => `${!i.file || i.file === 'N/A' ? 'Application-wide' : i.file}${i.location?.line ? `:${i.location.line}` : ''}`;
 const nameOf = i => i?.name || i || '';
 const isConfirmed = i => i.validation?.status === 'confirmed' || i.properties?.executed === true ||
   /^RUNTIME_/.test(i.id) && (i.properties?.execution === 'observed' || i.properties?.live === true || i.severity?.name !== 'INFORMATIONAL');
@@ -118,6 +147,7 @@ function noteValues(issues, field) { return unique(issues.flatMap(i => strings(i
 function language(file) {
   return ({ js: 'javascript', cjs: 'javascript', mjs: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx', json: 'json', html: 'html', css: 'css', ps1: 'powershell', sh: 'bash' })[path.extname(file || '').slice(1).toLowerCase()] || 'text';
 }
+function exampleLanguage(source) { return /^\s*</.test(source) ? 'html' : 'javascript'; }
 function code(value, lang) {
   const source = String(value).trim();
   const fence = '`'.repeat(Math.max(3, ...[...source.matchAll(/`+/g)].map(m => m[0].length + 1)));
@@ -125,11 +155,15 @@ function code(value, lang) {
 }
 function details(i) {
   const p = i.properties || {};
-  return [location(i), p.url, p.window, p.channel && `channel ${p.channel}`, p.fuse && `fuse ${p.fuse}=${p.value}`, p.cookie && `cookie ${p.cookie}`, p.host].filter(Boolean).join(' — ');
+  return [location(i), p.url, p.window, p.channel && `channel ${p.channel}`, p.fuse && `fuse ${p.fuse}=${p.value ?? 'unknown'}`,
+    p.cookie && `cookie ${p.cookie}`, p.host, (p.package || p.name) && `${p.package || p.name}${p.version ? `@${p.version}` : ''}`,
+    Array.isArray(p.advisories) && p.advisories.length && `${p.advisories.length} advisories`].filter(Boolean).join(' — ');
 }
 function proseNotes(g) {
   const i = g.items[0].issue;
   const notes = [`Rating basis — ${i.id} at ${location(i)}, ${nameOf(i.severity)} severity, ${nameOf(i.confidence)} confidence; ${isConfirmed(i) ? 'confirmed during a watch session' : 'not confirmed at runtime'}.`];
+  const open = g.issues.filter(issue => issue.manualReview && !isConfirmed(issue));
+  if (open.length) notes.push(`${open.length} instance${open.length === 1 ? '' : 's'} require${open.length === 1 ? 's' : ''} reachability or configuration review; the scan has not confirmed exploitation for those instances.`);
   if (g.definition[0] === 'Sensitive Data Exposed in Network Traffic') notes.push('Remove third-party traffic observations if the listed hosts belong to the client.');
   if (g.definition[0] === 'Microsoft Word Integration') notes.push('Remove the Protected View paragraph if opened documents retain Zone.Identifier.');
   if (g.definition[0] === 'IPC Handlers Trust Renderer Input') notes.push('Remove dead-channel observations if served renderer code uses the channel.');
@@ -146,20 +180,24 @@ function renderGroup(g, meta) {
   const examples = unique(g.issues.map(i => i.sample).filter(Boolean)).slice(0, 8);
   const notes = field => noteValues(g.issues, field).map(value => `- ${safeInline(value)}`);
   const lines = [`---\n${YAML.stringify({ Title: title, Consequence: g.rating.consequence, Likelihood: g.rating.likelihood, Notes: proseNotes(g) }).trimEnd()}\n---`,
-    `# ${title}`, '## Issue Description', `${app}: ${about}`,
+    `# ${title}`, '## Issue Description', (introductions[title] || about).replaceAll('{app}', app),
     ...ids.map(id => `- **${id}** — ${safeInline(g.issues.find(i => i.id === id).description || (typeof __ === 'function' && __(id)) || id)}`),
     ...notes('about'),
     '## Affected', `The following locations or components in ${app} were affected:`,
     ...affected.slice(0, 60).map(x => `- ${safeInline(x)}`),
     ...(affected.length > 60 ? [`- …and ${affected.length - 60} more.`] : []),
     '## Implication', about,
-    ...(consequenceOf(top.id)?.text ? [consequenceOf(top.id).text] : []),
-    ...(worstCase(top.id) ? [`The worst credible outcome is ${worstCase(top.id)}`] : []),
+    ...ids.map(id => consequenceOf(id)?.text ? `- **${id}** — ${consequenceOf(id).text}` : undefined).filter(Boolean),
+    ...(g.rating.consequence === 'N/A' ? ['This observation or hardening item does not establish an exploitable vulnerability on its own.'] :
+      worstCase(top.id) ? [`Potential worst case for ${top.id}: ${worstCase(top.id)}`] : []),
     ...(interactionOf(top.id) ? [`Victim interaction: ${interactionOf(top.id)}.`] : []),
     ...notes('impact'), ...notes('reachability'),
     '## Reproduction and Evidence',
+    `The following evidence was recorded for ${app}. Static observations identify code or configuration; a runtime confirmation is stated explicitly where available.`,
     ...noteValues(g.issues, 'preconditions').map(value => `- **Precondition:** ${safeInline(value)}`),
     ...noteValues(g.issues, 'steps').map(value => `- **Reproduction step:** ${safeInline(value)}`),
+    ...g.issues.slice(0, 12).map(i => `- **${i.id}** at ${safeInline(details(i))}: ${safeInline(i.description)}`),
+    ...(g.issues.length > 12 ? [`- …and ${g.issues.length - 12} further instances; see the affected list or full HTML/JSON report.`] : []),
     ...examples.map(sample => {
       const item = g.issues.find(i => i.sample === sample);
       return `- ${safeInline(location(item))}\n\n${code(sample, language(item.file))}`;
@@ -170,9 +208,11 @@ function renderGroup(g, meta) {
     ...noteValues(g.issues, 'confirm').map(value => `- **How to confirm:** ${safeInline(value)}`),
     ...unique(ids.map(validationHint)).slice(0, 3).map(x => `- ${safeInline(x)}`),
     '## Recommendations', `- ${fix}`, ...notes('recommendation')];
-  if (title === 'Microsoft Word Integration') lines.push('- Preserve Mark-of-the-Web (`Zone.Identifier`) so Word can apply Protected View.', '- Verify the stream on an opened document with `Get-Item <doc> -Stream Zone.Identifier`.');
-  if (title === 'Insecure Electron Fuse Configuration') lines.push('- Re-read packaged fuses with `npx @electron/fuses read --app "<exe>"`.');
-  if (title === 'Application Code Not Protected Against Inspection or Tampering') lines.push('- Check `EnableEmbeddedAsarIntegrityValidation` and `OnlyLoadAppFromAsar` in the fuse finding.', '- Inspect packaged source with `npx @electron/asar extract app.asar out`.');
+  if (title === 'Insecure Electron Fuse Configuration') lines.splice(lines.indexOf('## Recommendations'), 0, '- Re-run the packaged fuse check with `npx @electron/fuses read --app "<exe>"`.');
+  if (title === 'Application Code Not Protected Against Inspection or Tampering') lines.splice(lines.indexOf('## Recommendations'), 0, '- Inspect the packaged asar with `npx @electron/asar extract app.asar out`.');
+  if (title === 'Microsoft Word Integration') lines.splice(lines.indexOf('## Recommendations'), 0, '- Check the document stream with `Get-Item <doc> -Stream Zone.Identifier` on Windows.');
+  if (title === 'Microsoft Word Integration') lines.push('- Preserve Mark-of-the-Web (`Zone.Identifier`) so Word can apply Protected View.');
+  if (title === 'Application Code Not Protected Against Inspection or Tampering') lines.push('- Check `EnableEmbeddedAsarIntegrityValidation` and `OnlyLoadAppFromAsar` in the fuse finding.');
   if (title === 'Sensitive Data Stored Insecurely') lines.push('- Check the `EnableCookieEncryption` fuse when credentials are stored in cookies.');
   if (title === 'Outdated Third-Party Components') {
     const sheet = (meta.outputs || []).find(o => /\.xlsx$/i.test(o));
@@ -184,11 +224,17 @@ function renderGroup(g, meta) {
   for (const id of ids) {
     const remedy = remediationOf(id);
     if (remedy?.fix && remedy.fix !== fix) lines.push(`- **${id}** — ${safeInline(remedy.fix)}`);
-    if (remedy?.example) lines.push(code(remedy.example, /<\w|webPreferences/.test(remedy.example) ? 'javascript' : 'javascript'));
+    if (remedy?.example) lines.push(code(remedy.example, exampleLanguage(remedy.example)));
   }
   const number = /^CWE-(\d+)/.exec(cwe)?.[1];
   lines.push('## References', `- ${cwe}\n\n  https://cwe.mitre.org/data/definitions/${number}.html`);
-  for (const url of unique(g.issues.map(i => i.shortenedURL)).slice(0, 8)) lines.push(`- Check guidance\n\n  ${url}`);
+  const seenReferences = new Set();
+  for (const issue of g.issues) {
+    const url = issue.shortenedURL;
+    if (!url || seenReferences.has(url)) continue;
+    seenReferences.add(url);
+    lines.push(`- ${issue.id} reference\n\n  ${url}`);
+  }
   lines.push('- Electron security guidance\n\n  https://www.electronjs.org/docs/latest/tutorial/security');
   if (title === 'Microsoft Word Integration') lines.push('- Microsoft Protected View\n\n  https://learn.microsoft.com/en-us/office/troubleshoot/word/office-file-opens-in-protected-view');
   return lines.reduce((text, line) => text + (text && text.split('\n').at(-1).startsWith('- ') && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();

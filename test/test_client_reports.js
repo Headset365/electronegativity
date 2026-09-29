@@ -45,6 +45,13 @@ describe('Client report outputs', () => {
     groups.length.should.equal(25);
     groups.find(g => g.definition[0] === 'Missing or Weak Content Security Policy').evidence.map(i => i.id).should.include('CSP_JS_CHECK');
     groups.some(g => g.definition[0] === 'Other Security Observations').should.equal(false);
+    const markdown = renderClientMarkdown(checks.map(id => issue(id, severity.MEDIUM, confidence.FIRM, { sample: '' })), { app: { name: 'Example App' } });
+    const headings = ['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References'];
+    for (const heading of headings) (markdown.match(new RegExp(`^## ${heading}$`, 'gm')) || []).length.should.equal(25);
+    for (const section of markdown.split(/^## (?:Issue Description|Affected|Implication|Reproduction and Evidence|Recommendations|References)$/m).slice(1))
+      section.trim().length.should.be.greaterThan(0);
+    markdown.should.include('Static observations identify code or configuration');
+    markdown.should.include('Example App');
   });
 
   it('groups, excludes evidence-only checks and sorts by consequence and likelihood', () => {
@@ -124,6 +131,18 @@ describe('Client report outputs', () => {
     markdown.should.include('## Implication');
     markdown.should.include('## Reproduction and Evidence');
     markdown.should.include('## Recommendations');
+  });
+
+  it('explains global findings and highlights HTML remediation examples', () => {
+    const markdown = renderClientMarkdown([
+      issue('CSP_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { file: 'N/A', sample: '' }),
+      issue('IFRAME_SANDBOX_HTML_CHECK', severity.MEDIUM, confidence.FIRM, { file: '/client/app/index.html', sample: '', manualReview: true }),
+    ], { app: { name: 'Client App' } });
+    markdown.should.include('Application-wide');
+    markdown.should.include('**CSP_GLOBAL_CHECK** at Application-wide');
+    markdown.should.include('```html\n<iframe');
+    markdown.should.include('IFRAME_SANDBOX_HTML_CHECK reference');
+    markdown.should.include('requires reachability or configuration review');
   });
 
   it('writes a valid workbook with only flagged rows, filter and frozen header', () => {
