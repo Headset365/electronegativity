@@ -6,6 +6,7 @@ import YAML from 'yaml';
 import { severity, confidence } from '../src/finder/attributes.js';
 import { groupClientFindings, ratingOf, renderClientMarkdown } from '../src/report/markdown.js';
 import { VARIATIONS, matchingVariations } from '../src/report/markdown_variations.js';
+import { CLIENT_COPY } from '../src/report/markdown_client_copy.js';
 import { componentTable, renderComponentsXlsx } from '../src/report/xlsx.js';
 import { outputFormat, splitOutputs, writeIssues } from '../src/util/file.js';
 
@@ -152,7 +153,7 @@ describe('Client report outputs', () => {
     markdown.should.include('Application-wide');
     markdown.should.include('**CSP_GLOBAL_CHECK** at Application-wide');
     markdown.should.include('```html\n<iframe');
-    markdown.should.include('Embedded content reference');
+    markdown.should.include('Technical check guidance: Embedded content');
     markdown.should.include('requires reachability or configuration review');
   });
 
@@ -167,8 +168,9 @@ describe('Client report outputs', () => {
         section.should.include(label, `${heading} omitted ${label}`);
       }
     }
-    (markdown.match(/conditional outcome/g) || []).length.should.equal(
-      matchingVariations('Unsafe Hand-off of URLs and Files to the Operating System', issues, id => id.replace(/_JS_CHECK$/, '')).length);
+    markdown.should.include('The relevant boundary is whether a page, document or other external input can select the destination.');
+    markdown.should.include('Confirm path validation using a harmless file');
+    markdown.split('## Implication\n')[1].split('## Reproduction and Evidence')[0].should.not.include('Potential worst case');
     const fuseVariants = matchingVariations('Insecure Electron Fuse Configuration', [issue('PACKAGED_FUSES')], id => id);
     fuseVariants.length.should.equal(3);
   });
@@ -178,9 +180,10 @@ describe('Client report outputs', () => {
     for (const entries of Object.values(VARIATIONS)) {
       entries.length.should.be.at.least(2);
       for (const entry of entries) {
-        entry.length.should.equal(6);
+        entry.length.should.equal(3);
         entry[1].should.be.instanceOf(RegExp);
-        for (const text of [entry[0], ...entry.slice(2)]) text.trim().length.should.be.greaterThan(0);
+        for (const text of [entry[0], entry[2], ...CLIENT_COPY[entry[0]]]) text.trim().length.should.be.greaterThan(0);
+        CLIENT_COPY[entry[0]].length.should.equal(3);
       }
     }
     matchingVariations('Other Security Observations', [issue('NEW_CHECK')], id => id).map(v => v.label).should.deep.equal(['NEW_CHECK']);
