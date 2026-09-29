@@ -17,8 +17,10 @@ const FS_OPS = {
   delete: ['unlink', 'unlinkSync', 'rm', 'rmSync', 'rmdir', 'rmdirSync', 'remove', 'removeSync', 'emptyDir', 'emptyDirSync'],
 };
 const FS_OPERATION = new Map(Object.entries(FS_OPS).flatMap(([op, names]) => names.map(name => [name, op])));
-// ways to keep a path inside a directory (as for protocol handlers)
-const CONTAINMENT = /^(startsWith|relative|isAbsolute|realpath|realpathSync|basename)$|inside|within|contain|allowed|safe|valid/i;
+// ways to keep a path inside a directory: path.relative, realpath or startsWith on the resolved path, basename, or a helper
+// named for it (isInside, ensureWithin, isAllowedPath, validatePath, safeJoin). Not isAbsolute, which says nothing about the
+// folder, nor any name that merely contains the word (invalidate, unsafeOpen).
+export const CONTAINMENT = /^(startsWith|relative|realpath|realpathSync|basename)$|[a-z0-9](Inside|Within|Contain|Allowed|Safe|Valid)|^(inside|within|contain|allowed|safe|valid)|_(inside|within|contain|allowed|safe|valid)/;
 // file-name sanitizers that also deal with Windows reserved names, streams and trailing dots
 const NAME_SANITIZER = /sanitiz|filenamify|slugify|safe.?(file)?name|clean.?(file)?name|valid.?(file)?name/i;
 const CHILD_PROCESS = /^(node:)?child_process$/;

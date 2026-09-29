@@ -76,6 +76,20 @@ contextBridge.exposeInMainWorld('util', { copy(t) { clipboard.writeText(t); }, l
       of('IPC_FILE_ACCESS_JS_CHECK').some(i => /preload\.js$/.test(i.file) && i.severity.name === 'HIGH').should.equal(true);
     });
 
+    it('does not take isAbsolute or names that merely contain "valid" for a folder check', async () => {
+      const handlers = `const { ipcMain } = require('electron');
+const fs = require('fs');
+const path = require('path');
+ipcMain.handle('read-a', (e, p) => { if (!path.isAbsolute(p)) return; return fs.readFileSync(p); });
+ipcMain.handle('read-b', (e, p) => { cache.invalidate(); return fs.readFileSync(p); });
+ipcMain.handle('read-c', (e, p) => { if (!isInsideDocs(p)) return; return fs.readFileSync(p); });`;
+      const { of } = await scan({ 'package.json': PACKAGE, 'main.js': handlers });
+      const found = of('IPC_FILE_ACCESS_JS_CHECK').filter(i => /main\.js$/.test(i.file)).map(i => [i.location.line, i.severity.name]);
+      found.should.deep.include([4, 'HIGH']);
+      found.should.deep.include([5, 'HIGH']);
+      found.some(([line, sev]) => line === 6 && sev === 'HIGH').should.equal(false);
+    });
+
     it('lists what each handler does, and flags unchecked arguments, window targeting and credentials sent back', async () => {
       const { of } = await scan({ 'package.json': PACKAGE, 'main.js': main, 'preload.js': preload });
       const byChannel = (channel) => of('IPC_HANDLER_JS_CHECK').filter(i => i.properties.channel === channel);

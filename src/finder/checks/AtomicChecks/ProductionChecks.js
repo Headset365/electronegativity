@@ -6,7 +6,7 @@ import { severity, confidence } from '../../attributes.js';
 import { memberName, finding, literalValue, findProperty } from '../helpers.js';
 import { constantValue, constantPrefix, possibleValues, enclosingFunction, untrustedSource, dependsOnParams, moduleBindings, programOf,
   identifiersIn, callsIn, visit, isCall, isMember, resolveLocal } from '../analysis.js';
-import { fsOperation } from './IpcHandlerChecks.js';
+import { fsOperation, CONTAINMENT } from './IpcHandlerChecks.js';
 
 const calleeName = (callee) => callee.type === 'Identifier' ? callee.name : memberName(callee);
 const LOCAL_SERVER = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\])([:/]|$)/i;
@@ -345,7 +345,8 @@ export class DocumentPipelineJSCheck {
       });
       if (!entryName) return null;
       const fn = enclosingFunction(ancestors);
-      const held = fn && callsIn(fn, (call, n) => /^(startsWith|relative|isAbsolute|normalize|resolve|basename)$|inside|within|contain|safe/i.test(n || '')).length > 0;
+      // (path.resolve or normalize alone keep ../ escapes: the resolved path still has to be checked against the folder)
+      const held = fn && callsIn(fn, (call, n) => CONTAINMENT.test(n || '')).length > 0;
       if (held) return null;
       return report(severity.HIGH, confidence.FIRM, `${operation.name} writes an archive entry under its own name without checking it stays in the target folder (zip slip): an entry named ../../x overwrites any file the user can write`, { issue: 'zip-slip' }, false);
     }
