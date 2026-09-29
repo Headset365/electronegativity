@@ -1,0 +1,132 @@
+{
+  "about": "Electronegativity findings, redacted for sharing: app, company and user names (and --redact terms), user folders, hosts (pseudonyms), query strings, e-mail and IP addresses and secret-like values are replaced; code is left out. Review this file before sending it.",
+  "tool": "2.0.0",
+  "electron": "38.2.0",
+  "bundled": {},
+  "watchSession": false,
+  "redactedTerms": 5,
+  "counts": {
+    "total": 9,
+    "bySeverity": {
+      "HIGH": 1,
+      "MEDIUM": 5,
+      "INFORMATIONAL": 3
+    },
+    "byExploitableBy": {
+      "Shared content": 2,
+      "Raises impact": 3,
+      "Local access": 2,
+      "Information": 1,
+      "Network": 1
+    },
+    "acceptedOrSuppressed": 0
+  },
+  "findings": [
+    {
+      "id": "LIMIT_NAVIGATION_GLOBAL_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "exploitableBy": "Shared content",
+      "interaction": "A click on a crafted link",
+      "needsReview": false,
+      "file": "application-wide",
+      "description": "Missing navigation limits: no will-navigate handler and no setWindowOpenHandler"
+    },
+    {
+      "id": "CSP_GLOBAL_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "CERTAIN",
+      "exploitableBy": "Raises impact",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "needsReview": false,
+      "file": "application-wide",
+      "description": "No CSP has been detected in the target application"
+    },
+    {
+      "id": "PERMISSION_REQUEST_HANDLER_GLOBAL_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "CERTAIN",
+      "exploitableBy": "Shared content",
+      "interaction": "Viewing the content is enough when it runs as script; a click when it is a link",
+      "needsReview": false,
+      "file": "application-wide",
+      "description": "Missing PermissionRequestHandler to limit specific permissions (e.g. openExternal) in response to events from particular origins."
+    },
+    {
+      "id": "DEVTOOLS_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "CERTAIN",
+      "exploitableBy": "Local access",
+      "interaction": "Access to the user's device or account",
+      "needsReview": false,
+      "file": "main.js",
+      "line": 2,
+      "description": "DevTools are opened programmatically; ensure this cannot happen in production builds (always opened, including in production builds)"
+    },
+    {
+      "id": "IPC_SENDER_VALIDATION_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "FIRM",
+      "exploitableBy": "Raises impact",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "needsReview": true,
+      "file": "main.js",
+      "line": 1,
+      "description": "IPC handler does not appear to validate the sender (event.senderFrame) before acting on the message",
+      "properties": {
+        "channel": "a"
+      }
+    },
+    {
+      "id": "FUSES_GLOBAL_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "TENTATIVE",
+      "exploitableBy": "Local access",
+      "interaction": "Access to the user's device or account",
+      "needsReview": true,
+      "file": "application-wide",
+      "description": "No Electron Fuses configuration found. RunAsNode, NODE_OPTIONS, --inspect and ASAR integrity fuses are insecure by default"
+    },
+    {
+      "id": "IPC_HANDLER_JS_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "CERTAIN",
+      "exploitableBy": "Raises impact",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "needsReview": false,
+      "file": "main.js",
+      "line": 1,
+      "description": "IPC handler: 'a'",
+      "properties": {
+        "channel": "a",
+        "capabilities": [],
+        "validatesArguments": false,
+        "argumentsUsed": false
+      }
+    },
+    {
+      "id": "ELECTRON_VERSION_JSON_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "CERTAIN",
+      "exploitableBy": "Information",
+      "interaction": "Not applicable",
+      "needsReview": true,
+      "file": "package.json",
+      "line": 1,
+      "description": "Gets the electron version used by inspecting the package.json file."
+    },
+    {
+      "id": "CERTIFICATE_PINNING_GLOBAL_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "FIRM",
+      "exploitableBy": "Network",
+      "interaction": "None: an attacker on the network path acts while the app talks to its servers",
+      "needsReview": true,
+      "file": "application-wide",
+      "description": "No certificate pinning found (session.setCertificateVerifyProc); consider pinning the certificates of the backends the application trusts"
+    }
+  ],
+  "audit": {
+    "finalPassReplacements": 0
+  }
+}

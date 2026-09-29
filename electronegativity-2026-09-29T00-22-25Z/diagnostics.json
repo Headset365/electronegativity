@@ -1,0 +1,151 @@
+{
+  "about": "Electronegativity diagnostics. Sanitized: the app name, user name, machine name, home folder and --redact terms are replaced, hosts are pseudonymized. Contains no code, finding descriptions or data that passed through the app. Review it before sharing.",
+  "tool": {
+    "version": "2.0.0",
+    "node": "v22.22.2",
+    "platform": "linux",
+    "arch": "x64"
+  },
+  "options": {
+    "output": ".json",
+    "offline": true,
+    "allFiles": false,
+    "checks": "all",
+    "excluded": 0,
+    "baseline": false,
+    "severity": "INFORMATIONAL",
+    "confidence": "TENTATIVE",
+    "watch": false
+  },
+  "input": {
+    "type": "directory",
+    "electronVersion": "38.2.0",
+    "electronVersionSource": "detected",
+    "scanned": 2,
+    "byExtension": {
+      ".js": 1,
+      ".json": 1
+    },
+    "skipped": {
+      "nonAppFiles": 0,
+      "vendoredDirectories": 0,
+      "vendoredLibraries": 0
+    },
+    "installedPackages": 0,
+    "bundledLibraries": [],
+    "librariesInScripts": []
+  },
+  "durationMs": 84,
+  "phasesMs": {
+    "load": 7,
+    "checks": 34,
+    "globalChecks": 3,
+    "secrets": 4,
+    "dependencies": 2,
+    "intel": 0
+  },
+  "errors": [],
+  "checks": {
+    "failed": [],
+    "slowest": [
+      {
+        "name": "CustomArgumentsJSONCheck",
+        "calls": 1,
+        "ms": 0
+      },
+      {
+        "name": "ElectronVersionJSONCheck",
+        "calls": 1,
+        "ms": 0
+      },
+      {
+        "name": "SecurityWarningsDisabledJSONCheck",
+        "calls": 1,
+        "ms": 0
+      },
+      {
+        "name": "FusesJSONCheck",
+        "calls": 1,
+        "ms": 0
+      },
+      {
+        "name": "NodeTlsRejectUnauthorizedJSONCheck",
+        "calls": 1,
+        "ms": 0
+      },
+      {
+        "name": "FileHandlerJSONCheck",
+        "calls": 1,
+        "ms": 0
+      },
+      {
+        "name": "UpdateSecurityJSONCheck",
+        "calls": 1,
+        "ms": 0
+      },
+      {
+        "name": "HardcodedSecretsCheck",
+        "calls": 1,
+        "ms": 0
+      },
+      {
+        "name": "PackagedBinaryCheck",
+        "calls": 1,
+        "ms": 0
+      },
+      {
+        "name": "SourceMapsCheck",
+        "calls": 1,
+        "ms": 0
+      }
+    ]
+  },
+  "findings": {
+    "total": 9,
+    "bySeverity": {
+      "MEDIUM": 5,
+      "HIGH": 1,
+      "INFORMATIONAL": 3
+    },
+    "byCheck": {
+      "CSP_GLOBAL_CHECK": {
+        "MEDIUM/CERTAIN": 1
+      },
+      "LIMIT_NAVIGATION_GLOBAL_CHECK": {
+        "HIGH/CERTAIN": 1
+      },
+      "PERMISSION_REQUEST_HANDLER_GLOBAL_CHECK": {
+        "MEDIUM/CERTAIN": 1
+      },
+      "FUSES_GLOBAL_CHECK": {
+        "MEDIUM/TENTATIVE": 1
+      },
+      "CERTIFICATE_PINNING_GLOBAL_CHECK": {
+        "INFORMATIONAL/FIRM": 1
+      },
+      "IPC_SENDER_VALIDATION_JS_CHECK": {
+        "MEDIUM/FIRM": 1
+      },
+      "IPC_HANDLER_JS_CHECK": {
+        "INFORMATIONAL/CERTAIN": 1
+      },
+      "DEVTOOLS_JS_CHECK": {
+        "MEDIUM/CERTAIN": 1
+      },
+      "ELECTRON_VERSION_JSON_CHECK": {
+        "INFORMATIONAL/CERTAIN": 1
+      }
+    }
+  },
+  "events": [],
+  "dependencies": {
+    "packages": 1,
+    "withAdvisories": 0,
+    "unsupported": 0,
+    "offline": true,
+    "bundled": [],
+    "flagged": [],
+    "lookupErrors": []
+  },
+  "redactedTerms": 5
+}

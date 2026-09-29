@@ -333,8 +333,9 @@ function settingCell(settings, name, risky) {
 // What watch mode saw: the pages each window really showed with its settings, IPC use and what was never exercised
 function runtimeSurface(runtimeWindows, ipc, coverage, summary, windowCoverage) {
   if (!summary && runtimeWindows.length === 0) return '';
-  const unused = coverage[0] && coverage[0].properties ? coverage[0].properties.unusedChannels : [];
-  const unopened = windowCoverage[0] && windowCoverage[0].properties ? windowCoverage[0].properties.unopened : [];
+  const unused = (coverage[0] && coverage[0].properties && coverage[0].properties.unusedChannels) || [];
+  // the reconcile step names them `unmatched`
+  const unopened = (windowCoverage[0] && windowCoverage[0].properties && (windowCoverage[0].properties.unmatched || windowCoverage[0].properties.unopened)) || [];
   return `
   <h3>Observed while the app ran</h3>${summary ? `
   <p class="note">${escapeHtml(summary.windows)} window(s) and ${escapeHtml(summary.pages)} page load(s) observed; ${escapeHtml(summary.usedChannels)} of ${escapeHtml(summary.channels)} registered IPC channels used.${summary.started ? '' : ' <span class="risk">The app did not load the watch hook: nothing was observed.</span>'}</p>` : ''}${runtimeWindows.length > 0 ? `

@@ -345,6 +345,15 @@ describe('Report output', () => {
     html.should.not.match(/<(link|script) [^>]*src=/);
   });
 
+  it('renders the watch session coverage notes, whatever properties the coverage findings carry', () => {
+    const meta = { version: '2.0.0', input: '/app', electronVersion: '38.0.0', filesScanned: 1, atomicChecks: 1, globalChecks: 1, generatedAt: 'now', errors: [], runtime: { started: true, windows: 1, pages: 1 } };
+    const html = renderHtmlReport([
+      issue({ id: 'RUNTIME_WINDOW_COVERAGE', properties: { unmatched: ['settings (settings-preload.js) at main.js:9'] } }),
+      issue({ id: 'RUNTIME_COVERAGE', properties: {} })], meta);
+    html.should.include('Windows never opened during the session').and.include('settings (settings-preload.js)');
+    (() => renderHtmlReport([issue({ id: 'RUNTIME_WINDOW_COVERAGE' }), issue({ id: 'RUNTIME_COVERAGE' })], meta)).should.not.throw();
+  });
+
   it('collapses code samples, truncates huge ones and explains each finding\'s consequence', () => {
     const html = renderHtmlReport([issue(), issue({ id: 'DEVTOOLS_JS_CHECK', sample: 'x'.repeat(10000) })],
       { version: '2.0.0', input: '/app', electronVersion: '38.0.0', filesScanned: 1, atomicChecks: 1, globalChecks: 1, generatedAt: 'now', errors: [] });

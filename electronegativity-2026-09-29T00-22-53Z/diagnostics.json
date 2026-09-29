@@ -1,0 +1,157 @@
+{
+  "about": "Electronegativity diagnostics. Sanitized: the app name, user name, machine name, home folder and --redact terms are replaced, hosts are pseudonymized. Contains no code, finding descriptions or data that passed through the app. Review it before sharing.",
+  "tool": {
+    "version": "2.0.0",
+    "node": "v22.22.2",
+    "platform": "linux",
+    "arch": "x64"
+  },
+  "options": {
+    "output": ".json",
+    "offline": true,
+    "allFiles": false,
+    "checks": "all",
+    "excluded": 0,
+    "baseline": false,
+    "severity": "INFORMATIONAL",
+    "confidence": "TENTATIVE",
+    "watch": false
+  },
+  "input": {
+    "type": "directory",
+    "electronVersion": "38.2.0",
+    "electronVersionSource": "detected",
+    "scanned": 5,
+    "byExtension": {
+      ".json": 1,
+      ".html": 1,
+      ".js": 1,
+      ".mts": 1,
+      ".mjs": 1
+    },
+    "skipped": {
+      "nonAppFiles": 0,
+      "vendoredDirectories": 0,
+      "vendoredLibraries": 0
+    },
+    "installedPackages": 0,
+    "bundledLibraries": [],
+    "librariesInScripts": []
+  },
+  "durationMs": 216,
+  "phasesMs": {
+    "load": 5,
+    "crossFileDataFlow (within checks)": 13,
+    "checks": 164,
+    "globalChecks": 8,
+    "secrets": 5,
+    "dependencies": 1,
+    "intel": 1
+  },
+  "errors": [],
+  "checks": {
+    "failed": [],
+    "slowest": [
+      {
+        "name": "SanitizerConfigJSCheck",
+        "calls": 448,
+        "ms": 1773
+      },
+      {
+        "name": "WebSecurityJSCheck",
+        "calls": 448,
+        "ms": 19
+      },
+      {
+        "name": "FusesJSCheck",
+        "calls": 448,
+        "ms": 11
+      },
+      {
+        "name": "CSPGlobalCheck",
+        "calls": 1,
+        "ms": 5
+      },
+      {
+        "name": "AffinityJSCheck",
+        "calls": 448,
+        "ms": 3
+      },
+      {
+        "name": "CookieFlagsJSCheck",
+        "calls": 448,
+        "ms": 3
+      },
+      {
+        "name": "SandboxJSCheck",
+        "calls": 448,
+        "ms": 2
+      },
+      {
+        "name": "WebSQLJSCheck",
+        "calls": 448,
+        "ms": 2
+      },
+      {
+        "name": "FusesJSONCheck",
+        "calls": 1,
+        "ms": 1
+      },
+      {
+        "name": "AuxclickJSCheck",
+        "calls": 448,
+        "ms": 1
+      }
+    ]
+  },
+  "findings": {
+    "total": 11,
+    "bySeverity": {
+      "LOW": 4,
+      "INFORMATIONAL": 7
+    },
+    "byCheck": {
+      "PERMISSION_REQUEST_HANDLER_JS_CHECK": {
+        "LOW/FIRM": 2
+      },
+      "CERTIFICATE_PINNING_GLOBAL_CHECK": {
+        "INFORMATIONAL/FIRM": 1
+      },
+      "IPC_CHANNEL_MAP_GLOBAL_CHECK": {
+        "INFORMATIONAL/FIRM": 1
+      },
+      "ELECTRON_VERSION_JSON_CHECK": {
+        "INFORMATIONAL/CERTAIN": 1
+      },
+      "EXPOSED_API_JS_CHECK": {
+        "INFORMATIONAL/CERTAIN": 1
+      },
+      "OPEN_EXTERNAL_JS_CHECK": {
+        "LOW/FIRM": 1
+      },
+      "PROTOCOL_HANDLER_JS_CHECK": {
+        "LOW/FIRM": 1
+      },
+      "IPC_HANDLER_JS_CHECK": {
+        "INFORMATIONAL/CERTAIN": 1
+      },
+      "PRELOAD_JS_CHECK": {
+        "INFORMATIONAL/CERTAIN": 1
+      },
+      "WINDOW_SUMMARY_JS_CHECK": {
+        "INFORMATIONAL/CERTAIN": 1
+      }
+    }
+  },
+  "events": [],
+  "dependencies": {
+    "packages": 1,
+    "withAdvisories": 0,
+    "unsupported": 0,
+    "offline": true,
+    "bundled": [],
+    "flagged": [],
+    "lookupErrors": []
+  },
+  "redactedTerms": 7
+}
