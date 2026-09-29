@@ -2,14 +2,17 @@ import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, finding } from '../helpers.js';
 import { handlerFunction, callsIn, dependsOnParams, constantPrefix, visit } from '../analysis.js';
+import { CONTAINMENT } from './IpcHandlerChecks.js';
 
 const REGISTRATIONS = ['registerStandardSchemes', 'registerServiceWorkerSchemes', 'registerFileProtocol', 'registerHttpProtocol',
   'registerStringProtocol', 'registerBufferProtocol', 'registerStreamProtocol'];
 const INTERCEPTIONS = ['interceptFileProtocol', 'interceptHttpProtocol', 'interceptStringProtocol', 'interceptBufferProtocol', 'interceptStreamProtocol'];
 // calls that turn a request into a file access
 const FILE_SINKS = /^(join|resolve|readFile|readFileSync|createReadStream|fetch|pathToFileURL|sendFile|stat|statSync|access)$/;
-// ways to keep a path inside a directory
-const CONTAINMENT = /^(startsWith|relative|normalize|isAbsolute|realpath|realpathSync|includes|indexOf|test|basename)$|inside|within|contain|allowed|sanitiz|safe|valid/i;
+// ways to keep a path inside a directory: those of the IPC file checks, or a sanitizer. Not normalize or isAbsolute (a
+// normalized path keeps its ../), and not includes, indexOf or test on their own: url.includes('?') checks nothing; a
+// search for '..' (in a string or a regular expression) is found by mentionsDotDot
+const contains = (name) => CONTAINMENT.test(name) || /sanitiz/i.test(name);
 
 // Custom protocols (checklist #18) replace file://, but their handlers must not serve files outside the app
 export default class ProtocolHandlerJSCheck {
@@ -46,15 +49,20 @@ export default class ProtocolHandlerJSCheck {
       method === 'registerFileProtocol';
     if (!servesFiles) return report(severity.LOW, confidence.FIRM, 'custom protocol handler; review what it serves');
 
-    const contained = callsIn(fn, (call, name) => CONTAINMENT.test(name || '')).length > 0 || mentionsDotDot(fn);
+    const contained = callsIn(fn, (call, name) => contains(name || '')).length > 0 || mentionsDotDot(fn);
     if (!contained)
       return report(severity.HIGH, confidence.FIRM, 'the handler maps request URLs to files without keeping paths inside a directory (path traversal)', false);
     return report(severity.LOW, confidence.FIRM, 'the handler serves files and checks paths; review the containment check');
   }
 }
 
+// a '..' in a string, or a regular expression that matches one (/\.\./, /\.{2}/)
 function mentionsDotDot(fn) {
   let found = false;
-  visit(fn.body, (n) => { if (typeof n.value === 'string' && n.value.includes('..')) found = true; return !found; });
+  visit(fn.body, (n) => {
+    const pattern = n.type === 'RegExpLiteral' ? n.pattern : n.regex && n.regex.pattern;
+    if ((typeof n.value === 'string' && n.value.includes('..')) || (typeof pattern === 'string' && /\\\.\\\.|\\\.\{2/.test(pattern))) found = true;
+    return !found;
+  });
   return found;
 }

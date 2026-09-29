@@ -90,6 +90,18 @@ ipcMain.handle('read-c', (e, p) => { if (!isInsideDocs(p)) return; return fs.rea
       found.some(([line, sev]) => line === 6 && sev === 'HIGH').should.equal(false);
     });
 
+    it('does not take includes, normalize or isAbsolute for a folder check in a protocol handler', async () => {
+      const handlers = `const { protocol, net } = require('electron');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+protocol.handle('a', (request) => { const u = request.url; if (u.includes('?')) return; return net.fetch(pathToFileURL(path.join(__dirname, new URL(u).pathname)).toString()); });
+protocol.handle('b', (request) => net.fetch(pathToFileURL(path.normalize(path.join(__dirname, new URL(request.url).pathname))).toString()));
+protocol.handle('c', (request) => { const p = new URL(request.url).pathname; if (/\\.\\./.test(p)) return; return net.fetch(pathToFileURL(path.join(__dirname, p)).toString()); });
+protocol.handle('d', (request) => { const p = path.resolve(__dirname, new URL(request.url).pathname.slice(1)); if (!isInsideApp(p)) return; return net.fetch(pathToFileURL(p).toString()); });`;
+      const { of } = await scan({ 'package.json': PACKAGE, 'main.js': handlers });
+      of('PROTOCOL_HANDLER_JS_CHECK').map(i => [i.location.line, i.severity.name]).should.deep.equal([[4, 'HIGH'], [5, 'HIGH'], [6, 'LOW'], [7, 'LOW']]);
+    });
+
     it('lists what each handler does, and flags unchecked arguments, window targeting and credentials sent back', async () => {
       const { of } = await scan({ 'package.json': PACKAGE, 'main.js': main, 'preload.js': preload });
       const byChannel = (channel) => of('IPC_HANDLER_JS_CHECK').filter(i => i.properties.channel === channel);
