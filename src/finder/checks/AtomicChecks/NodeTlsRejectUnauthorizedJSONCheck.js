@@ -18,7 +18,10 @@ export default class NodeTlsRejectUnauthorizedJSONCheck {
     for (const [name, script] of Object.entries(scripts)) {
       if (typeof script !== 'string' || !/NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"]?0/.test(script)) continue;
       const index = lines.findIndex(l => l.includes(`"${name}"`));
-      issues.push({ line: index + 1 || 1, column: 0, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false, properties: { script: name } });
+      // an npm script runs when the app is started through npm (development, tests), never in a packaged build
+      issues.push({ line: index + 1 || 1, column: 0, id: this.id,
+        description: `${this.description} (in the npm script "${name}": it applies when the app is started with that script, typically in development; a packaged build does not run npm scripts)`,
+        shortenedURL: this.shortenedURL, severity: severity.LOW, confidence: confidence.CERTAIN, manualReview: false, properties: { script: name } });
     }
     return issues;
   }
