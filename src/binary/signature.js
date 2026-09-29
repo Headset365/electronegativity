@@ -2,6 +2,7 @@
 // (PowerShell Get-AuthenticodeSignature: chain, trust and file hash); on macOS `codesign --verify` does. Elsewhere only
 // its presence and the signer it names can be read, and the result says so rather than implying it was verified.
 import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { parsePe, certificateBlob, isPe } from './pe.js';
@@ -58,7 +59,9 @@ export function signerOf(blob) {
   return (leaves[0] || certificates[0]).subject.replace(/\n/g, ', ');
 }
 
-const psQuote = (text) => `'${String(text).replace(/'/g, '\'\'')}'`;
+// The path reaches PowerShell through the environment, never inside the command: file names come from the scanned app or
+// installer, and PowerShell also ends a quoted string at typographic quotes (‘ ’ ‚ ‛), which escaping ' doesn't cover.
+const SIGNATURE_COMMAND = '$s = Get-AuthenticodeSignature -LiteralPath $env:ELECTRONEGATIVITY_SIGNED_FILE; [pscustomobject]@{Status=[string]$s.Status; Message=$s.StatusMessage; Signer=$(if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { $null })} | ConvertTo-Json -Compress';
 
 /**
  * { status, message, signer, verifiedBy: 'windows'|'macos'|'none', format: 'pe'|'macho'|undefined }
@@ -83,8 +86,8 @@ export function verifySignature(file, { platform = process.platform, run = spawn
     if (!info.signed) return { ...result, status: NOT_SIGNED, message: 'no Authenticode signature' };
     result.signer = signerOf(certificateBlob(data, info) || Buffer.alloc(0));
     if (platform === 'win32') {
-      const command = `$s = Get-AuthenticodeSignature -LiteralPath ${psQuote(file)}; [pscustomobject]@{Status=[string]$s.Status; Message=$s.StatusMessage; Signer=$(if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { $null })} | ConvertTo-Json -Compress`;
-      const ps = run('powershell', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 60000, windowsHide: true });
+      const ps = run('powershell', ['-NoProfile', '-NonInteractive', '-Command', SIGNATURE_COMMAND],
+        { encoding: 'utf8', timeout: 60000, windowsHide: true, env: { ...process.env, ELECTRONEGATIVITY_SIGNED_FILE: path.resolve(file) } });
       if (ps && ps.status === 0 && ps.stdout && ps.stdout.trim()) {
         try {
           const parsed = JSON.parse(ps.stdout.trim().split(/\r?\n/).pop());

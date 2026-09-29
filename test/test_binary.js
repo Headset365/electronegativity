@@ -61,6 +61,11 @@ describe('Packaged binary', () => {
     const powershell = (status) => () => ({ status: 0, stdout: JSON.stringify({ Status: status, Message: status === 'Valid' ? 'Signature verified.' : 'The contents of the file may have been altered', Signer: 'CN=Fixture Corp' }) });
     verifySignature(signed, { platform: 'win32', run: powershell('Valid') }).should.include({ status: 'Valid', verifiedBy: 'windows', signer: 'CN=Fixture Corp' });
     verifySignature(signed, { platform: 'win32', run: powershell('HashMismatch') }).status.should.equal('HashMismatch');
+    // the path never becomes part of the command: a name with typographic quotes can't end the string and add commands
+    let call;
+    verifySignature(signed, { platform: 'win32', run: (cmd, args, options) => { call = { args, options }; return powershell('Valid')(); } });
+    call.args.join(' ').should.not.include(path.basename(signed));
+    call.options.env.ELECTRONEGATIVITY_SIGNED_FILE.should.equal(path.resolve(signed));
   });
 
   it('reads Mach-O and ELF headers', () => {
