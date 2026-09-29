@@ -103,6 +103,29 @@ describe('Client report outputs', () => {
     /^(?:\s*)\d+[.)]\s/m.test(findings).should.equal(false);
   });
 
+  it('carries custom finding notes and recorded evidence into the appropriate sections', () => {
+    const markdown = renderClientMarkdown([issue('OPEN_EXTERNAL_JS_CHECK', severity.HIGH, confidence.FIRM, {
+      notes: {
+        about: 'The reviewed link comes from a document.',
+        impact: 'The client confirmed the operating system hand-off.',
+        reachability: 'A recipient can click the link.',
+        preconditions: ['Open a shared document.'],
+        steps: ['Click the crafted link.'],
+        confirm: 'Observe the handler invocation.',
+        recommendation: 'Allow only the approved host.',
+      },
+      properties: { evidence: ['GET https://example.test/open?target=custom'], screenshot: '/evidence/hand-off.png' },
+      validation: { status: 'confirmed', text: 'Observed in the watch session.' },
+    })], { app: { name: 'Client App' } });
+    for (const value of ['The reviewed link comes from a document.', 'The client confirmed the operating system hand-off.',
+      'A recipient can click the link.', 'Open a shared document.', 'Click the crafted link.', 'Observe the handler invocation.',
+      'Allow only the approved host.', 'GET https://example.test/open?target=custom', '/evidence/hand-off.png',
+      'Observed in the watch session.']) markdown.should.include(value);
+    markdown.should.include('## Implication');
+    markdown.should.include('## Reproduction and Evidence');
+    markdown.should.include('## Recommendations');
+  });
+
   it('writes a valid workbook with only flagged rows, filter and frozen header', () => {
     const rows = [
       { name: 'current', version: '1.0.0', latest: '1.0.0', kinds: ['lockfile'], files: [], advisories: [], support: { status: 'supported' } },

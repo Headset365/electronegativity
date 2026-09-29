@@ -113,6 +113,8 @@ export function groupClientFindings(issues) {
 
 function safeInline(value) { return String(value ?? '').replace(/\r?\n/g, ' ').trim(); }
 function unique(values) { return [...new Set(values.filter(Boolean))]; }
+function strings(value) { return (Array.isArray(value) ? value : value == null ? [] : [value]).filter(v => typeof v === 'string' && v.trim()); }
+function noteValues(issues, field) { return unique(issues.flatMap(i => strings(i.notes?.[field]))); }
 function language(file) {
   return ({ js: 'javascript', cjs: 'javascript', mjs: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx', json: 'json', html: 'html', css: 'css', ps1: 'powershell', sh: 'bash' })[path.extname(file || '').slice(1).toLowerCase()] || 'text';
 }
@@ -142,24 +144,32 @@ function renderGroup(g, meta) {
   const affected = unique(g.issues.map(details));
   const top = g.items[0].issue;
   const examples = unique(g.issues.map(i => i.sample).filter(Boolean)).slice(0, 8);
+  const notes = field => noteValues(g.issues, field).map(value => `- ${safeInline(value)}`);
   const lines = [`---\n${YAML.stringify({ Title: title, Consequence: g.rating.consequence, Likelihood: g.rating.likelihood, Notes: proseNotes(g) }).trimEnd()}\n---`,
     `# ${title}`, '## Issue Description', `${app}: ${about}`,
     ...ids.map(id => `- **${id}** — ${safeInline(g.issues.find(i => i.id === id).description || (typeof __ === 'function' && __(id)) || id)}`),
+    ...notes('about'),
     '## Affected', `The following locations or components in ${app} were affected:`,
     ...affected.slice(0, 60).map(x => `- ${safeInline(x)}`),
     ...(affected.length > 60 ? [`- …and ${affected.length - 60} more.`] : []),
     '## Implication', about,
+    ...(consequenceOf(top.id)?.text ? [consequenceOf(top.id).text] : []),
     ...(worstCase(top.id) ? [`The worst credible outcome is ${worstCase(top.id)}`] : []),
     ...(interactionOf(top.id) ? [`Victim interaction: ${interactionOf(top.id)}.`] : []),
+    ...notes('impact'), ...notes('reachability'),
     '## Reproduction and Evidence',
+    ...noteValues(g.issues, 'preconditions').map(value => `- **Precondition:** ${safeInline(value)}`),
+    ...noteValues(g.issues, 'steps').map(value => `- **Reproduction step:** ${safeInline(value)}`),
     ...examples.map(sample => {
       const item = g.issues.find(i => i.sample === sample);
       return `- ${safeInline(location(item))}\n\n${code(sample, language(item.file))}`;
     }),
+    ...unique(g.issues.flatMap(i => strings(i.properties?.evidence))).slice(0, 8).map(value => `- Observed evidence: ${safeInline(value)}`),
     ...g.issues.filter(i => i.validation || i.properties?.screenshot).slice(0, 8).map(i => `- ${safeInline(location(i))}: ${safeInline(i.validation?.status || 'Evidence')} — ${safeInline(i.validation?.text || '')}${i.properties?.screenshot ? `; screenshot ${i.properties.screenshot}` : ''}`),
     ...g.evidence.slice(0, 8).map(i => `- Supporting observation at ${safeInline(location(i))}: ${safeInline(i.description)}${i.properties?.screenshot ? `; screenshot ${i.properties.screenshot}` : ''}`),
+    ...noteValues(g.issues, 'confirm').map(value => `- **How to confirm:** ${safeInline(value)}`),
     ...unique(ids.map(validationHint)).slice(0, 3).map(x => `- ${safeInline(x)}`),
-    '## Recommendations', `- ${fix}`];
+    '## Recommendations', `- ${fix}`, ...notes('recommendation')];
   if (title === 'Microsoft Word Integration') lines.push('- Preserve Mark-of-the-Web (`Zone.Identifier`) so Word can apply Protected View.', '- Verify the stream on an opened document with `Get-Item <doc> -Stream Zone.Identifier`.');
   if (title === 'Insecure Electron Fuse Configuration') lines.push('- Re-read packaged fuses with `npx @electron/fuses read --app "<exe>"`.');
   if (title === 'Application Code Not Protected Against Inspection or Tampering') lines.push('- Check `EnableEmbeddedAsarIntegrityValidation` and `OnlyLoadAppFromAsar` in the fuse finding.', '- Inspect packaged source with `npx @electron/asar extract app.asar out`.');
