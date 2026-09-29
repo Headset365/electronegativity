@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { safeJoin } from './sevenzip.js';
+import { MAX_STREAM, MAX_TOTAL, limitMessage } from './limits.js';
 
 export class ZipError extends Error {}
 
@@ -64,13 +65,23 @@ export function zipEntries(data) {
 /** The contents of one entry. */
 export function zipRead(data, entry) {
   if (entry.encrypted) throw new ZipError(`${entry.name} is encrypted`);
+  if (entry.size > MAX_STREAM) throw new ZipError(limitMessage(entry.name, entry.size));
   const at = entry.localOffset;
   if (data.readUInt32LE(at) !== LOCAL) throw new ZipError(`bad local header for ${entry.name}`);
   const start = at + 30 + data.readUInt16LE(at + 26) + data.readUInt16LE(at + 28);
   const raw = data.subarray(start, start + entry.compressedSize);
-  if (entry.method === 0) return raw;
-  if (entry.method === 8) return zlib.inflateRawSync(raw);
-  throw new ZipError(`${entry.name}: unsupported zip method ${entry.method}`);
+  let out;
+  if (entry.method === 0) out = raw;
+  else if (entry.method === 8) {
+    // never more than the entry says it holds: a zip bomb stops at its declared size
+    try {
+      out = zlib.inflateRawSync(raw, { maxOutputLength: Math.max(1, entry.size) });
+    } catch (error) {
+      throw new ZipError(`${entry.name}: ${error.code === 'ERR_BUFFER_TOO_LARGE' ? 'inflates to more than its declared size' : error.message}`);
+    }
+  } else throw new ZipError(`${entry.name}: unsupported zip method ${entry.method}`);
+  if (out.length !== entry.size) throw new ZipError(`${entry.name}: ${out.length} bytes, but the archive declares ${entry.size}`);
+  return out;
 }
 
 export const isZip = (data) => data.length >= 4 && data.readUInt32LE(0) === LOCAL;
@@ -79,7 +90,10 @@ export const isZip = (data) => data.length >= 4 && data.readUInt32LE(0) === LOCA
 export function extractZip(data, dest) {
   const root = path.resolve(dest);
   const written = [];
-  for (const entry of zipEntries(data)) {
+  const entries = zipEntries(data);
+  const total = entries.reduce((sum, entry) => sum + (entry.isDir ? 0 : entry.size), 0);
+  if (total > MAX_TOTAL) throw new ZipError(limitMessage('zip archive', total, MAX_TOTAL));
+  for (const entry of entries) {
     if (entry.isDir) continue;
     const target = safeJoin(root, entry.name);
     if (!target) continue;

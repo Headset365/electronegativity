@@ -7,7 +7,10 @@ import _i18n from '../src/locales/i18n.js';
 import run from '../src/runner.js';
 import { SevenZipArchive, findEmbedded, safeJoin } from '../src/unpack/sevenzip.js';
 import { parseNsis, registryClasses } from '../src/unpack/nsis.js';
-import { zipEntries } from '../src/unpack/zip.js';
+import zlib from 'node:zlib';
+import { zipEntries, zipRead, extractZip, ZipError } from '../src/unpack/zip.js';
+import { decodeLzma, LzmaError } from '../src/unpack/lzma.js';
+import { MAX_STREAM } from '../src/unpack/limits.js';
 import { unpackTarget, isPackage, UnpackError } from '../src/unpack/index.js';
 
 chaiShould();
@@ -122,6 +125,41 @@ describe('Unpacking installers and packages', () => {
       const exe = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'eng-exe-')), 'app.exe');
       fs.writeFileSync(exe, Buffer.concat([Buffer.from('MZ'), Buffer.alloc(200)]));
       isPackage(exe).should.equal(false);
+    });
+  });
+
+  describe('Size limits', () => {
+    // a one-entry zip whose central directory declares `size` for the deflated `content`
+    const zipOf = (content, size) => {
+      const data = zlib.deflateRawSync(content);
+      const name = Buffer.from('bomb.bin');
+      const local = Buffer.alloc(30);
+      local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(8, 8); local.writeUInt32LE(data.length, 18); local.writeUInt32LE(size, 22); local.writeUInt16LE(name.length, 26);
+      const central = Buffer.alloc(46);
+      central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(8, 10); central.writeUInt32LE(data.length, 20); central.writeUInt32LE(size, 24); central.writeUInt16LE(name.length, 28);
+      const end = Buffer.alloc(22);
+      const start = local.length + name.length + data.length;
+      end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10); end.writeUInt32LE(central.length + name.length, 12); end.writeUInt32LE(start, 16);
+      return Buffer.concat([local, name, data, central, name, end]);
+    };
+
+    it('stops a zip entry at its declared size (zip bomb)', () => {
+      const bomb = zipOf(Buffer.alloc(8 * 1024 * 1024), 100);
+      (() => zipRead(bomb, zipEntries(bomb)[0])).should.throw(ZipError, /more than its declared size/);
+      const honest = zipOf(Buffer.from('hello'), 5);
+      zipRead(honest, zipEntries(honest)[0]).toString().should.equal('hello');
+    });
+
+    it('refuses declared sizes over the limit before allocating anything', () => {
+      const huge = zipOf(Buffer.from('x'), 0xfffffff0);
+      if (MAX_STREAM < 0xfffffff0) (() => zipRead(huge, zipEntries(huge)[0])).should.throw(ZipError, /limit/);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-bomb-'));
+      try {
+        const many = zipOf(Buffer.from('x'), 0xfffffff0);
+        (() => extractZip(many, dir)).should.throw(ZipError);
+        fs.readdirSync(dir).length.should.equal(0);
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+      (() => decodeLzma(Buffer.from([0x5d, 0, 0, 1, 0]), Buffer.alloc(16), MAX_STREAM + 1)).should.throw(LzmaError, /limit/);
     });
   });
 

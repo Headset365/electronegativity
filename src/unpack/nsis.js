@@ -6,6 +6,7 @@
 import zlib from 'node:zlib';
 import { decodeLzmaStream, bcjX86Decode } from './lzma.js';
 import { SIGNATURE as SEVEN_ZIP } from './sevenzip.js';
+import { MAX_STREAM } from './limits.js';
 
 const FIRST_HEADER = Buffer.concat([Buffer.from([0xef, 0xbe, 0xad, 0xde]), Buffer.from('NullsoftInst', 'latin1')]);
 const FIRST_HEADER_SIZE = 28;
@@ -39,7 +40,7 @@ function lzma(buffer, limit) {
 
 // raw deflate; a stream cut short (the start of a block, or data running past the end) keeps what inflated
 function deflate(buffer, limit) {
-  const out = zlib.inflateRawSync(buffer, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
+  const out = zlib.inflateRawSync(buffer, { finishFlush: zlib.constants.Z_SYNC_FLUSH, maxOutputLength: MAX_STREAM });
   return limit ? out.subarray(0, limit) : out;
 }
 

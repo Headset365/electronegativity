@@ -1,5 +1,6 @@
 // Pure JavaScript LZMA, LZMA2 and x86 BCJ decoders, for the 7z archives electron-builder puts in NSIS installers
 // (Node has no LZMA). Decode-only; written from the LZMA specification (LzmaSpec) and xz's simple x86 filter.
+import { MAX_STREAM, limitMessage } from './limits.js';
 
 const kNumStates = 12;
 const kMatchMinLen = 2;
@@ -110,17 +111,23 @@ class LenDecoder {
 class Output {
   constructor(size, limit) {
     this.known = size !== undefined;
-    this.buffer = Buffer.alloc(this.known ? size : 1 << 20);
+    // the declared size comes from the archive: it is checked before anything is allocated
+    if (this.known && size > MAX_STREAM) throw new LzmaError(limitMessage('LZMA stream', size));
+    this.buffer = Buffer.alloc(this.known ? size : Math.min(1 << 20, limit ?? MAX_STREAM));
     this.pos = 0;
-    this.limit = this.known ? size : (limit ?? Infinity);
+    // where decoding stops, and (a match can run past that point) the size it may never exceed
+    this.limit = this.known ? size : Math.min(limit ?? MAX_STREAM, MAX_STREAM);
+    this.cap = this.known ? size : this.limit + (1 << 16);
   }
 
   ensure(extra) {
     const need = this.pos + extra;
     if (need <= this.buffer.length) return;
     if (this.known) throw new LzmaError('data longer than its declared size');
-    let length = this.buffer.length;
+    if (need > this.cap) throw new LzmaError(limitMessage('LZMA stream', need));
+    let length = Math.max(this.buffer.length, 1);
     while (length < need) length *= 2;
+    length = Math.min(length, this.cap);
     const grown = Buffer.alloc(length);
     this.buffer.copy(grown, 0, 0, this.pos);
     this.buffer = grown;

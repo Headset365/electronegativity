@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { decodeLzma, decodeLzma2, bcjX86Decode } from './lzma.js';
+import { MAX_STREAM, MAX_TOTAL, limitMessage } from './limits.js';
 
 export const SIGNATURE = Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]);
 export class SevenZipError extends Error {}
@@ -345,13 +346,14 @@ export class SevenZipArchive {
       const ci = coderOfOutput(outIndex);
       const coder = folder.coders[ci];
       const size = folder.unpackSizes[outIndex];
+      if (!(size <= MAX_STREAM)) throw new SevenZipError(limitMessage(`${coder.name} output`, size));
       let data;
       switch (coder.name) {
         case 'Copy': data = input(inBase[ci]); break;
         case 'LZMA': data = decodeLzma(coder.props, input(inBase[ci]), size); break;
         case 'LZMA2': data = decodeLzma2(input(inBase[ci]), size); break;
         case 'BCJ': data = bcjX86Decode(Buffer.from(input(inBase[ci]))); break;
-        case 'Deflate': data = zlib.inflateRawSync(input(inBase[ci])); break;
+        case 'Deflate': data = zlib.inflateRawSync(input(inBase[ci]), { maxOutputLength: Math.max(1, size) }); break;
         case 'Delta': data = deltaDecode(Buffer.from(input(inBase[ci])), coder.props.length ? coder.props[0] + 1 : 1); break;
         case 'BCJ2': data = bcj2Decode(input(inBase[ci]), input(inBase[ci] + 1), input(inBase[ci] + 2), input(inBase[ci] + 3), size); break;
         case 'AES': throw new SevenZipError('encrypted 7z archives are not supported');
@@ -398,9 +400,11 @@ export class SevenZipArchive {
       const target = safeJoin(root, e.name);
       if (target) fs.mkdirSync(target, { recursive: true });
     }
+    let total = 0;
     for (const [e, blob] of this.files()) {
       const target = safeJoin(root, e.name);
       if (!target) continue;
+      if ((total += blob.length) > MAX_TOTAL) throw new SevenZipError(limitMessage('7z archive', total, MAX_TOTAL));
       try {
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.writeFileSync(target, blob);
