@@ -1,7 +1,12 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { calleeObjectName, memberName, visit, finding } from '../helpers.js';
-import { handlerFunction } from '../analysis.js';
+import { handlerFunction, callsIn } from '../analysis.js';
+import { handlerProfile } from './IpcHandlerChecks.js';
+
+// calls that only read harmless facts about the app or the platform
+const HARMLESS_CALLS = new Set(['getVersion', 'getName', 'getLocale', 'getSystemLocale', 'getPreferredSystemLanguages', 'isPackaged', 'platform', 'arch',
+  'release', 'isMaximized', 'isMinimized', 'isFullScreen', 'isFocused', 'isVisible', 'minimize', 'maximize', 'unmaximize', 'restore', 'quit', 'toString', 'startsWith', 'includes']);
 
 const LISTENER_METHODS = ['handle', 'handleOnce', 'on', 'once', 'addListener'];
 // Properties of the IPC event (event.senderFrame.url, event.sender.getURL(), ...) that identify the sender
@@ -50,7 +55,16 @@ export default class IpcSenderValidationJSCheck {
     }
 
     if (this.validatesSender(handler)) return null;
-    return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true, properties })];
+    // a handler that reads nothing from the message and does nothing sensitive (is-mac, app-version) is worth a note
+    // only: who sends it changes nothing
+    const profile = handlerProfile(handler, [...(context.ancestors || []), astNode]);
+    // a call to anything else (getSecrets(), a helper in another file) may do something sensitive
+    const unknownCalls = callsIn(handler, (call, name) => !HARMLESS_CALLS.has(name)).length > 0;
+    if (profile.used.length === 0 && profile.capabilities.length === 0 && !unknownCalls)
+      return [finding(this, astNode, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true, properties,
+        description: `${this.description} (the handler reads no arguments and uses no sensitive API)` })];
+    return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true, properties,
+      description: profile.capabilities.length ? `${this.description} (it uses ${profile.capabilities.join(', ')})` : undefined })];
   }
 
   validatesSender(handler) {

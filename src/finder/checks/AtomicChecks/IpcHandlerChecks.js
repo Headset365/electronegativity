@@ -134,6 +134,9 @@ export function credentialIn(node) {
   let found;
   visit(node, (n) => {
     if (found) return false;
+    // store.secrets, creds.accessToken, getPasswords()
+    const name = n.type === 'Identifier' ? n.name : isMember(n) && !n.computed ? memberName(n) : undefined;
+    if (name && /secret|token|passw|pwd|credential|creds\b|api.?key|private.?key/i.test(name)) { found = name; return false; }
     if (isCall(n)) {
       const name = calleeName(n.callee);
       if (CREDENTIAL_READS[name]) found = `${CREDENTIAL_READS[name]}.${name}()`;
@@ -174,6 +177,15 @@ export function capabilities(fn, ancestors) {
 }
 
 // The values a handler sends back: its return value, event.reply(ch, value), event.sender.send(ch, value), event.returnValue = value
+/** What a handler does with a message: the arguments it uses, its capabilities, and a credential it sends back. */
+export function handlerProfile(fn, ancestors) {
+  const args = paramNames(fn).slice(1);
+  const used = [...identifiersIn(fn.body)].filter(name => args.includes(name));
+  const { list, targetsWindow } = capabilities(fn, ancestors);
+  const secret = repliedValues(fn).map(credentialIn).find(Boolean);
+  return { used, capabilities: [...new Set([...list, ...(secret ? ['credentials'] : [])])], targetsWindow, secret };
+}
+
 function repliedValues(fn) {
   const values = returnedValues(fn).map(r => r.value);
   callsIn(fn, (call, name) => ['reply', 'send'].includes(name) && isMember(call.callee)).forEach(({ call }) => values.push(...call.arguments.slice(1)));

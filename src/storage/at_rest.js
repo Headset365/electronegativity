@@ -77,10 +77,17 @@ function strings(data) {
 
 const show = (value, reveal) => reveal ? String(value) : redact(value);
 
+// Keys written by analytics, advertising and feature-flag SDKs (PostHog, Google, LinkedIn, Facebook, Segment, Amplitude,
+// Mixpanel, Hotjar, HubSpot, Microsoft Ads, Clarity, Datadog RUM, LaunchDarkly, Statsig...): device and session ids,
+// random-looking but not credentials. A provider-pattern secret under such a key is still reported.
+export const ANALYTICS_KEY = /^(ph_|__ph|posthog|_ga|_gcl|_gid|_gat|li_|_fbp|_fbc|amplitude|amp_|mp_|ajs_|_hj|intercom-|__hs|hubspot|_uet|_clck|_clsk|optimizely|_dd_s|__stripe_|_pk_|mixpanel|segment|statsig|ld:|launchdarkly|rl_|_rdt|_tt_|_scid)/i;
+
 // [kind, shown value] when a value is or holds a secret
 function secretIn(value, key, reveal) {
-  if (key && isSensitiveParam(key) && value.length >= 6 && !/^\d+$/.test(value)) return ['value under a secret-named key', show(value, reveal)];
   const hit = findSecrets(value)[0];
+  if (hit && !hit.kind.startsWith('High-entropy')) return [hit.kind, show(hit.value, reveal)];
+  if (key && ANALYTICS_KEY.test(key)) return undefined;
+  if (key && isSensitiveParam(key) && value.length >= 6 && !/^\d+$/.test(value)) return ['value under a secret-named key', show(value, reveal)];
   if (hit) return [hit.kind, show(hit.value, reveal)];
   if (looksSecretValue(value) && value.length >= 24) return ['high-entropy value', show(value, reveal)];
   return undefined;

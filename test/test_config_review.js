@@ -9,7 +9,7 @@ import { readCacheEntry, reviewCaches } from '../src/storage/at_rest.js';
 import { sourceMapIssues } from '../src/production/sourcemaps.js';
 import { interactionOf, consequenceOf } from '../src/finder/consequences.js';
 import { splitOutputs, unwritableOutput } from '../src/util/file.js';
-import { maskCode } from '../src/report/share.js';
+import { maskCode, buildShare } from '../src/report/share.js';
 
 chaiShould();
 await _i18n();
@@ -308,6 +308,22 @@ module.exports = { unzip, unzipSafe };` });
     });
   });
 
+  describe('Less noise', () => {
+    it('counts before()/after()/append() as HTML sinks only in files with jQuery', async () => {
+      const code = 'export function show(el, x) { el.before(`<b>${x}</b>`); el.after(\'<i>\' + x); }';
+      (await scan({ 'package.json': PACKAGE, 'view.js': code })).of('XSS_SINK_JS_CHECK').should.have.length(0);
+      (await scan({ 'package.json': PACKAGE, 'view.js': `import jQuery from 'jquery';\n${code}` })).of('XSS_SINK_JS_CHECK').should.have.length(2);
+    });
+
+    it('rates missing sender validation low on handlers that read nothing and do nothing sensitive', async () => {
+      const { of } = await scan({ 'package.json': PACKAGE, 'main.js': `
+const { ipcMain, shell } = require('electron');
+ipcMain.handle('is-mac', () => process.platform === 'darwin');
+ipcMain.handle('open', (event, p) => shell.openPath(p));` });
+      of('IPC_SENDER_VALIDATION_JS_CHECK').map(i => [i.properties.channel, i.severity.name]).should.deep.equal([['is-mac', 'LOW'], ['open', 'MEDIUM']]);
+    });
+  });
+
   describe('Shareable report (--share)', () => {
     const TOKEN = ['ghp_', 'Zq8Lm2Vt9Rk4Zp8Wn3Yb6Hs7Tx4Wv1Yp8Nb2Qm'].join('');
     const files = {
@@ -355,6 +371,30 @@ fetch('http://10.20.30.40:8080/api');`,
       maskCode("store.get('Acme'); ipcMain.handle('open-doc', f)", same).should.equal("store.get('<str>'); ipcMain.handle('open-doc', f)");
       maskCode('x = `Hello ${name}, from Jane` // note', same).should.equal('x = `… ${name}… from …`');
       maskCode("const t = 'Zq8Lm2Vt9Rk4Zp8Wn3Yb6Hs7Tx4W'", same).should.equal("const t = '<str>'");
+    });
+
+    it('also removes bare host names, ids in paths and random tokens, and keeps versions and public services', () => {
+      const issue = (id, file, description, properties) => ({ id, severity: { name: 'MEDIUM' }, confidence: { name: 'FIRM' }, file, location: { line: 1 }, description, properties });
+      const ANALYTICS_KEY = ['ph_phc_', 'XpJnCfdjTHE6VO1pY8Pn3OJmjdlcWUXJGJwSmm0cex9', '_posthog'].join('');
+      const report = buildShare({ input: tmp('eng-share-none-'), version: 't', issues: [
+        issue('STORAGE_COOKIE_AT_REST', 'C:/Users/bob/AppData/Roaming/X/Network/Cookies', "The cookie 'accessToken' for preview.acmelaw.ai is stored unencrypted; also .acmelaw.ai and .linkedin.com"),
+        issue('TRAFFIC_AUTH_TO_THIRD_PARTY', 'https://dm-portal-testing-api.acmecorp.com', 'The Authorization header is sent to dm-portal-testing-api.acmecorp.com, outside the app own domains (acmelaw.app)'),
+        issue('RUNTIME_MARKER_OPEN_PATH', 'C:/Users/bob/.acme/ActiveSync/matter_157281/ENGX.docx', 'opened'),
+        issue('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', 'node_modules', 'Dependency with published security advisories: axios@1.12.2 (28: GHSA-35jp-ww65-95wh)'),
+        issue('RUNTIME_IPC', 'runtime', 'IPC channel was used by https://a.acmelaw.app, https://b.acmelaw.app', { senders: ['https://a.acmelaw.app', 'https://b.acmelaw.app'] }),
+        issue('STORAGE_SECRET_AT_REST', 'x', `key '${ANALYTICS_KEY}', channel desktop-matter-import-model, Chromium 132.0.6834.210, CVE-2025-10585, main.window.js:13, window.open`),
+      ] });
+      const text = JSON.stringify(report);
+      for (const leak of ['acmelaw', 'acmecorp', 'dm-portal', '157281', 'bob', 'XpJnCfdjTHE6VO1pY8Pn3OJmjdlcWUXJGJwSmm0cex9'])
+        text.should.not.include(leak, `leaks ${leak}`);
+      const by = (id) => report.findings.find(f => f.id === id);
+      by('STORAGE_COOKIE_AT_REST').description.should.match(/for host-[0-9a-f]{8} is stored.*also \.host-[0-9a-f]{8} and \.linkedin\.com/);
+      by('RUNTIME_MARKER_OPEN_PATH').file.should.equal('C:/Users/<user>/.acme/ActiveSync/matter_<n>/ENGX.docx');
+      by('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK').description.should.include('axios@1.12.2');
+      // the same host gets the same pseudonym in the text and in the details, list punctuation included
+      const [first, second] = by('RUNTIME_IPC').properties.senders;
+      by('RUNTIME_IPC').description.should.equal(`IPC channel was used by ${first}, ${second}`);
+      by('STORAGE_SECRET_AT_REST').description.should.equal("key 'ph_phc_XpJn…_posthog', channel desktop-matter-import-model, Chromium 132.0.6834.210, CVE-2025-10585, main.window.js:13, window.open");
     });
   });
 });

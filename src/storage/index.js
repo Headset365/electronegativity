@@ -5,6 +5,10 @@ import fs from 'node:fs';
 import { severity, confidence } from '../finder/attributes.js';
 import { defaultProfileDirs, reviewProfile } from './at_rest.js';
 import { searchRoots, snapshot, changedFiles, credentialTargets, scanForCanaries } from './canary.js';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { isSensitiveParam } = require('../traffic/secrets.cjs');
 
 const finding = (id, file, sev, conf, description, properties, reference, sample = '') => ({
   file, sample, location: { line: 0, column: 0 }, id, description, properties, shortenedURL: reference, severity: sev, confidence: conf,
@@ -67,9 +71,20 @@ export function reviewDataAtRest({ names = [], userData, observedUserData, revie
           { store: w.store, origin: w.origin, key: w.key, kind: w.kind }, 'https://cwe.mitre.org/data/definitions/312.html', `${w.kind}: ${w.shown}`));
       }
       const cookies = data.cookies;
-      for (const c of cookies.plaintext || [])
+      // cookies stored unencrypted: those that authenticate one by one, the rest (analytics, preferences) as one finding,
+      // as they share one cause (the EnableCookieEncryption fuse, or no OS keyring)
+      const plaintext = cookies.plaintext || [];
+      const authCookie = (c) => isSensitiveParam(c.name) || /sess|auth|token|jwt|login|remember|(^|[_-])sid($|[_-])/i.test(c.name);
+      for (const c of plaintext.filter(authCookie))
         issues.push(finding('STORAGE_COOKIE_AT_REST', cookies.file, severity.MEDIUM, confidence.CERTAIN,
-          `The cookie '${c.name}' for ${c.host} is stored unencrypted in the cookie store`, { host: c.host, name: c.name }, COOKIE_FUSE, `${c.name} @ ${c.host}: ${c.value}`));
+          `The cookie '${c.name}' for ${c.host} is stored unencrypted in the cookie store: anything that can read the user's profile folder can reuse the session`, { host: c.host, name: c.name }, COOKIE_FUSE, `${c.name} @ ${c.host}: ${c.value}`));
+      const others = plaintext.filter(c => !authCookie(c));
+      if (others.length > 0) {
+        const hosts = [...new Set(others.map(c => c.host))];
+        issues.push(finding('STORAGE_COOKIE_AT_REST', cookies.file, severity.LOW, confidence.CERTAIN,
+          `${others.length} other cookie(s) are stored unencrypted (analytics, preferences) for ${hosts.slice(0, 8).join(', ')}${hosts.length > 8 ? ', ...' : ''}: turn on the EnableCookieEncryption fuse`,
+          { count: others.length, hosts: hosts.slice(0, 30), names: others.map(c => c.name).slice(0, 30) }, COOKIE_FUSE));
+      }
       if (cookies.weakEncryption)
         issues.push(finding('STORAGE_COOKIE_AT_REST', cookies.file, severity.LOW, confidence.FIRM,
           `${cookies.weakEncryption} cookie(s) use Chromium's fallback encryption with a fixed key (v10 ${process.platform === 'linux' ? 'without an OS keyring' : 'with the EnableCookieEncryption fuse off'}): effectively cleartext on disk`,

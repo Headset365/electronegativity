@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, keyName, calleeObjectName, finding } from '../helpers.js';
-import { constantValue, identifiersIn, isCall, resolveLocal, onlyConstantParts } from '../analysis.js';
+import { constantValue, identifiersIn, isCall, resolveLocal, onlyConstantParts, programOf, visit, moduleBindings } from '../analysis.js';
 import { htmlOrigin, looksLikeHtml, ORIGINS } from '../html.js';
 
 const HTML_PROPERTIES = ['innerHTML', 'outerHTML'];
@@ -34,8 +34,11 @@ export default class XssSinkJSCheck {
       // document.execCommand('insertHTML', false, x) parses its argument as HTML
       if (method === 'execCommand' && String(constantValue(astNode.arguments[0], scope)).toLowerCase() === 'inserthtml') { sink = "execCommand('insertHTML')"; value = astNode.arguments[2]; }
       // jQuery: $el.html(x); append/prepend/before/after/replaceWith parse strings as HTML too, flag them when given built strings
-      if (method === 'html' && astNode.arguments.length === 1) { sink = '.html()'; value = astNode.arguments[0]; }
-      if (JQUERY_INSERTION.includes(method) && astNode.arguments.length === 1 && isBuiltString(astNode.arguments[0])) { sink = `.${method}()`; value = astNode.arguments[0]; }
+      // the DOM's own before()/after()/append()/prepend() insert strings as text: only jQuery parses them as HTML, so
+      // these count only in files that contain jQuery (bundled, imported or used through the jQuery global)
+      const jquery = () => isJQueryObject(astNode.callee.object) || usesJQuery(programOf((context && context.ancestors) || []));
+      if (method === 'html' && astNode.arguments.length === 1 && jquery()) { sink = '.html()'; value = astNode.arguments[0]; }
+      if (JQUERY_INSERTION.includes(method) && astNode.arguments.length === 1 && isBuiltString(astNode.arguments[0]) && jquery()) { sink = `.${method}()`; value = astNode.arguments[0]; }
       // $(htmlString) and angular.element(htmlString) parse markup into live nodes
       const isJQuery = astNode.callee.type === 'Identifier' && (astNode.callee.name === '$' || astNode.callee.name === 'jQuery');
       const isAngularElement = method === 'element' && calleeObjectName(astNode.callee) === 'angular';
@@ -62,6 +65,40 @@ export default class XssSinkJSCheck {
     return [finding(this, astNode, { severity: origin ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
       description: `${this.description} (${sink} with ${origin || 'a dynamic value'})`, properties: { sink, serverFed: origin === ORIGINS.SERVER, origin } })];
   }
+}
+
+const jqueryCache = new WeakMap();
+
+// A jQuery object: $(...), jQuery(...), this.$(...) (Backbone views), or a $-prefixed variable ($el)
+function isJQueryObject(node) {
+  if (!node) return false;
+  if (node.type === 'Identifier') return node.name === 'jQuery' || (node.name.length > 1 && node.name.startsWith('$'));
+  if (!isCall(node)) return false;
+  const callee = node.callee;
+  return (callee.type === 'Identifier' && (callee.name === '$' || callee.name === 'jQuery')) || memberName(callee) === '$';
+}
+
+// Does the file use jQuery? An import or require of 'jquery', the jQuery global or bundled source, this.$() or calls to a
+// global $. A $ the file declares itself is a minifier's name for something else.
+export function usesJQuery(program) {
+  if (!program) return true; // no file context: keep flagging
+  if (jqueryCache.has(program)) return jqueryCache.get(program);
+  let found = [...moduleBindings(program).values()].some(b => /^jquery$/i.test(b.module || ''));
+  let dollarCalls = false;
+  let dollarDeclared = false;
+  if (!found) visit(program, (n) => {
+    if (found) return false;
+    if (n.type === 'Identifier' && n.name === 'jQuery') found = true;
+    else if (typeof n.value === 'string' && /^jquery$|jquery(\.min)?\.js/i.test(n.value)) found = true;
+    else if (isCall(n) && n.callee.type !== 'Identifier' && memberName(n.callee) === '$') found = true; // this.$('.x')
+    else if (isCall(n) && n.callee.type === 'Identifier' && n.callee.name === '$') dollarCalls = true;
+    else if ((n.type === 'VariableDeclarator' || n.type === 'FunctionDeclaration' || n.type === 'ClassDeclaration') && n.id && n.id.name === '$') dollarDeclared = true;
+    else if ((n.type === 'FunctionDeclaration' || n.type === 'FunctionExpression' || n.type === 'ArrowFunctionExpression') && n.params.some(p => p.type === 'Identifier' && p.name === '$')) dollarDeclared = true;
+    return !found;
+  });
+  found = found || (dollarCalls && !dollarDeclared);
+  jqueryCache.set(program, found);
+  return found;
 }
 
 // Whether an argument to $()/angular.element() is an HTML string rather than a selector: a built string with markup,

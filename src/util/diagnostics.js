@@ -110,21 +110,26 @@ export function sensitiveTerms(input, extra = []) {
   return [...terms].sort((a, b) => b.length - a.length);
 }
 
+/** The stable pseudonym of a host name, the same in every report: host-<8 hex digits of its SHA-256> */
+export const hostPseudonym = (host) => `host-${crypto.createHash('sha256').update(String(host).toLowerCase().replace(/\.$/, '')).digest('hex').slice(0, 8)}`;
+
 /** Returns a sanitizer that replaces the terms, the home folder, and pseudonymizes hosts in URLs. */
 export function makeSanitizer(terms) {
   const home = os.homedir();
   const escaped = terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const pattern = escaped.length > 0 ? new RegExp(escaped.join('|'), 'gi') : undefined;
   const hosts = new Map();
-  const pseudonym = (host) => {
+  const pseudonym = (raw) => {
+    const host = String(raw).toLowerCase().replace(/\.$/, '');
     if (/^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/i.test(host)) return host;
-    if (!hosts.has(host)) hosts.set(host, `host-${crypto.createHash('sha256').update(host).digest('hex').slice(0, 8)}`);
+    if (!hosts.has(host)) hosts.set(host, hostPseudonym(host));
     return hosts.get(host);
   };
   const sanitizeString = (text) => {
     let out = String(text);
     if (home && home.length > 1) out = out.split(home).join('<home>');
-    out = out.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^/\s:'"<>]+)/gi, (match, scheme, host) => `${scheme}${pseudonym(host)}`);
+    // punctuation after a URL (a list: "https://a, https://b") is not part of its host
+    out = out.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^/\s:'"<>,;()[\]{}]+)/gi, (match, scheme, host) => `${scheme}${pseudonym(host)}`);
     if (pattern) out = out.replace(pattern, '<redacted>');
     return out;
   };

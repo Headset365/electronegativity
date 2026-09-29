@@ -7,11 +7,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { sensitiveTerms, makeSanitizer } from '../util/diagnostics.js';
+import { sensitiveTerms, makeSanitizer, hostPseudonym } from '../util/diagnostics.js';
 import { consequenceOf, interactionOf } from '../finder/consequences.js';
 
 const require = createRequire(import.meta.url);
 const { redactText, looksRandomSecret } = require('../traffic/secrets.cjs');
+const { registrableDomain } = require('../traffic/detectors.cjs');
 
 const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const CONFIDENCES = ['CERTAIN', 'FIRM', 'TENTATIVE'];
@@ -26,14 +27,41 @@ const SAFE_PROPERTIES = ['channel', 'capabilities', 'issue', 'validatesArguments
   'window', 'world', 'members', 'channels', 'senders', 'windows', 'passThrough', 'live', 'sink', 'marker', 'permission', 'default', 'fields', 'method', 'maps',
   'inline', 'withSources', 'total', 'counts', 'kev', 'backported', 'name', 'version', 'advisory', 'chromium'];
 
-// Replaces what a sanitizer from the diagnostics report doesn't: user folders, query strings, e-mail and IP addresses, secrets
+// Host names written without a scheme (cookie domains, "sent to api.example.com") are pseudonymized like those in URLs,
+// except well-known public services, which say what a finding is about without identifying the app.
+const TLDS = 'com|net|org|io|ai|app|dev|co|uk|de|fr|nl|eu|us|ca|au|nz|jp|cn|ru|br|es|ch|se|no|dk|fi|be|at|ie|cloud|tech|xyz|info|biz|tv|' +
+  'law|legal|services|online|site|software|solutions|systems|group|pro|works|digital|global|email|link|live|page|work|team|tools|health|finance|bank|insurance';
+// a leading dot is a cookie domain (.example.com); inside a URL, an e-mail or a dotted name it is not a host of its own
+const BARE_HOST = new RegExp(`(?<![\\w:/@.-])(\\.?)((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:${TLDS}))(?![\\w-])`, 'gi');
+const PUBLIC_DOMAINS = new Set(('google.com googleapis.com gstatic.com googleusercontent.com doubleclick.net google-analytics.com googletagmanager.com ' +
+  'googleadservices.com linkedin.com licdn.com facebook.com facebook.net fbcdn.net instagram.com twitter.com x.com microsoft.com microsoftonline.com ' +
+  'live.com office.com office365.com sharepoint.com azure.com windows.net msftauth.net github.com githubusercontent.com githubassets.com gitlab.com ' +
+  'hubspot.com hs-analytics.net hs-scripts.com hsadspixel.net hsforms.com hs-banner.com hubapi.com posthog.com sentry.io segment.com segment.io ' +
+  'amplitude.com mixpanel.com intercom.io intercomcdn.com hotjar.com cloudflare.com cloudflareinsights.com jsdelivr.net unpkg.com cdnjs.com ' +
+  'stripe.com stripe.network apple.com icloud.com amazonaws.com cloudfront.net akamaized.net fastly.net electronjs.org nodejs.org npmjs.org npmjs.com ' +
+  'osv.dev nist.gov cisa.gov first.org mozilla.org w3.org owasp.org example.com youtube.com vimeo.com zoom.us slack.com atlassian.net atlassian.com ' +
+  'okta.com auth0.com onelogin.com clarity.ms bing.com socket.io typekit.net').split(' '));
+
+// Replaces what a sanitizer from the diagnostics report doesn't: host names without a scheme, user folders, numeric ids
+// in paths, query strings, e-mail and IP addresses, secrets and random-looking tokens (analytics project keys)
+export function bareHosts(text) {
+  return String(text).replace(BARE_HOST, (match, dot, host) => PUBLIC_DOMAINS.has(registrableDomain(host)) ? match : `${dot}${hostPseudonym(host)}`);
+}
+
 function extraRedaction(text) {
   return redactText(String(text))
     .replace(/\b[A-Za-z]:\\Users\\[^\\\s"'<>]+/g, 'C:\\Users\\<user>')
     .replace(/\/(home|Users)\/[^/\s"'<>]+/g, '/$1/<user>')
-    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s'"<>?#]*)[?#][^\s'"<>)]*/gi, '$1')
-    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<email>')
-    .replace(/\b(?!127\.)(\d{1,3}\.){3}\d{1,3}\b/g, '<ip>');
+    // ids in local paths and URL paths (a matter or customer number)
+    .replace(/((?:[A-Za-z]:[\\/]|\/|\bhost-[0-9a-f]{8}\/)[^\s'"<>`]*)/g, (p) => p.replace(/(?<![A-Za-z])\d{4,}/g, '<n>'))
+    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s'"<>?#]*)[?#][^\s'"<>)`]*/gi, '$1')
+    // an e-mail needs a domain ending in letters: name@1.2.3 is a package version
+    .replace(/[\w.+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}\b/gi, '<email>')
+    .replace(/\b(?!127\.)(\d{1,3}\.){3}\d{1,3}\b/g, '<ip>')
+    .replace(/[A-Za-z0-9_-]{24,}/g, (token) => {
+      // analytics project keys and other random tokens inside names: ph_phc_<key>_posthog
+      return token.split(/_/).map(part => looksRandomSecret(part) ? `${part.slice(0, 4)}…` : part).join('_');
+    });
 }
 
 /** Code with its strings and comments masked: literals that could carry data become <str>, short identifiers stay. */
@@ -61,7 +89,8 @@ const rank = (list, value) => { const i = list.indexOf(value); return i === -1 ?
 export function buildShare(scan) {
   const terms = sensitiveTerms(scan.input, scan.redact || []);
   const sanitize = makeSanitizer(terms);
-  const clean = (text) => extraRedaction(sanitize(String(text ?? '')));
+  // bare host names first, before the app's name inside them is replaced and the host can't be recognized anymore
+  const clean = (text) => extraRedaction(sanitize(bareHosts(String(text ?? ''))));
   const root = scan.input ? path.resolve(scan.input) : undefined;
   const place = (file) => {
     if (!file || file === 'N/A') return 'application-wide';
