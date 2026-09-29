@@ -220,7 +220,7 @@
 	"userDataOptionDescription": "review the app's profile folder (its userData: cookies, Local and Session Storage, IndexedDB) for secrets stored in cleartext, read-only; 'auto' finds it by the app's name. Watch mode reviews it after the session",
 	"canaryOptionDescription": "a unique test password you typed into the app with 'remember me' ticked: its folders (and registry keys on Windows) are searched for it, in plaintext and common encodings; with --watch, what the session wrote is compared too. Can be repeated",
 	"searchDirOptionDescription": "another folder to search for the --canary password; can be repeated",
-	"showSecretsOptionDescription": "keep the full values of secrets found at rest in the report (they are already on this machine: don't share such a report)",
+	"showSecretsOptionDescription": "keep the full values of secrets in the report: those found at rest, in request URLs, headers and responses, and in console output (they are already on this machine: don't share such a report)",
 	"SECRET_FILE_WRITE_JS_CHECK": "A secret is written to a file without encryption",
 	"ELECTRON_STORE_ENCRYPTION_JS_CHECK": "electron-store keeps its data unencrypted",
 	"COOKIE_FLAGS_JS_CHECK": "A cookie is set in code without its security attributes",

@@ -170,6 +170,18 @@ describe('Traffic', () => {
       found.TRAFFIC_CLEARTEXT_HTTP.evidence.length.should.equal(2);
     });
 
+    it('keeps full secret values in the evidence only when asked (--show-secrets)', () => {
+      const JWT = ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiIxMjM0NTY3ODkwIn0', 'c2lnbmF0dXJlLXZhbHVl'].join('.');
+      const url = `https://api.test/download?jwt=${JWT}&name=report`;
+      const hidden = check([ex('GET', url)]).TRAFFIC_SECRET_IN_URL.evidence[0];
+      hidden.should.not.include(JWT);
+      hidden.should.include('jwt=');
+      const shown = check([ex('GET', url)], { reveal: true }).TRAFFIC_SECRET_IN_URL.evidence[0];
+      shown.should.include(`jwt=${JWT}`);
+      const header = check([ex('GET', 'https://api.test/a'), ex('GET', 'https://cdn.other.test/b', { req: [['Authorization', 'Bearer abcdefghijklmnop123456']] })], { scope: ['api.test'], reveal: true });
+      header.TRAFFIC_AUTH_TO_THIRD_PARTY.evidence[0].should.include('Bearer abcdefghijklmnop123456');
+    });
+
     it('checks WebSocket connections and messages', () => {
       const analyzer = new TrafficAnalyzer();
       analyzer.wsOpen('ws://chat.test/s?token=SECRETtoken12345');

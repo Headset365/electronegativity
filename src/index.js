@@ -213,7 +213,7 @@ async function main() {
     if (options.watch || options.watchLog) {
       try {
         session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker || ((options.activeTests || campaign) ? generateMarker() : undefined), active: !!(options.activeTests || campaign), campaign, capture, traffic, scope, screenshots,
-          canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm() });
+          reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm() });
       } catch (error) {
         console.error(chalk.red(error.message));
         process.exit(2);
@@ -392,7 +392,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
     try {
       session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, active: !!(options.activeTests || campaign), campaign, capture, traffic, scope,
         screenshots: screenshots && (path.isAbsolute(screenshots) ? screenshots : path.join(outDir, screenshots)),
-        canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, assistant, confirm: interactiveConfirm() });
+        reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, assistant, confirm: interactiveConfirm() });
     } catch (error) {
       console.error(chalk.red(error.message));
       break;

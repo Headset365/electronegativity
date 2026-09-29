@@ -199,10 +199,10 @@ export function trafficIssues(findings, source) {
 /**
  * Runs the traffic checks on saved captures. Returns { issues, summary: { files, http, ws, hosts, firstParty, errors } }.
  * @param {string[]} files HAR or Burp XML files
- * @param {{ scope?: string[] }} options scope: the app's own domains (learned from the traffic when not given)
+ * @param {{ scope?: string[], reveal?: boolean }} options scope: the app's own domains (learned from the traffic when not given); reveal: keep full secret values in the evidence (--show-secrets)
  */
-export function analyzeCaptures(files, { scope = [] } = {}) {
-  const analyzer = new TrafficAnalyzer({ scope });
+export function analyzeCaptures(files, { scope = [], reveal = false } = {}) {
+  const analyzer = new TrafficAnalyzer({ scope, reveal });
   const errors = [];
   const captures = [];
   let loaded = 0;

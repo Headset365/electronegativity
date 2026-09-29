@@ -409,6 +409,16 @@ ipcMain.handle('link', (event, url) => shell.openExternal(url));`);
       JSON.parse(text).audit.finalPassReplacements.should.be.a('number');
     });
 
+    it('leaves code samples out when the run used --show-secrets, as they can hold full secret values', () => {
+      const issues = [{ id: 'TRAFFIC_SECRET_IN_URL', file: 'runtime', location: { line: 0 }, severity: { name: 'HIGH' }, confidence: { name: 'FIRM' },
+        description: 'secret in a URL', sample: 'GET https://api.test/x?jwt=REVEALEDSECRETVALUE0123456789abcdef' }];
+      const revealed = buildShare({ input: '/work/demo', version: '2.0.0', issues, code: true, reveal: true });
+      (revealed.findings[0].code === undefined).should.equal(true);
+      JSON.stringify(revealed).should.not.include('REVEALEDSECRET');
+      revealed.about.should.include('--show-secrets');
+      buildShare({ input: '/work/demo', version: '2.0.0', issues, code: true }).findings[0].code.should.be.a('string');
+    });
+
     it('does not treat punctuation after a scheme as a host, which would replace every comma in the report', () => {
       const report = buildShare({ input: '/work/demo', version: '2.0.0', code: true, issues: [{
         id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },

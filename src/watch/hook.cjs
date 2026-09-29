@@ -291,10 +291,12 @@ function instrument(electron, late) {
 
   // the app's network traffic, checked inside the app by the passive traffic checks: only their findings (with redacted
   // evidence) are written to the log. Off with --no-watch-traffic.
+  // --show-secrets: keep full values in the findings instead of a redacted prefix
+  const revealSecrets = process.env.ELECTRONEGATIVITY_WATCH_REVEAL === '1';
   let traffic;
   if (process.env.ELECTRONEGATIVITY_WATCH_TRAFFIC !== '0') safely(() => {
     const { createTrafficObserver } = require(path.join(__dirname, 'traffic_hook.cjs'));
-    traffic = createTrafficObserver({ write, scope: (process.env.ELECTRONEGATIVITY_WATCH_SCOPE || '').split(',').map(s => s.trim()).filter(Boolean) });
+    traffic = createTrafficObserver({ write, scope: (process.env.ELECTRONEGATIVITY_WATCH_SCOPE || '').split(',').map(s => s.trim()).filter(Boolean), reveal: revealSecrets });
     if (traffic) traffic.instrumentNodeHttp();
   });
 
@@ -305,7 +307,7 @@ function instrument(electron, late) {
   const consoleSecrets = (text, where, url) => {
     if (!secrets || !text) return;
     const found = secrets.findSecrets(String(text).slice(0, 20000), { maxHits: 5 }).filter(s => !s.kind.startsWith('Hard-coded'));
-    if (found.length > 0) write('console-secret', { where, url, kinds: [...new Set(found.map(s => s.kind))], evidence: found.slice(0, 3).map(s => `${s.kind}=${secrets.redact(s.value)}`) });
+    if (found.length > 0) write('console-secret', { where, url, kinds: [...new Set(found.map(s => s.kind))], evidence: found.slice(0, 3).map(s => `${s.kind}=${revealSecrets ? s.value : secrets.redact(s.value)}`) });
   };
   const firstLine = (text) => {
     const line = String(text || '').split('\n')[0].slice(0, 200);

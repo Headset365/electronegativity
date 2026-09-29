@@ -41,7 +41,7 @@ const bodyText = (uploadData) => {
  * @param {{ write: Function, scope?: string[] }} options write(kind, data) appends to the session log
  * @returns the observer, or undefined when the traffic checks can't be loaded
  */
-function createTrafficObserver({ write, scope = [] }) {
+function createTrafficObserver({ write, scope = [], reveal = false }) {
   let TrafficAnalyzer;
   try {
     ({ TrafficAnalyzer } = require(path.join(__dirname, '..', 'traffic', 'detectors.cjs')));
@@ -49,7 +49,7 @@ function createTrafficObserver({ write, scope = [] }) {
     write('hook-error', { message: `traffic checks unavailable: ${error && error.message}` });
     return undefined;
   }
-  const analyzer = new TrafficAnalyzer({ scope });
+  const analyzer = new TrafficAnalyzer({ scope, reveal });
   const safely = (fn) => {
     try {
       fn();

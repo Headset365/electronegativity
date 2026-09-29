@@ -192,7 +192,7 @@ $ electronegativity -h
 | --user-data <dir> | review the app's profile folder for secrets at rest; `auto` finds it by the app's name (watch mode reviews it after the session), see [Data at rest](#data-at-rest) |
 | --canary <password> | a unique test password typed into the app with "remember me": find where it was stored and whether it is encrypted (can be repeated) |
 | --search-dir <dir> | another folder to search for the `--canary` password (can be repeated) |
-| --show-secrets | keep the full values of secrets found at rest in the report (don't share such a report) |
+| --show-secrets | keep the full values of secrets in the report instead of a redacted prefix: secrets found at rest, in request URLs, headers and responses, and in console output (don't share such a report; its shareable report leaves out code samples) |
 | --no-nvd | don't look up the Chromium CVEs of the app's Electron version in NVD |
 | --finding-notes <file> | your own notes per check or family, shown in the HTML, JSON and Word reports (see `docs/finding-notes.example.json`) |
 | --suppress <file> | accepted risks by fingerprint, check or file, with a reason, owner and expiry date (see `docs/suppressions.example.json`) |

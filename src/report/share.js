@@ -137,13 +137,14 @@ export function buildShare(scan) {
       description: clean(issue.description),
       remediation: remediationOf(issue.id)?.fix,
       properties: properties(issue.properties),
-      code: scan.code && issue.sample ? maskCode(issue.sample, clean) : undefined,
+      // (never with --show-secrets: the samples of that run can hold full secret values)
+      code: scan.code && !scan.reveal && issue.sample ? maskCode(issue.sample, clean) : undefined,
     }));
   const count = (key) => findings.reduce((acc, f) => { const k = f[key] || 'Other'; acc[k] = (acc[k] || 0) + 1; return acc; }, {});
   const bundled = scan.bundled || {};
   const report = {
     about: 'Electronegativity findings, redacted for sharing: app, company and user names (and --redact terms), user folders, hosts (pseudonyms), query strings, e-mail and IP addresses and secret-like values are replaced; code is ' +
-      (scan.code ? 'included with its strings and comments masked' : 'left out') + '. Review this file before sending it.',
+      (scan.code && scan.reveal ? 'left out because the run used --show-secrets' : scan.code ? 'included with its strings and comments masked' : 'left out') + '. Review this file before sending it.',
     tool: scan.version,
     electron: scan.electronVersion || 'not detected',
     bundled: Object.fromEntries(Object.entries({ chromium: bundled.chromium, node: bundled.node }).filter(([, v]) => v)),

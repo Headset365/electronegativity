@@ -307,7 +307,7 @@ async function scan(options, forCli) {
   // saved captures of the app's traffic (--ingest: HAR or Burp XML), checked by the same traffic checks as watch mode
   let traffic;
   if (options.captures && options.captures.length > 0) {
-    traffic = analyzeCaptures(options.captures, { scope: options.scope || [] });
+    traffic = analyzeCaptures(options.captures, { scope: options.scope || [], reveal: !!options.reveal });
     issues.push(...traffic.issues);
     for (const message of traffic.summary.errors) errors.push({ file: 'capture', message, tolerable: false });
     if (forCli) console.log(chalk.green(__('trafficSummary', { files: traffic.summary.files, http: traffic.summary.http, ws: traffic.summary.ws, hosts: traffic.summary.hosts })));
@@ -437,7 +437,7 @@ async function scan(options, forCli) {
   // (one file, or several: --report-dir writes Markdown and JSON)
   for (const share of [].concat(options.share || [])) {
     const shared = writeShare(share, { input: options.input, issues: reported, suppressed, electronVersion, bundled: dependencies && dependencies.bundled,
-      runtime: options.runtime && options.runtime.summary, redact: options.redact || [], code: !!options.shareCode, version: pkg.version });
+      runtime: options.runtime && options.runtime.summary, redact: options.redact || [], code: !!options.shareCode, reveal: !!options.reveal, version: pkg.version });
     if (forCli) console.log(chalk.gray(__('shareWritten', { file: share })));
     if (forCli && shared.audit.finalPassReplacements > 0) console.log(chalk.gray(__('shareAudit', { count: shared.audit.finalPassReplacements })));
   }

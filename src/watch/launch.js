@@ -58,7 +58,7 @@ export function resolveApp(target, extraArgs = []) {
  * (--inspect-brk, on a local port), the hook is loaded through it before any of the app's code runs, and the app is
  * resumed. That needs the EnableNodeCliInspectArguments fuse, on unless the build switched it off.
  */
-export function watchApp(target, { args = [], marker, active = false, campaign = false, capture = true, traffic = true, scope = [], screenshots, commands, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onNote = () => {} } = {}) {
+export function watchApp(target, { args = [], marker, active = false, campaign = false, capture = true, traffic = true, scope = [], reveal = false, screenshots, commands, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onNote = () => {} } = {}) {
   const { command, args: commandArgs, packaged, staticInput } = resolveApp(target, args);
   fs.writeFileSync(log, '');
   const quotedHook = HOOK.includes(' ') ? `"${HOOK}"` : HOOK;
@@ -77,6 +77,8 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
   // the passive traffic checks run inside the app (--no-watch-traffic turns them off); scope: the app's own domains
   env.ELECTRONEGATIVITY_WATCH_TRAFFIC = traffic ? '1' : '0';
   if (scope.length > 0) env.ELECTRONEGATIVITY_WATCH_SCOPE = scope.join(',');
+  // --show-secrets: findings keep the full values
+  if (reveal) env.ELECTRONEGATIVITY_WATCH_REVEAL = '1';
   // evidence screenshots (--watch-screenshots): only when asked, pages can show confidential data
   if (screenshots) env.ELECTRONEGATIVITY_WATCH_SCREENSHOTS = path.resolve(screenshots);
   return (async () => {

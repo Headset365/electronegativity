@@ -99,12 +99,18 @@ const RULES = {
  * @param {{ scope?: string[] }} options scope: the app's own domains; learned from the traffic when not given
  */
 class TrafficAnalyzer {
-  constructor({ scope = [] } = {}) {
+  constructor({ scope = [], reveal = false } = {}) {
+    // --show-secrets: evidence keeps the full values instead of a redacted prefix
+    this.reveal = !!reveal;
     this.firstParty = new Set(scope.map(registrableDomain).filter(Boolean));
     this.explicitScope = this.firstParty.size > 0;
     this.inputs = new Map();
     this.findings = new Map();
     this.stats = { http: 0, ws: 0, hosts: new Set() };
+  }
+
+  show(value) {
+    return this.reveal ? String(value) : redact(value);
   }
 
   isThirdParty(host) {
@@ -221,7 +227,7 @@ class TrafficAnalyzer {
     const cleartext = e.scheme === 'http';
     this.report('TRAFFIC_SECRET_IN_URL', `${e.host}:${names.join(',')}`, {
       description: `The URL of requests to ${e.host}${e.path} carries secret-like parameters (${names.join(', ')})${cleartext ? ', over unencrypted http' : ''}: URLs end up in logs, history and Referer headers`,
-      evidence: `${e.method} ${e.scheme}://${e.host}${e.path}?${hits.map(([n, v]) => `${n}=${redact(v)}`).join('&')}`,
+      evidence: `${e.method} ${e.scheme}://${e.host}${e.path}?${hits.map(([n, v]) => `${n}=${this.show(v)}`).join('&')}`,
       location: `${e.scheme}://${e.host}${e.path}`, severity: 'HIGH', properties: { host: e.host, params: names, cleartext } });
   }
 
@@ -231,7 +237,7 @@ class TrafficAnalyzer {
       if (!isAuthHeader(name) || !String(value).trim() || (String(name).toLowerCase() === 'cookie' && String(value).length <= 4)) continue;
       this.report('TRAFFIC_AUTH_TO_THIRD_PARTY', `${e.host}:${String(name).toLowerCase()}`, {
         description: `The ${name} header is sent to ${e.host}, outside the app's own domains (${[...this.firstParty].sort().join(', ')})`,
-        evidence: `${e.method} ${e.host}${e.path} — ${name}: ${redact(value)}`, location: `${e.scheme}://${e.host}`,
+        evidence: `${e.method} ${e.host}${e.path} — ${name}: ${this.show(value)}`, location: `${e.scheme}://${e.host}`,
         properties: { host: e.host, header: String(name).toLowerCase(), firstParty: [...this.firstParty].sort() } });
       return;
     }
@@ -286,7 +292,7 @@ class TrafficAnalyzer {
       const htmlContext = contentType.includes('html') && ([`>${value}`, `"${value}`, `=${value}`].some(s => e.responseBody.includes(s)) || /<[a-z!/]/i.test(value));
       this.report('TRAFFIC_REFLECTED_INPUT', `${e.host}:${e.path}:${name}`, {
         description: `The request parameter '${name}' comes back in the ${contentType.split(';')[0]} response of ${e.host}${e.path}: check that it is encoded for where it lands`,
-        evidence: `${e.method} ${e.host}${e.path} — ${name}=${looksSecretValue(value) ? redact(value) : value.slice(0, 40)}`,
+        evidence: `${e.method} ${e.host}${e.path} — ${name}=${looksSecretValue(value) ? this.show(value) : value.slice(0, 40)}`,
         location: `${e.scheme}://${e.host}${e.path}`, severity: htmlContext ? 'MEDIUM' : 'LOW', properties: { host: e.host, param: name, contentType: contentType.split(';')[0] } });
       return;
     }
@@ -297,7 +303,7 @@ class TrafficAnalyzer {
     if (!auth || !/^basic /i.test(auth)) return;
     const cleartext = e.scheme === 'http';
     this.report('TRAFFIC_BASIC_AUTH', e.host, { description: `HTTP Basic authentication is sent to ${e.host}${cleartext ? ' over unencrypted http' : ''}: reusable credentials travel with every request`,
-      evidence: `${e.method} ${e.host}${e.path} — Authorization: Basic ${redact(auth.slice(6))}`, location: `${e.scheme}://${e.host}`,
+      evidence: `${e.method} ${e.host}${e.path} — Authorization: Basic ${this.show(auth.slice(6))}`, location: `${e.scheme}://${e.host}`,
       severity: cleartext ? 'HIGH' : 'LOW', properties: { host: e.host, cleartext } });
   }
 
@@ -311,7 +317,7 @@ class TrafficAnalyzer {
     const issuance = /(?:^|\/)(?:login|sign-?in|oauth|token|session)(?:\/|$)/i.test(e.path) && kinds.every(k => k === 'JSON Web Token');
     this.report('TRAFFIC_SECRET_IN_RESPONSE', `${e.host}:${e.path}:${kinds.join(',')}`, {
       description: issuance ? `An authentication response of ${e.host}${e.path} returned a JSON Web Token (expected for token issuance; review how the client stores it)` : `The response of ${e.host}${e.path} contains ${kinds.join(', ')}; check whether this is expected for the caller`,
-      evidence: `${e.method} ${e.host}${e.path}: ${real.slice(0, 3).map(s => `${s.kind}=${redact(s.value)}`).join(', ')}`,
+      evidence: `${e.method} ${e.host}${e.path}: ${real.slice(0, 3).map(s => `${s.kind}=${this.show(s.value)}`).join(', ')}`,
       location: `${e.scheme}://${e.host}${e.path}`, severity: issuance ? 'INFORMATIONAL' : 'MEDIUM', properties: { host: e.host, kinds } });
   }
 
@@ -342,7 +348,7 @@ class TrafficAnalyzer {
     const hits = queryPairs(u).filter(([name, value]) => (isSensitiveParam(name) && value.length >= 6) || looksRandomSecret(value));
     if (hits.length > 0)
       this.report('TRAFFIC_WS_SECRET_IN_URL', host, { description: `The WebSocket URL ${schemeOf(u)}://${host}${pathOf(u)} carries secret-like parameters (${hits.map(([n]) => n).join(', ')})`,
-        evidence: `${schemeOf(u)}://${host}${pathOf(u)}?${hits.map(([n, v]) => `${n}=${redact(v)}`).join('&')}`, location: `${schemeOf(u)}://${host}`, properties: { host } });
+        evidence: `${schemeOf(u)}://${host}${pathOf(u)}?${hits.map(([n, v]) => `${n}=${this.show(v)}`).join('&')}`, location: `${schemeOf(u)}://${host}`, properties: { host } });
   }
 
   /** direction: 'receive' (server to app) or 'send' */
@@ -359,7 +365,7 @@ class TrafficAnalyzer {
     const secret = findSecrets(text).find(s => !s.kind.startsWith('Hard-coded'));
     if (secret)
       this.report('TRAFFIC_WS_SECRET_IN_MESSAGE', `${host}:${secret.kind}`, { description: `A message from the WebSocket ${where} contains ${secret.kind}`,
-        evidence: `${where}: ${secret.kind}=${redact(secret.value)}`, location: where, properties: { host, kind: secret.kind } });
+        evidence: `${where}: ${secret.kind}=${this.show(secret.value)}`, location: where, properties: { host, kind: secret.kind } });
   }
 }
 
