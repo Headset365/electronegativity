@@ -458,6 +458,24 @@ ipcMain.handle('link', (event, url) => shell.openExternal(url));`);
       clean.findings[0].description.should.equal('a <redacted> flag at <email>');
     });
 
+    it('replaces hosts named like code (app., api.), newer endings and hosts in runtime evidence', () => {
+      const report = buildShare({ input: '/work/demo', version: '2.0.0', issues: [{
+        id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },
+        description: 'calls app.getPath at app.contoso.com, api.contoso.co.uk and portal.contoso.ai',
+        validation: { status: 'confirmed', text: 'https://billing.contoso.ai/admin loaded; also sso.contoso.me' } }] });
+      JSON.stringify(report.findings).should.not.include('contoso');
+      report.findings[0].description.should.include('app.getPath');
+    });
+
+    it('withholds the text of findings that carry secret values when the run used --show-secrets', () => {
+      const issues = [{ id: 'TRAFFIC_SECRET_IN_RESPONSE', file: 'runtime', location: { line: 0 }, severity: { name: 'HIGH' }, confidence: { name: 'FIRM' },
+        description: 'session=custom-format-value-7Hq2 in a response', validation: { status: 'confirmed', text: 'seen custom-format-value-7Hq2' } }];
+      const revealed = buildShare({ input: '/work/demo', version: '2.0.0', issues, reveal: true });
+      JSON.stringify(revealed).should.not.include('custom-format-value');
+      revealed.findings[0].description.should.include('withheld');
+      buildShare({ input: '/work/demo', version: '2.0.0', issues }).findings[0].description.should.include('in a response');
+    });
+
     it('masks strings that could carry data in code, keeping code tokens', () => {
       const same = (text) => text;
       maskCode("store.get('Acme'); ipcMain.handle('open-doc', f)", same).should.equal("store.get('<str>'); ipcMain.handle('open-doc', f)");

@@ -47,10 +47,15 @@ function extraRedaction(text) {
 
 // Domain names written without a scheme (a cookie domain, "sign in at portal.contoso.com"). Only endings that are hardly ever
 // a file extension are matched, and Electron's own names (electron.net, app.dev...) are left alone.
-const TLDS = 'com|net|org|io|dev|app|info|biz|xyz|cloud|online|site|tech|edu|gov|mil|local|internal|corp|lan|intranet|test|example|invalid|eu|uk|us|ca|au|de|fr|nl|jp|cn|ru|br|ch|se|dk|fi|ie|nz|za|mx';
+// (not endings that are common file extensions or code: .sh, .so, .md, .cc, .js, .ts, .in, .it, .to, .be...)
+const TLDS = 'com|net|org|io|dev|app|info|biz|xyz|cloud|online|site|tech|edu|gov|mil|local|internal|corp|lan|intranet|test|example|invalid|' +
+  'eu|uk|us|ca|au|de|fr|nl|jp|cn|ru|br|ch|se|dk|fi|ie|nz|za|mx|ai|co|me|tv|gg|ly|im|fm|es|pt|il|ae|sg|hk|kr|tw';
 // (a leading dot, as in a cookie's domain, is kept: .linkedin.com becomes .host-1a2b3c4d)
 const BARE_DOMAIN = new RegExp(`(?<![\\w@/-])(\\.?)((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:${TLDS}))(?![\\w-])(?!\\s*\\()`, 'gi');
-const NOT_DOMAINS = /^(?:electron|app|net|process|window|document|global|module|exports|this|require|remote|shell|dialog|session|navigator|location|console|api)\./i;
+// (two labels only: app.dev is code, app.contoso.com is a host)
+const NOT_DOMAINS = /^(?:electron|app|net|process|window|document|global|module|exports|this|require|remote|shell|dialog|session|navigator|location|console|api)\.[^.]+$/i;
+// findings whose text carries the secret values themselves when the run used --show-secrets (traffic, data at rest, consoles)
+const REVEALS_SECRETS = /^(TRAFFIC_|STORAGE_|RUNTIME_SECRET_IN_CONSOLE)/;
 // public documentation sites that name no one
 const PUBLIC_HOSTS = /(?:^|\.)(?:electronjs\.org|nodejs\.org|mozilla\.org|owasp\.org|mitre\.org|github\.com|npmjs\.com|w3\.org|chromium\.org|example\.com|example\.org|example\.net)$/i;
 const hostAlias = (host) => `host-${crypto.createHash('sha256').update(host.toLowerCase()).digest('hex').slice(0, 8)}`;
@@ -94,7 +99,10 @@ export function buildShare(scan) {
     } else if (Array.isArray(value)) value.forEach(v => collect(v, key));
     else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) collect(v, k);
   };
-  for (const issue of scan.issues || []) { collect(issue.description); collect(issue.file); collect(issue.properties); }
+  for (const issue of scan.issues || []) {
+    collect(issue.description); collect(issue.file); collect(issue.properties); collect(issue.validation && issue.validation.text);
+    if (scan.code) collect(issue.sample);
+  }
   const clean = (text) => {
     let value = String(text ?? '');
     for (const [host, alias] of [...hosts].sort((a, b) => b[0].length - a[0].length))
@@ -121,6 +129,8 @@ export function buildShare(scan) {
     }
     return Object.keys(out).length ? out : undefined;
   };
+  // with --show-secrets these findings' text holds full secret values that pattern redaction can't be trusted to catch
+  const withheld = (issue) => !!scan.reveal && REVEALS_SECRETS.test(issue.id);
   const findings = [...scan.issues]
     .sort((a, b) => rank(SEVERITIES, a.severity.name) - rank(SEVERITIES, b.severity.name) || rank(CONFIDENCES, a.confidence.name) - rank(CONFIDENCES, b.confidence.name))
     .map(issue => ({
@@ -131,10 +141,10 @@ export function buildShare(scan) {
       interaction: interactionOf(issue.id),
       needsReview: !!issue.manualReview,
       runtime: issue.validation ? issue.validation.status : undefined,
-      runtimeEvidence: issue.validation ? clean(issue.validation.text) : undefined,
+      runtimeEvidence: issue.validation && !withheld(issue) ? clean(issue.validation.text) : undefined,
       file: place(issue.file),
       line: issue.location && issue.location.line ? issue.location.line : undefined,
-      description: clean(issue.description),
+      description: withheld(issue) ? 'Details withheld: this run used --show-secrets, so the finding\'s text holds secret values. Run without it to share them.' : clean(issue.description),
       remediation: remediationOf(issue.id)?.fix,
       properties: properties(issue.properties),
       // (never with --show-secrets: the samples of that run can hold full secret values)
@@ -144,7 +154,8 @@ export function buildShare(scan) {
   const bundled = scan.bundled || {};
   const report = {
     about: 'Electronegativity findings, redacted for sharing: app, company and user names (and --redact terms), user folders, hosts (pseudonyms), query strings, e-mail and IP addresses and secret-like values are replaced; code is ' +
-      (scan.code && scan.reveal ? 'left out because the run used --show-secrets' : scan.code ? 'included with its strings and comments masked' : 'left out') + '. Review this file before sending it.',
+      (scan.code && scan.reveal ? 'left out because the run used --show-secrets' : scan.code ? 'included with its strings and comments masked' : 'left out') +
+      (scan.reveal ? '; the text of traffic, data-at-rest and console-secret findings is withheld because the run used --show-secrets' : '') + '. Review this file before sending it.',
     tool: scan.version,
     electron: scan.electronVersion || 'not detected',
     bundled: Object.fromEntries(Object.entries({ chromium: bundled.chromium, node: bundled.node }).filter(([, v]) => v)),
@@ -177,6 +188,15 @@ function finalPass(report, terms, folders) {
   return cleaned;
 }
 
+// the scan's text on one line, its Markdown and HTML syntax escaped
+const inline = (value) => String(value ?? '').replace(/\s+/g, ' ').trim().replace(/[\\`*[\]<>]/g, '\\$&');
+function codeSpan(value) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const fence = '`'.repeat(Math.max(0, ...[...text.matchAll(/`+/g)].map(m => m[0].length)) + 1);
+  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${text}${pad}${fence}`;
+}
+
 function markdown(report) {
   const lines = [];
   const counts = report.counts;
@@ -201,10 +221,13 @@ function markdown(report) {
   const entry = (f, n) => {
     const where = `${f.file}${f.line ? `:${f.line}` : ''}`;
     const tags = [f.runtime ? `runtime: ${f.runtime}` : undefined, f.needsReview ? 'needs review' : undefined].filter(Boolean);
-    lines.push(`${n}. **${f.severity}/${f.confidence}** \`${where}\`${tags.length ? ` (${tags.join(', ')})` : ''}: ${f.description}`);
-    if (f.runtimeEvidence) lines.push(`   - runtime evidence: ${f.runtimeEvidence}`);
-    if (f.properties) lines.push(`   - details: \`${JSON.stringify(f.properties)}\``);
-    if (f.code) lines.push('   ```js', `   ${f.code}`, '   ```');
+    lines.push(`${n}. **${f.severity}/${f.confidence}** ${codeSpan(where)}${tags.length ? ` (${tags.join(', ')})` : ''}: ${inline(f.description)}`);
+    if (f.runtimeEvidence) lines.push(`   - runtime evidence: ${inline(f.runtimeEvidence)}`);
+    if (f.properties) lines.push(`   - details: ${codeSpan(JSON.stringify(f.properties))}`);
+    if (f.code) {
+      const fence = '`'.repeat(Math.max(3, ...[...f.code.matchAll(/`{3,}/g)].map(m => m[0].length + 1)));
+      lines.push(`   ${fence}js`, `   ${f.code}`, `   ${fence}`);
+    }
   };
   const section = (title, list) => {
     if (list.length === 0) return;
