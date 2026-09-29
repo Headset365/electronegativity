@@ -1,11 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { major, valid, compare } from 'semver';
 import { isOffline, OfflineError } from './network.js';
+import { cacheDir, writeCacheFile } from './cache.js';
 
 const RELEASES_URL = 'https://releases.electronjs.org/releases.json';
-const CACHE_FILE = path.join(os.tmpdir(), 'electronegativity-electron-releases.json');
+const cacheFile = () => path.join(cacheDir(), 'electron-releases.json');
 const CACHE_TTL = 12 * 60 * 60 * 1000;
 // Electron supports the latest three stable major versions (https://www.electronjs.org/docs/latest/tutorial/electron-timelines)
 export const SUPPORTED_MAJORS = 3;
@@ -16,7 +16,7 @@ async function download() {
   const response = await fetch(RELEASES_URL, { signal: AbortSignal.timeout(20000) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const releases = (await response.json()).map(r => r.version).filter(v => valid(v) && !v.includes('-'));
-  try { fs.writeFileSync(CACHE_FILE, JSON.stringify(releases)); } catch { /* the cache is optional */ }
+  try { writeCacheFile(cacheFile(), JSON.stringify(releases)); } catch { /* the cache is optional */ }
   return releases;
 }
 
@@ -27,8 +27,8 @@ export function getStableReleases() {
   pending ??= (async () => {
     let cached;
     try {
-      const stat = fs.statSync(CACHE_FILE);
-      cached = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+      const stat = fs.statSync(cacheFile());
+      cached = JSON.parse(fs.readFileSync(cacheFile(), 'utf8'));
       if (Date.now() - stat.mtimeMs < CACHE_TTL) return sortDesc(cached);
     } catch { /* no cache yet */ }
     try {

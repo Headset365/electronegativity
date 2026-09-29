@@ -4,13 +4,11 @@
 // Every lookup is cached on disk and degrades to "not checked" when a source is unreachable. A port of
 // Electron-Dynamic's static/intel.
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { isOffline } from '../util/network.js';
+import { cacheDir, writeCacheFile } from '../util/cache.js';
 
-// ELECTRONEGATIVITY_CACHE_DIR moves the cache (tests use their own)
-const cacheDir = () => process.env.ELECTRONEGATIVITY_CACHE_DIR || path.join(os.tmpdir(), 'electronegativity-cache');
 const DAY = 24 * 60 * 60 * 1000;
 export const KEV_URL = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json';
 export const EPSS_URL = 'https://api.first.org/data/v1/epss?cve=';
@@ -47,8 +45,7 @@ export async function cached(url, { key = url, ttl = DAY, text = false, headers 
     if (!response.ok) return stale;
     const value = text ? await response.text() : await response.json();
     try {
-      fs.mkdirSync(cacheDir(), { recursive: true });
-      fs.writeFileSync(file, JSON.stringify(value));
+      writeCacheFile(file, JSON.stringify(value));
     } catch {
       // the cache is optional
     }

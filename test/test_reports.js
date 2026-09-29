@@ -11,6 +11,7 @@ import { riskScore } from '../src/report/scores.js';
 import { notesFor, applyFindingNotes } from '../src/report/notes.js';
 import { zipEntries, zipRead } from '../src/unpack/zip.js';
 import { severity, confidence } from '../src/finder/attributes.js';
+import { cacheDir, writeCacheFile } from '../src/util/cache.js';
 
 chaiShould();
 await _i18n();
@@ -154,6 +155,35 @@ describe('Reports and vulnerability intelligence', () => {
       JSON.parse(fs.readFileSync(out('r.cdx.json'), 'utf8')).metadata.component.name.should.equal('out-app');
       fs.readFileSync(out('r.html'), 'utf8').should.include('Risk score');
       zipEntries(fs.readFileSync(out('r.docx'))).length.should.equal(8);
+    });
+  });
+
+  describe('Download cache', () => {
+    it('lives in a folder of the user\'s own, not the shared temporary folder', () => {
+      const previous = process.env.ELECTRONEGATIVITY_CACHE_DIR;
+      delete process.env.ELECTRONEGATIVITY_CACHE_DIR;
+      try {
+        cacheDir().startsWith(os.tmpdir()).should.equal(false);
+        cacheDir().should.include('electronegativity');
+      } finally {
+        if (previous !== undefined) process.env.ELECTRONEGATIVITY_CACHE_DIR = previous;
+      }
+    });
+
+    it('replaces a planted link instead of writing through it', function () {
+      if (process.platform === 'win32') this.skip();
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-cache-'));
+      try {
+        const victim = path.join(dir, 'victim.txt');
+        fs.writeFileSync(victim, 'keep');
+        const file = path.join(dir, 'cache', 'entry.json');
+        fs.mkdirSync(path.dirname(file));
+        fs.symlinkSync(victim, file);
+        writeCacheFile(file, '{"a":1}');
+        fs.readFileSync(victim, 'utf8').should.equal('keep');
+        fs.lstatSync(file).isSymbolicLink().should.equal(false);
+        fs.readFileSync(file, 'utf8').should.equal('{"a":1}');
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     });
   });
 });
