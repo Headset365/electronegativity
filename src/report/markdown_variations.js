@@ -1,7 +1,25 @@
 // Alternatives for each client finding. A variant is shown when its checks occur; several variants may match one check.
 // The wording is conditional where reachability or attacker control has not been established by the scan.
-// [scenario label, check ID pattern, how to distinguish this case]
+// [scenario label, check ID pattern, how to distinguish this case, optional condition on the finding's own data]
+// When several scenarios share a check, the condition picks the ones the finding's data supports; a finding whose data
+// selects none of them gets the first scenario of its check.
 import { CLIENT_COPY } from './markdown_client_copy.js';
+
+const describe = i => String(i.description || '');
+const props = i => i.properties || {};
+const executed = i => props(i).executed === true || props(i).execution === 'observed';
+// the fuses a finding names: one fuse, the ones left unset, or none (no configuration found: every fuse at its default)
+const fuses = names => i => {
+  const named = props(i).fuse ? [props(i).fuse] : Array.isArray(props(i).unset) ? props(i).unset : undefined;
+  return !named || named.some(name => names.includes(name));
+};
+// a CSP finding about a missing or unparsable policy rather than a weak one
+const noPolicy = i => /\bno csp\b|not been detected|invalid/i.test(describe(i));
+// the URL an openExternal finding opens: a constant or a URL seen at runtime; undefined when it comes from data
+const target = i => [props(i).value, props(i).url, /^RUNTIME_/.test(i.id) ? i.file : undefined].find(v => typeof v === 'string' && v);
+const validatedUrl = i => /validated first|every caller sets to a constant/i.test(describe(i));
+const PUBLIC_SECRET = /google api key|publishable|public key/i;
+const confidenceOf = i => i.confidence?.name || i.confidence;
 export const VARIATIONS = {
   'Renderer Isolation Weakened': [
     ['Node access in a renderer', /^(NODE_INTEGRATION|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_NODE_INTEGRATION)/,
@@ -37,9 +55,11 @@ export const VARIATIONS = {
     ['External URL or protocol', /^(OPEN_EXTERNAL|RUNTIME_OPEN_EXTERNAL|RUNTIME_MARKER_OPEN_EXTERNAL)/,
       'Check which schemes and hosts reach openExternal; distinguish a recorded hand-off from attacker control.'],
     ['Non-web protocol launch', /^(OPEN_EXTERNAL|RUNTIME_OPEN_EXTERNAL|RUNTIME_MARKER_OPEN_EXTERNAL)/,
-      'Test a benign custom-protocol or file URL and record whether the app blocks it before the OS hand-off.'],
+      'Test a benign custom-protocol or file URL and record whether the app blocks it before the OS hand-off.',
+      i => target(i) ? !/^(https?|mailto):/i.test(target(i)) : !validatedUrl(i)],
     ['Network-share credential exposure', /^(OPEN_EXTERNAL|RUNTIME_OPEN_EXTERNAL|RUNTIME_MARKER_OPEN_EXTERNAL)/,
-      'Check whether an untrusted link can pass a network-share target; do not collect real credentials during validation.'],
+      'Check whether an untrusted link can pass a network-share target; do not collect real credentials during validation.',
+      i => target(i) ? /^(\\\\|\/\/|file:|smb:)/i.test(target(i)) : !validatedUrl(i)],
     ['File path handed to the host', /^(OPEN_PATH|SHOWITEMINFOLDER|RUNTIME_OPEN_PATH|RUNTIME_MARKER_OPEN_PATH)/,
       'Trace path construction, base-directory containment and the final extension in a benign test.'],
     ['Executable file path', /^(OPEN_PATH|RUNTIME_OPEN_PATH|RUNTIME_MARKER_OPEN_PATH)/,
@@ -86,16 +106,16 @@ export const VARIATIONS = {
       'Inspect the configured allowlist and the exact binding that consumes the value.'],
     ['Runtime reflection or message', /^(RUNTIME_MARKER|RUNTIME_ACTIVE_SCRIPT|RUNTIME_CAMPAIGN_SCRIPT|TRAFFIC_WS_HTML_MESSAGE|TRAFFIC_REFLECTED_INPUT)/,
       'Compare the source user, destination view, DOM interpretation and execution signal from the same session.'],
-    ['Markup without proven execution', /^(RUNTIME_MARKER|RUNTIME_MARKER_SINK)/,
-      'Check the same marker in the destination DOM and record whether a harmless script can run.'],
+    ['Markup without proven execution', /^RUNTIME_MARKER/,
+      'Check the same marker in the destination DOM and record whether a harmless script can run.', i => !executed(i)],
     ['Script execution observed', /^(RUNTIME_ACTIVE_SCRIPT|RUNTIME_CAMPAIGN_SCRIPT)/,
       'Match the execution event to the saved input, destination user and renderer settings in the same session.'],
   ],
   'Missing or Weak Content Security Policy': [
     ['No effective policy', /^(CSP$|CSP_DIRECTIVES)/,
-      'Check the live response headers and meta elements for an enforceable policy, including redirects and frames.'],
+      'Check the live response headers and meta elements for an enforceable policy, including redirects and frames.', noPolicy],
     ['Unsafe script directives', /^(CSP$|CSP_DIRECTIVES)/,
-      'Inspect the effective script-src directive, nonces, hashes and report-only status in the affected window.'],
+      'Inspect the effective script-src directive, nonces, hashes and report-only status in the affected window.', i => !noPolicy(i)],
     ['Runtime violation or mismatch', /^RUNTIME_CSP/,
       'Record the effective runtime policy and violation details before changing it.'],
   ],
@@ -103,15 +123,19 @@ export const VARIATIONS = {
     ['Untrusted document intake', /^DOCUMENT_PIPELINE/,
       'Identify the accepted formats, parser and isolation boundary; use a benign malformed fixture where authorised.'],
     ['Rendered conversion output', /^DOCUMENT_PIPELINE/,
-      'Compare a harmless document’s converted output with the renderer’s HTML and resource requests.'],
+      'Compare a harmless document’s converted output with the renderer’s HTML and resource requests.',
+      i => /markdown|html|convert|render|output/i.test(describe(i))],
   ],
   'Insecure Electron Fuse Configuration': [
     ['Local Node entry points', /^(FUSES|PACKAGED_FUSES)/,
-      'Read the packaged fuse values and compare them with the build configuration.'],
+      'Read the packaged fuse values and compare them with the build configuration.',
+      fuses(['RunAsNode', 'EnableNodeOptionsEnvironmentVariable', 'EnableNodeCliInspectArguments'])],
     ['Asar integrity and loading', /^(FUSES|PACKAGED_FUSES)/,
-      'Check both fuse values and the executable’s embedded integrity digest.'],
+      'Check both fuse values and the executable’s embedded integrity digest.',
+      fuses(['EnableEmbeddedAsarIntegrityValidation', 'OnlyLoadAppFromAsar'])],
     ['Cookie or file-protocol privileges', /^(FUSES|PACKAGED_FUSES)/,
-      'Inspect the relevant fuse and confirm actual cookie storage and file URL use.'],
+      'Inspect the relevant fuse and confirm actual cookie storage and file URL use.',
+      fuses(['EnableCookieEncryption', 'GrantFileProtocolExtraPrivileges'])],
   ],
   'Application Code Not Protected Against Inspection or Tampering': [
     ['Source map exposure', /^SOURCE_MAP_SHIPPED/,
@@ -127,9 +151,10 @@ export const VARIATIONS = {
   ],
   'Insecure Update Mechanism': [
     ['Update feed transport', /^UPDATE_SECURITY/,
-      'Inspect the packaged feed URL and observe a benign update check.'],
+      'Inspect the packaged feed URL and observe a benign update check.', i => !/signature|downgrade|publisher/i.test(describe(i))],
     ['Update signature or publisher', /^UPDATE_SECURITY/,
-      'Check the updater implementation and a deliberately invalid test signature in an isolated environment.'],
+      'Check the updater implementation and a deliberately invalid test signature in an isolated environment.',
+      i => /signature|downgrade|publisher/i.test(describe(i))],
   ],
   'Development and Debugging Features in Production': [
     ['Developer tooling or test hooks', /^(DEVTOOLS|DEVELOPMENT_CODE)/,
@@ -139,9 +164,11 @@ export const VARIATIONS = {
   ],
   'Hard-coded Secrets in the Application Package': [
     ['Credential or token in code', /^HARDCODED_SECRET/,
-      'Identify the provider, scope, validity and whether the value is a secret rather than a public identifier.'],
+      'Identify the provider, scope, validity and whether the value is a secret rather than a public identifier.',
+      i => !PUBLIC_SECRET.test(props(i).kind || describe(i))],
     ['Public key or false positive', /^HARDCODED_SECRET/,
-      'Verify the provider’s classification and effective permissions before raising the final impact.'],
+      'Verify the provider’s classification and effective permissions before raising the final impact.',
+      i => confidenceOf(i) === 'TENTATIVE' || PUBLIC_SECRET.test(props(i).kind || describe(i))],
   ],
   'Sensitive Data Stored Insecurely': [
     ['Plaintext credential or file', /^(STORAGE_(CREDENTIAL|SECRET)|SECRET_FILE_WRITE|PLAINTEXT_SECRETS)/,
@@ -185,19 +212,27 @@ export const VARIATIONS = {
   ],
 };
 
-/** Variations supported by the checks in this group, including multiple plausible outcomes of one check. */
+/** Variations supported by the checks in this group and by the data of each finding. */
 export function matchingVariations(title, issues, normalise) {
-  const entries = VARIATIONS[title] || [];
-  const matched = entries.map(([label, pattern, evidence]) => ({
-    label, description: CLIENT_COPY[label][0], implication: CLIENT_COPY[label][1],
-    evidence, recommendation: CLIENT_COPY[label][2], issues: issues.filter(i => pattern.test(normalise(i.id))),
-  })).filter(v => v.issues.length);
-  // A newly added check or catch-all observation still receives a complete variation across every section.
-  for (const issue of issues) if (!matched.some(v => v.issues.includes(issue))) matched.push({
-    label: issue.id, description: `The scan recorded an additional observation under ${issue.id}. Its affected operation and trust boundary require assessment against the recorded evidence.`,
+  const entries = (VARIATIONS[title] || []).map(([label, pattern, evidence, when]) => ({
+    label, description: CLIENT_COPY[label][0], implication: CLIENT_COPY[label][1], evidence, recommendation: CLIENT_COPY[label][2], pattern,
+    issues: issues.filter(i => pattern.test(normalise(i.id)) && (!when || when(i))),
+  }));
+  // a finding whose data selects none of its check's scenarios gets the first of them
+  for (const issue of issues) {
+    if (entries.some(v => v.issues.includes(issue))) continue;
+    const first = entries.find(v => v.pattern.test(normalise(issue.id)));
+    if (first) first.issues.push(issue);
+  }
+  const matched = entries.filter(v => v.issues.length).map(({ pattern, ...v }) => v);
+  // a newly added check or catch-all observation still receives a complete variation across every section, one per check
+  const unmatched = issues.filter(issue => !matched.some(v => v.issues.includes(issue)));
+  for (const id of [...new Set(unmatched.map(issue => issue.id))]) matched.push({
+    label: id, description: `The scan recorded an additional observation under ${id}. Its affected operation and trust boundary require assessment against the recorded evidence.`,
     implication: 'If a lower-trust actor can reach the affected operation, the resulting access depends on that operation’s privileges and existing validation. The observation alone does not establish exploitation.',
     evidence: 'Inspect the recorded location and confirm the actual input source and behaviour.',
-    recommendation: 'Review the affected operation and its intended caller, apply the check-specific remediation, and verify that an unauthorised input is rejected in the packaged workflow.', issues: [issue],
+    recommendation: 'Review the affected operation and its intended caller, apply the check-specific remediation, and verify that an unauthorised input is rejected in the packaged workflow.',
+    issues: unmatched.filter(issue => issue.id === id),
   });
   return matched;
 }

@@ -307,7 +307,7 @@ export function writeIssues(root, isRelative, filename, result, isSarif, meta = 
     return;
   }
   if (format === 'md') {
-    fs.writeFileSync(filename, renderClientMarkdown(result, { ...meta, outputFile: filename }));
+    fs.writeFileSync(filename, renderClientMarkdown(result, { ...meta, root, outputFile: filename }));
     return;
   }
   if (format === 'xlsx') {

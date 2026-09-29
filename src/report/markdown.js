@@ -1,4 +1,5 @@
 // Client-facing findings, grouped by the security problem rather than by scanner check.
+import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import { consequenceOf, interactionOf, validationHint } from '../finder/consequences.js';
@@ -66,13 +67,26 @@ const introductions = {
 const evidenceOnly = /^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|PRELOAD|IPC_RENDERER_CHANNEL|RUNTIME_IPC$|RUNTIME_MARKER_SENT|CREDENTIAL_ACCESS|DEPENDENCY_INVENTORY|ELECTRON_VERSION)/;
 const observations = new Set(['SOURCE_MAP_SHIPPED', 'STORAGE_CACHED_RESPONSES', 'CERTIFICATE_PINNING', 'WORD_LAUNCH']);
 const normalId = id => String(id || '').replace(/_(JS|HTML|JSON|GLOBAL|LOCK)_CHECK$/, '');
-const location = i => `${!i.file || i.file === 'N/A' ? 'Application-wide' : i.file}${i.location?.line ? `:${i.location.line}` : ''}`;
 const nameOf = i => i?.name || i || '';
-const isConfirmed = i => i.validation?.status === 'confirmed' || i.properties?.executed === true ||
-  /^RUNTIME_/.test(i.id) && (i.properties?.execution === 'observed' || i.properties?.live === true || i.severity?.name !== 'INFORMATIONAL');
-const victimAction = i => /\b(click|open(?:ing)?|install|updat|import|attachment|document)\b/i.test(interactionOf(i.id) || '');
+// Script execution or a live marker recorded at runtime. A setting observed at runtime is evidence of the setting, not of
+// an exploit, so it does not count.
+const isConfirmed = i => i.validation?.status === 'confirmed' || i.properties?.executed === true || i.properties?.execution === 'observed' ||
+  (/^RUNTIME_MARKER/.test(normalId(i.id)) && i.properties?.live === true);
+const victimAction = i => /\b(click|open|install|updat|import|attachment|document)/i.test(interactionOf(i.id) || '');
 const consequenceScale = ['Very Low', 'Low', 'Medium', 'High', 'Critical'];
 const likelihoodScale = ['Rare', 'Unlikely', 'Possible', 'Likely', 'Very Likely'];
+const definitionOf = title => definitions.find(d => d[0] === title);
+// how much of the app's own text and code one report entry shows (a minified bundle is one line of megabytes)
+const SAMPLE_LIMIT = 600;
+const TEXT_LIMIT = 500;
+const MAX_LOCATIONS = 60;
+const MAX_INSTANCES = 12;
+// commands that check a finding by hand, per group
+const COMMANDS = {
+  'Insecure Electron Fuse Configuration': 'npx @electron/fuses read --app "<exe>"',
+  'Application Code Not Protected Against Inspection or Tampering': 'npx @electron/asar extract app.asar out',
+  'Microsoft Word Integration': 'Get-Item <doc> -Stream Zone.Identifier',
+};
 
 function reportable(i) {
   const id = normalId(i.id);
@@ -85,7 +99,7 @@ function reportable(i) {
 
 function groupOf(i) {
   const id = normalId(i.id);
-  if (['RUNTIME_OPEN_PATH', 'RUNTIME_MARKER_OPEN_PATH'].includes(id) && /\.(?:docx?|rtf)\b/i.test(i.description || '')) return definitions[6];
+  if (['RUNTIME_OPEN_PATH', 'RUNTIME_MARKER_OPEN_PATH'].includes(id) && /\.(?:docx?|rtf)\b/i.test(i.description || '')) return definitionOf('Microsoft Word Integration');
   return definitions.find(g => g[1].test(id)) || other;
 }
 
@@ -106,8 +120,10 @@ function evidenceGroupOf(i) {
 export function ratingOf(i, title) {
   const id = normalId(i.id);
   const severity = nameOf(i.severity);
-  if (severity === 'INFORMATIONAL' || observations.has(id) && severity === 'INFORMATIONAL' ||
-      title === 'Outdated Third-Party Components' && !(i.properties?.advisories?.length || i.properties?.packages?.some(p => p.advisories?.length)) ||
+  const advisories = i.properties?.advisories?.length || i.properties?.packages?.some(p => p.advisories?.length);
+  // an outdated component is hardening unless it has advisories or its release line is no longer supported
+  if (severity === 'INFORMATIONAL' ||
+      title === 'Outdated Third-Party Components' && id !== 'END_OF_LIFE_LIBRARY' && !advisories ||
       title === 'Executable Signing and Exploit Mitigations (hardening)' && severity === 'LOW') return { consequence: 'N/A', likelihood: 'N/A' };
   const route = consequenceOf(i.id)?.route;
   let c = ({ HIGH: 3, MEDIUM: 2, LOW: 1 })[severity] ?? 0;
@@ -136,114 +152,216 @@ export function groupClientFindings(issues) {
   }
   return [...groups.values()].map(g => {
     g.items = g.issues.map(i => ({ issue: i, rating: ratingOf(i, g.definition[0]) })).sort(byRating);
-    g.rating = g.items[0].rating;
+    // accepted risks are listed but the rating is that of what is still open; a group of accepted risks only keeps theirs
+    const basis = g.items.find(x => !x.issue.suppression) || g.items[0];
+    g.rating = basis.rating;
+    g.basis = basis.issue;
+    g.accepted = !!basis.issue.suppression;
     return g;
-  }).sort((a, b) => byRating(a, b) || a.definition[0].localeCompare(b.definition[0]));
+  }).sort((a, b) => a.accepted - b.accepted || byRating(a, b) || a.definition[0].localeCompare(b.definition[0]));
 }
 
-function safeInline(value) { return String(value ?? '').replace(/\r?\n/g, ' ').trim(); }
 function unique(values) { return [...new Set(values.filter(Boolean))]; }
 function strings(value) { return (Array.isArray(value) ? value : value == null ? [] : [value]).filter(v => typeof v === 'string' && v.trim()); }
 function noteValues(issues, field) { return unique(issues.flatMap(i => strings(i.notes?.[field]))); }
+const scalar = value => typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
 function language(file) {
   return ({ js: 'javascript', cjs: 'javascript', mjs: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx', json: 'json', html: 'html', css: 'css', ps1: 'powershell', sh: 'bash' })[path.extname(file || '').slice(1).toLowerCase()] || 'text';
 }
 function exampleLanguage(source) { return /^\s*</.test(source) ? 'html' : 'javascript'; }
-function code(value, lang) {
-  const source = String(value).trim();
-  const fence = '`'.repeat(Math.max(3, ...[...source.matchAll(/`+/g)].map(m => m[0].length + 1)));
-  return `${fence}${lang}\n${source}\n${fence}`;
+const linkTarget = target => encodeURI(target).replace(/\(/g, '%28').replace(/\)/g, '%29');
+
+/**
+ * What every finding of one report shares: the app's name, the scanned folder (paths are shown relative to it, and to a
+ * packaged app's install folder) and the home folder, which never appears in the report.
+ */
+function context(meta) {
+  const root = meta.root ? path.resolve(meta.root) : undefined;
+  const bases = root ? [root] : [];
+  if (root && /[\\/]resources[\\/]app(\.asar)?$/i.test(root)) bases.push(path.dirname(path.dirname(root)));
+  const home = os.homedir();
+  const scrub = (value) => {
+    let out = String(value ?? '');
+    for (const base of bases) out = out.split(base + path.sep).join('').split(base).join(path.basename(base));
+    return home && home.length > 1 ? out.split(home).join('~') : out;
+  };
+  return { app: meta.app?.name || 'the application', bases, scrub, outputFile: meta.outputFile, outputs: meta.outputs || [] };
 }
-function details(i) {
+
+function shownFile(file, ctx) {
+  const value = String(file);
+  if (!path.isAbsolute(value)) return value;
+  for (const base of ctx.bases) {
+    const relative = path.relative(base, value);
+    if (!relative) return path.basename(base);
+    if (!relative.startsWith('..') && !path.isAbsolute(relative)) return relative.split(path.sep).join('/');
+  }
+  return ctx.scrub(value).split(path.sep).join('/');
+}
+
+// Text from the scanned app (names, descriptions, evidence) is data: its Markdown and HTML syntax is escaped
+function text(value, ctx, limit = TEXT_LIMIT) {
+  let out = ctx.scrub(value).replace(/\s+/g, ' ').trim();
+  if (out.length > limit) out = `${out.slice(0, limit)}…`;
+  return out.replace(/[\\`*[\]<>]/g, '\\$&').replace(/&(?=#?\w+;)/g, '&amp;').replace(/^([#>+=-])/, '\\$1').replace(/^(\d+)([.)])/, '$1\\$2');
+}
+
+function codeSpan(value, limit = 300) {
+  let out = String(value).replace(/\s+/g, ' ').trim();
+  if (out.length > limit) out = `${out.slice(0, limit)}…`;
+  const fence = '`'.repeat(Math.max(0, ...[...out.matchAll(/`+/g)].map(m => m[0].length)) + 1);
+  const pad = out.startsWith('`') || out.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${out}${pad}${fence}`;
+}
+
+// A code block nested in the list item above it: indented, so no line of the code starts a line of the report (a `---`
+// in the code can't be taken for the end of a finding), and cut to SAMPLE_LIMIT characters.
+function codeBlock(value, lang, indent = '  ') {
+  let source = String(value).replace(/\r\n?/g, '\n').replace(/^\n+|\s+$/g, '');
+  const cut = Math.max(0, source.length - SAMPLE_LIMIT);
+  if (cut) source = source.slice(0, SAMPLE_LIMIT);
+  const fence = '`'.repeat(Math.max(3, ...[...source.matchAll(/`{3,}/g)].map(m => m[0].length + 1)));
+  const block = [`${fence}${lang}`, ...source.split('\n'), fence].map(line => indent + line).join('\n');
+  return cut ? `${block}\n\n${indent}(${cut} more characters not shown; see the location above.)` : block;
+}
+
+function place(i, ctx) {
+  return !i.file || i.file === 'N/A' ? 'Application-wide' : `${shownFile(i.file, ctx)}${i.location?.line ? `:${i.location.line}` : ''}`;
+}
+function location(i, ctx) {
+  const where = place(i, ctx);
+  return where === 'Application-wide' ? where : codeSpan(where);
+}
+function details(i, ctx) {
   const p = i.properties || {};
-  return [location(i), p.url, p.window, p.channel && `channel ${p.channel}`, p.fuse && `fuse ${p.fuse}=${p.value ?? 'unknown'}`,
-    p.cookie && `cookie ${p.cookie}`, p.host, (p.package || p.name) && `${p.package || p.name}${p.version ? `@${p.version}` : ''}`,
-    Array.isArray(p.advisories) && p.advisories.length && `${p.advisories.length} advisories`].filter(Boolean).join(' — ');
+  const pkg = scalar(p.package) || scalar(p.name);
+  return [location(i, ctx), scalar(p.url) && codeSpan(ctx.scrub(p.url)), scalar(p.window) && text(p.window, ctx), scalar(p.channel) && `channel ${codeSpan(p.channel)}`,
+    scalar(p.fuse) && `fuse ${codeSpan(`${p.fuse}=${scalar(p.value) ?? 'unknown'}`)}`, scalar(p.cookie) && `cookie ${codeSpan(p.cookie)}`, scalar(p.host) && codeSpan(p.host),
+    pkg && codeSpan(`${pkg}${scalar(p.version) ? `@${p.version}` : ''}`), Array.isArray(p.advisories) && p.advisories.length && `${p.advisories.length} advisories`].filter(Boolean).join(' — ');
 }
-function proseNotes(g) {
-  const i = g.items[0].issue;
-  const notes = [`Rating basis: ${i.id} at ${location(i)}; scanner severity ${nameOf(i.severity)}, confidence ${nameOf(i.confidence)}; ${isConfirmed(i) ? 'runtime evidence recorded' : 'runtime exploitability not established'}.`];
+
+// a screenshot next to the report is linked; one elsewhere is named
+function screenshot(file, ctx) {
+  if (ctx.outputFile && path.isAbsolute(file)) {
+    const relative = path.relative(path.dirname(path.resolve(ctx.outputFile)), file);
+    if (!relative.startsWith('..') && !path.isAbsolute(relative)) return `[${text(path.basename(file), ctx)}](${linkTarget(relative.split(path.sep).join('/'))})`;
+  }
+  return codeSpan(ctx.scrub(file));
+}
+const screenshotOf = (i, ctx) => scalar(i.properties?.screenshot) ? `; screenshot ${screenshot(i.properties.screenshot, ctx)}` : '';
+
+function proseNotes(g, ctx) {
+  const i = g.basis;
+  const status = isConfirmed(i) ? 'runtime evidence recorded' : /^RUNTIME_/.test(i.id) ? 'observed at runtime; exploitability not established' : 'runtime exploitability not established';
+  const notes = [`Rating basis: ${i.id} at ${text(place(i, ctx), ctx)}; scanner severity ${nameOf(i.severity)}, confidence ${nameOf(i.confidence)}; ${status}.`];
   notes.push('The scenarios below are conditional where the scan did not establish input control, reachability or the affected trust boundary. Impact is limited to the circumstances supported by the evidence.');
-  const open = g.issues.filter(issue => issue.manualReview && !isConfirmed(issue));
+  const open = g.issues.filter(issue => issue.manualReview && !isConfirmed(issue) && !issue.suppression);
   if (open.length) notes.push(`${open.length} instance${open.length === 1 ? '' : 's'} require${open.length === 1 ? 's' : ''} reachability or configuration review; exploitation has not been established for those instances.`);
   if (g.definition[0] === 'Sensitive Data Exposed in Network Traffic') notes.push('Establish ownership of each destination before characterising a transfer as third-party disclosure.');
   if (g.definition[0] === 'Microsoft Word Integration') notes.push('The Protected View scenario applies only where document provenance is lost in the actual opening workflow.');
   if (g.definition[0] === 'IPC Handlers Trust Renderer Input') notes.push('Channel-use conclusions depend on the shipped renderer and representative runtime coverage.');
-  for (const s of g.issues.filter(x => x.suppression)) notes.push(`Accepted risk — ${s.id} at ${location(s)}. ${s.suppression.reason || 'No reason supplied.'}${s.suppression.owner ? ` Owner ${s.suppression.owner}.` : ''}${s.suppression.expires ? ` Expires ${s.suppression.expires}.` : ''}`);
+  if (g.accepted) notes.push('Every instance of this finding is an accepted risk; the rating is that of the accepted instances.');
+  else if (g.issues.some(x => x.suppression)) notes.push('Accepted risks are listed with this finding but do not set its rating.');
+  for (const s of g.issues.filter(x => x.suppression)) {
+    const { reason, owner, expires } = s.suppression;
+    notes.push(`Accepted risk — ${s.id} at ${text(place(s, ctx), ctx)}. ${reason ? text(reason, ctx) : 'No reason supplied.'}${owner ? ` Owner ${text(owner, ctx)}.` : ''}${expires ? ` Expires ${text(expires, ctx)}.` : ''}`);
+  }
   return notes;
 }
 
-function renderGroup(g, meta) {
-  const [title, , about, , cwe] = g.definition;
-  const app = safeInline(meta.app?.name || 'the application');
+function renderGroup(g, ctx) {
+  const [title, , about, recommendation, cwe] = g.definition;
+  const app = text(ctx.app, ctx);
   const ids = unique(g.issues.map(i => i.id));
-  const affected = unique(g.issues.map(details));
   const variations = matchingVariations(title, g.issues, normalId);
-  const examples = unique(g.issues.map(i => i.sample).filter(Boolean)).slice(0, 8);
-  const notes = field => noteValues(g.issues, field).map(value => `- ${safeInline(value)}`);
-  const lines = [`---\n${YAML.stringify({ Title: title, Consequence: g.rating.consequence, Likelihood: g.rating.likelihood, Notes: proseNotes(g) }).trimEnd()}\n---`,
-    `# ${title}`, '## Issue Description', (introductions[title] || about).replaceAll('{app}', app),
-    ...variations.map(v => `- **${v.label}.** ${v.description} The associated observations are identified in the evidence section (${unique(v.issues.map(i => i.id)).join(', ')}).`),
+  const labelsOf = issue => variations.filter(v => v.issues.includes(issue)).map(v => v.label);
+  const accepted = i => i.suppression ? ' (accepted risk)' : '';
+  const notes = field => noteValues(g.issues, field).map(value => `- ${text(value, ctx)}`);
+  const front = YAML.stringify({ Title: title, Consequence: g.rating.consequence, Likelihood: g.rating.likelihood, Notes: proseNotes(g, ctx) }).trimEnd();
+
+  // each location once, with the scenarios it supports
+  const affected = new Map();
+  for (const i of g.issues) {
+    const where = details(i, ctx);
+    const entry = affected.get(where) || { labels: [], accepted: true };
+    entry.labels.push(...labelsOf(i));
+    entry.accepted = entry.accepted && !!i.suppression;
+    affected.set(where, entry);
+  }
+  const places = [...affected].map(([where, entry]) => `- ${where} — ${unique(entry.labels).join('; ')}${entry.accepted ? ' (accepted risk)' : ''}`);
+
+  const instances = g.issues.slice(0, MAX_INSTANCES).map(i => {
+    const head = `- **${i.id}** at ${details(i, ctx)}${accepted(i)}: ${text(i.description, ctx)}`;
+    return i.sample ? `${head}\n\n${codeBlock(ctx.scrub(i.sample), language(i.file))}` : head;
+  });
+  const examples = ids.flatMap(id => {
+    const example = remediationOf(id)?.example;
+    return example ? [`- **Illustrative implementation pattern (${id}):**\n\n${codeBlock(example, exampleLanguage(example))}`] : [];
+  });
+  const sheet = title === 'Outdated Third-Party Components' && ctx.outputs.find(o => /\.xlsx$/i.test(o));
+  const sheetLink = sheet && (() => {
+    const relative = ctx.outputFile ? path.relative(path.dirname(path.resolve(ctx.outputFile)), path.resolve(sheet)) : path.basename(sheet);
+    return `- Review each flagged component, advisory and fixed version in [${text(path.basename(sheet), ctx)}](${linkTarget(relative.split(path.sep).join('/'))}).`;
+  })();
+
+  // references: the CWE, then each check's own guidance with the scenarios it supports
+  const cweUrl = `https://cwe.mitre.org/data/definitions/${/^CWE-(\d+)/.exec(cwe)?.[1]}.html`;
+  const references = new Map();
+  for (const v of variations) {
+    const own = unique(v.issues.map(i => i.shortenedURL)).filter(url => /^https:\/\//i.test(url));
+    for (const url of own.length ? own : [cweUrl]) {
+      const entry = references.get(url) || { labels: [], ids: [] };
+      entry.labels.push(v.label);
+      if (own.length) entry.ids.push(...v.issues.filter(i => i.shortenedURL === url).map(i => i.id));
+      references.set(url, entry);
+    }
+  }
+  const cweLabels = unique(references.get(cweUrl)?.labels || []);
+  const guidance = [...references].filter(([url]) => url !== cweUrl)
+    .map(([url, entry]) => `- [${unique(entry.labels).join(', ')} (${unique(entry.ids).join(', ')})](${url})`);
+
+  const lines = [`---\n${front}\n---`, `# ${title}`,
+    '## Issue Description', (introductions[title] || about).replaceAll('{app}', () => app),
+    ...variations.map(v => `- **${v.label}.** ${v.description}`),
     ...notes('about'),
     '## Affected', `The scan identified the following locations or components in ${app}:`,
-    ...affected.slice(0, 60).map(x => `- ${safeInline(x)}`),
-    ...(affected.length > 60 ? [`- …and ${affected.length - 60} more.`] : []),
-    ...variations.map(v => {
-      const places = unique(v.issues.map(details));
-      return `- **${v.label}:** ${places.slice(0, 6).map(safeInline).join('; ')}${places.length > 6 ? `; ${places.length - 6} further locations are listed above` : ''}`;
-    }),
+    ...places.slice(0, MAX_LOCATIONS), ...(places.length > MAX_LOCATIONS ? [`- …and ${places.length - MAX_LOCATIONS} more.`] : []),
     '## Implication',
     ...variations.map(v => `- **${v.label}.** ${v.implication}`),
     ...(g.rating.consequence === 'N/A' ? ['This hardening observation does not, by itself, establish an exploitable application vulnerability.'] : []),
     ...notes('impact'), ...notes('reachability'),
     '## Reproduction and Evidence',
     `The following evidence was recorded for ${app}. Static observations identify code or configuration; a runtime confirmation is stated explicitly where available.`,
-    ...noteValues(g.issues, 'preconditions').map(value => `- **Precondition:** ${safeInline(value)}`),
-    ...noteValues(g.issues, 'steps').map(value => `- **Reproduction step:** ${safeInline(value)}`),
-    ...g.issues.slice(0, 12).map(i => `- **${i.id}** at ${safeInline(details(i))}: ${safeInline(i.description)}`),
-    ...(g.issues.length > 12 ? [`- …and ${g.issues.length - 12} further instances; see the affected list or full HTML/JSON report.`] : []),
-    ...variations.map(v => `- **${v.label} — validation:** ${v.evidence} Affected evidence: ${unique(v.issues.map(details)).slice(0, 3).map(safeInline).join('; ')}.`),
-    ...examples.map(sample => {
-      const item = g.issues.find(i => i.sample === sample);
-      return `- ${safeInline(location(item))}\n\n${code(sample, language(item.file))}`;
-    }),
-    ...unique(g.issues.flatMap(i => strings(i.properties?.evidence))).slice(0, 8).map(value => `- Observed evidence: ${safeInline(value)}`),
-    ...g.issues.filter(i => i.validation || i.properties?.screenshot).slice(0, 8).map(i => `- ${safeInline(location(i))}: ${safeInline(i.validation?.status || 'Evidence')} — ${safeInline(i.validation?.text || '')}${i.properties?.screenshot ? `; screenshot ${i.properties.screenshot}` : ''}`),
-    ...g.evidence.slice(0, 8).map(i => `- Supporting observation at ${safeInline(location(i))}: ${safeInline(i.description)}${i.properties?.screenshot ? `; screenshot ${i.properties.screenshot}` : ''}`),
-    ...noteValues(g.issues, 'confirm').map(value => `- **How to confirm:** ${safeInline(value)}`),
-    ...unique(ids.map(validationHint)).slice(0, 3).map(x => `- ${safeInline(x)}`),
-    ...ids.flatMap(id => {
-      const example = remediationOf(id)?.example;
-      return example ? [`- **${id} — illustrative implementation pattern:**`, code(example, exampleLanguage(example))] : [];
-    }),
-    '## Recommendations',
-    ...variations.map(v => `- **${v.label}:** ${v.recommendation}`), ...notes('recommendation')];
-  if (title === 'Insecure Electron Fuse Configuration') lines.splice(lines.indexOf('## Recommendations'), 0, '- Re-run the packaged fuse check with `npx @electron/fuses read --app "<exe>"`.');
-  if (title === 'Application Code Not Protected Against Inspection or Tampering') lines.splice(lines.indexOf('## Recommendations'), 0, '- Inspect the packaged asar with `npx @electron/asar extract app.asar out`.');
-  if (title === 'Microsoft Word Integration') lines.splice(lines.indexOf('## Recommendations'), 0, '- Check the document stream with `Get-Item <doc> -Stream Zone.Identifier` on Windows.');
-  if (title === 'Outdated Third-Party Components') {
-    const sheet = (meta.outputs || []).find(o => /\.xlsx$/i.test(o));
-    if (sheet) {
-      const relative = meta.outputFile ? path.relative(path.dirname(path.resolve(meta.outputFile)), path.resolve(sheet)) : path.basename(sheet);
-      lines.push(`- Review each flagged component, advisory and fixed version in [${path.basename(sheet)}](${encodeURI(relative.split(path.sep).join('/'))}).`);
-    }
-  }
-  const number = /^CWE-(\d+)/.exec(cwe)?.[1];
-  const cweUrl = `https://cwe.mitre.org/data/definitions/${number}.html`;
-  lines.push('## References', `- [${cwe}](${cweUrl})`);
-  const referenced = new Map();
-  for (const v of variations) {
-    const refs = unique(v.issues.map(i => i.shortenedURL));
-    for (const url of refs.length ? refs : [cweUrl]) referenced.set(url, [...(referenced.get(url) || []), v.label]);
-  }
-  for (const [url, labels] of referenced) lines.push(`- [Technical check guidance: ${unique(labels).join(', ')}](${url})`);
-  if (!referenced.has('https://www.electronjs.org/docs/latest/tutorial/security'))
+    ...noteValues(g.issues, 'preconditions').map(value => `- **Precondition:** ${text(value, ctx)}`),
+    ...noteValues(g.issues, 'steps').map(value => `- **Reproduction step:** ${text(value, ctx)}`),
+    ...instances,
+    ...(g.issues.length > MAX_INSTANCES ? [`- …and ${g.issues.length - MAX_INSTANCES} further instances; see the affected list or the full HTML/JSON report.`] : []),
+    ...unique(g.issues.flatMap(i => strings(i.properties?.evidence))).slice(0, 8).map(value => `- Observed evidence: ${text(value, ctx)}`),
+    ...g.issues.filter(i => i.validation || scalar(i.properties?.screenshot)).slice(0, 8)
+      .map(i => `- ${location(i, ctx)}: ${text(i.validation?.status || 'Evidence', ctx)}${i.validation?.text ? ` — ${text(i.validation.text, ctx)}` : ''}${screenshotOf(i, ctx)}`),
+    ...g.evidence.slice(0, 8).map(i => `- Supporting observation at ${location(i, ctx)}: ${text(i.description, ctx)}${screenshotOf(i, ctx)}`),
+    ...variations.map(v => `- **How to confirm — ${v.label}:** ${v.evidence}`),
+    ...noteValues(g.issues, 'confirm').map(value => `- **How to confirm:** ${text(value, ctx)}`),
+    ...unique(ids.map(validationHint)).slice(0, 3).map(hint => `- ${hint}`),
+    ...(COMMANDS[title] ? [`- **Validation command:** ${codeSpan(COMMANDS[title])}`] : []),
+    '## Recommendations', recommendation,
+    ...variations.map(v => `- **${v.label}:** ${v.recommendation}`), ...notes('recommendation'),
+    ...examples, ...(sheetLink ? [sheetLink] : []),
+    '## References', `- [${cwe}](${cweUrl})${cweLabels.length ? ` — ${cweLabels.join(', ')}` : ''}`, ...guidance];
+  if (!references.has('https://www.electronjs.org/docs/latest/tutorial/security'))
     lines.push('- [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security)');
   if (title === 'Microsoft Word Integration') lines.push('- [Microsoft guidance on Protected View](https://learn.microsoft.com/en-us/office/troubleshoot/word/office-file-opens-in-protected-view)');
-  return lines.reduce((text, line) => text + (text && text.split('\n').at(-1).startsWith('- ') && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();
+  // consecutive list items stay one list; everything else is a paragraph of its own
+  return lines.reduce((out, line) => out + (out && out.split('\n').at(-1).startsWith('- ') && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();
 }
 
-/** Complete unredacted Markdown report. Suppressed findings stay visible as accepted risks. */
+/**
+ * Complete unredacted Markdown report: one YAML header and six sections per finding. Suppressed findings stay visible as
+ * accepted risks. meta.root is the scanned folder, which paths are shown relative to.
+ */
 export function renderClientMarkdown(issues, meta = {}) {
-  return groupClientFindings([...issues, ...(meta.suppressed || [])]).map(g => renderGroup(g, meta)).join('\n\n') + '\n';
+  const ctx = context(meta);
+  const groups = groupClientFindings([...issues, ...(meta.suppressed || [])]);
+  if (groups.length === 0) return `No reportable findings were identified in ${text(ctx.app, ctx)}.\n`;
+  return groups.map(g => renderGroup(g, ctx)).join('\n\n') + '\n';
 }

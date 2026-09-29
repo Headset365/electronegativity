@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { should as chaiShould } from 'chai';
@@ -92,8 +93,11 @@ describe('Client report outputs', () => {
       .should.deep.equal({ consequence: 'N/A', likelihood: 'N/A' });
     ratingOf(issue('FUSES_GLOBAL_CHECK', severity.HIGH, confidence.CERTAIN), 'Insecure Electron Fuse Configuration')
       .should.deep.equal({ consequence: 'Medium', likelihood: 'Unlikely' });
-    ratingOf(issue('END_OF_LIFE_LIBRARY_GLOBAL_CHECK', severity.MEDIUM), 'Outdated Third-Party Components')
+    ratingOf(issue('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', severity.MEDIUM), 'Outdated Third-Party Components')
       .should.deep.equal({ consequence: 'N/A', likelihood: 'N/A' });
+    // an unsupported release line is rated like an unsupported Electron, advisories or not
+    ratingOf(issue('END_OF_LIFE_LIBRARY_GLOBAL_CHECK', severity.MEDIUM), 'Outdated Third-Party Components')
+      .should.deep.equal({ consequence: 'Medium', likelihood: 'Possible' });
     ratingOf(issue('RUNTIME_ACTIVE_SCRIPT', severity.MEDIUM, confidence.FIRM, { properties: { execution: 'observed' } }),
       'Cross-Site Scripting Exposure in Content Rendering').consequence.should.equal('Critical');
     ratingOf(issue('MALICIOUS_DEPENDENCY', severity.HIGH), 'Known Malicious Package').consequence.should.equal('Critical');
@@ -152,8 +156,8 @@ describe('Client report outputs', () => {
     ], { app: { name: 'Client App' } });
     markdown.should.include('Application-wide');
     markdown.should.include('**CSP_GLOBAL_CHECK** at Application-wide');
-    markdown.should.include('```html\n<iframe');
-    markdown.should.include('Technical check guidance: Embedded content');
+    markdown.should.match(/```html\n\s*<iframe/);
+    markdown.should.include('[Embedded content (IFRAME_SANDBOX_HTML_CHECK)](');
     markdown.should.include('requires reachability or configuration review');
   });
 
@@ -180,7 +184,8 @@ describe('Client report outputs', () => {
     for (const entries of Object.values(VARIATIONS)) {
       entries.length.should.be.at.least(2);
       for (const entry of entries) {
-        entry.length.should.equal(3);
+        entry.length.should.be.oneOf([3, 4]);
+        if (entry.length === 4) entry[3].should.be.a('function');
         entry[1].should.be.instanceOf(RegExp);
         for (const text of [entry[0], entry[2], ...CLIENT_COPY[entry[0]]]) text.trim().length.should.be.greaterThan(0);
         CLIENT_COPY[entry[0]].length.should.equal(3);
@@ -221,5 +226,71 @@ describe('Client report outputs', () => {
       fs.readFileSync(md, 'utf8').should.include('Renderer Isolation Weakened');
       zipEntry(fs.readFileSync(xlsx), 'xl/worksheets/sheet1.xml').should.include('Component');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+  it('selects the scenarios a finding\'s own data supports', () => {
+    const labels = (title, findings) => matchingVariations(title, findings, id => id.replace(/_(JS|HTML|JSON|GLOBAL|LOCK)_CHECK$/, '')).map(v => v.label);
+    labels('Missing or Weak Content Security Policy', [issue('CSP_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { description: 'No CSP has been detected in the target application' })])
+      .should.deep.equal(['No effective policy']);
+    labels('Missing or Weak Content Security Policy', [issue('CSP_GLOBAL_CHECK', severity.LOW, confidence.CERTAIN, { description: 'One or more CSP directives detected are vulnerable' })])
+      .should.deep.equal(['Unsafe script directives']);
+    labels('Insecure Electron Fuse Configuration', [issue('PACKAGED_FUSES', severity.HIGH, confidence.CERTAIN, { properties: { fuse: 'RunAsNode', value: true } })])
+      .should.deep.equal(['Local Node entry points']);
+    labels('Hard-coded Secrets in the Application Package', [issue('HARDCODED_SECRET', severity.HIGH, confidence.FIRM, { properties: { kind: 'Stripe secret key' } })])
+      .should.deep.equal(['Credential or token in code']);
+    labels('Hard-coded Secrets in the Application Package', [issue('HARDCODED_SECRET', severity.HIGH, confidence.FIRM, { properties: { kind: 'Google API key' } })])
+      .should.deep.equal(['Public key or false positive']);
+    labels('Unsafe Hand-off of URLs and Files to the Operating System', [issue('OPEN_EXTERNAL_JS_CHECK', severity.LOW, confidence.CERTAIN, { properties: { value: 'http://example.com' } })])
+      .should.deep.equal(['External URL or protocol']);
+    labels('Unsafe Hand-off of URLs and Files to the Operating System', [issue('OPEN_EXTERNAL_JS_CHECK', severity.LOW, confidence.CERTAIN, { properties: { value: '\\\\server\\share' } })])
+      .should.deep.equal(['External URL or protocol', 'Non-web protocol launch', 'Network-share credential exposure']);
+    labels('Cross-Site Scripting Exposure in Content Rendering', [issue('RUNTIME_MARKER', severity.HIGH, confidence.CERTAIN, { properties: { live: true, executed: true } })])
+      .should.not.include('Markup without proven execution');
+    // a finding its data selects nothing for still gets its check's first scenario
+    labels('Insecure Update Mechanism', [issue('UPDATE_SECURITY_JS_CHECK')]).should.deep.equal(['Update feed transport']);
+    // one fallback scenario per unknown check, however many findings it has
+    labels('Other Security Observations', [issue('EXOTIC'), issue('EXOTIC', severity.LOW), issue('OTHER')]).should.deep.equal(['EXOTIC', 'OTHER']);
+  });
+
+  it('rates runtime settings by confidence and leaves accepted risks out of the rating', () => {
+    ratingOf(issue('RUNTIME_NODE_INTEGRATION', severity.LOW, confidence.TENTATIVE), 'Renderer Isolation Weakened').likelihood.should.equal('Unlikely');
+    ratingOf(issue('RUNTIME_NODE_INTEGRATION', severity.LOW, confidence.TENTATIVE, { validation: { status: 'confirmed', text: 'ran' } }), 'Renderer Isolation Weakened')
+      .likelihood.should.equal('Very Likely');
+    const [group] = groupClientFindings([issue('NODE_INTEGRATION_JS_CHECK', severity.LOW, confidence.TENTATIVE),
+      issue('CONTEXT_ISOLATION_JS_CHECK', severity.HIGH, confidence.CERTAIN, { suppression: { reason: 'accepted' } })]);
+    group.rating.should.deep.equal({ consequence: 'Low', likelihood: 'Unlikely' });
+    group.basis.id.should.equal('NODE_INTEGRATION_JS_CHECK');
+    const [onlyAccepted] = groupClientFindings([issue('CONTEXT_ISOLATION_JS_CHECK', severity.HIGH, confidence.CERTAIN, { suppression: { reason: 'accepted' } })]);
+    onlyAccepted.accepted.should.equal(true);
+    onlyAccepted.rating.consequence.should.equal('High');
+  });
+
+  it('shows paths relative to the scanned folder and keeps the home folder out', () => {
+    const root = path.join(os.homedir(), 'engagements', 'acme', 'app');
+    const markdown = renderClientMarkdown([issue('NODE_INTEGRATION_JS_CHECK', severity.HIGH, confidence.CERTAIN, {
+      file: path.join(root, 'src', 'main.js'), description: `Seen in ${path.join(root, 'src', 'main.js')} and ${path.join(os.homedir(), 'notes.txt')}`,
+      properties: { screenshot: path.join(os.homedir(), 'shots', 'one.png') } })], { app: { name: 'Acme' }, root });
+    markdown.should.include('`src/main.js:8`');
+    markdown.should.not.include(os.homedir());
+    markdown.should.include('~/notes.txt'.replace(/\//g, path.sep));
+  });
+
+  it('escapes what the app supplies, cuts long code and keeps code out of the finding separators', () => {
+    const markdown = renderClientMarkdown([
+      issue('XSS_SINK_JS_CHECK', severity.HIGH, confidence.FIRM, { file: '/x/[a](javascript:alert(1)).js', description: '<img src=x onerror=alert(1)> **bold**',
+        sample: `${'a'.repeat(5000)}\n---\nb: 2` }),
+    ], { app: { name: "<script>alert(1)</script> Evil$'App" } });
+    markdown.should.not.match(/(^|[^\\])<(script|img)/m);
+    markdown.should.include('\\<script\\>alert(1)\\</script\\> Evil$\'App');
+    markdown.should.include('`/x/[a](javascript:alert(1)).js:8`');
+    markdown.length.should.be.below(20000);
+    markdown.should.include('more characters not shown');
+    // one finding: its two YAML delimiters are the only lines that are exactly ---
+    (markdown.match(/^---\s*$/gm) || []).length.should.equal(2);
+    const front = YAML.parse(markdown.split(/^---\s*$/m)[1]);
+    front.Title.should.equal('Cross-Site Scripting Exposure in Content Rendering');
+  });
+
+  it('says so when nothing is reportable', () => {
+    renderClientMarkdown([], { app: { name: 'Example' } }).should.equal('No reportable findings were identified in Example.\n');
   });
 });
