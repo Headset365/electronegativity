@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "docxImport": {
+    "method": "POST",
+    "url": "http://127.0.0.1:3000/api/documents/import",
+    "field": "file",
+    "headers": {},
+    "cases": [
+      "baseline", "metadata", "external-relationship", "svg-media",
+      "malformed-xml", "duplicate-entry"
+    ]
+  },
+  "view": "http://127.0.0.1:3000/documents",
+  "windowUrl": "http://127.0.0.1:3000/",
+  "waitMs": 1800,
+  "closeOnDone": true
+}

@@ -64,24 +64,41 @@ export function analyzeWatchLog(records) {
       { sent: activeSent.length, execution: 'not observed' });
   const campaignCases = [];
   for (const sent of records.filter(r => r.kind === 'campaign-send')) {
-    const views = records.filter(r => r.kind === 'campaign-view' && r.case === sent.case);
-    const signals = records.filter(r => r.kind === 'campaign-result' && r.case === sent.case);
-    const resources = records.filter(r => r.kind === 'campaign-resource' && r.case === sent.case);
+    const same = r => r.case === sent.case && r.slot === sent.slot;
+    const views = records.filter(r => r.kind === 'campaign-view' && same(r));
+    const signals = records.filter(r => r.kind === 'campaign-result' && same(r));
+    const resources = records.filter(r => r.kind === 'campaign-resource' && same(r));
+    const action = records.find(r => r.kind === 'campaign-action' && same(r));
     const execution = signals.some(r => r.signal === 'executed');
     const delivery = sent.ok ? 'accepted' : sent.status ? 'rejected' : 'failed';
     const view = views.some(r => r.opened) ? 'opened' : 'not observed';
-    const caseState = { case: sent.case, delivery, view, execution: EXECUTION.has(sent.case) ? (execution ? 'observed' : 'not observed') : 'not applicable',
+    const caseState = { case: sent.case, field: sent.field, slot: sent.slot, delivery, view,
+      action: action ? { clicked: action.clicked, navigated: action.navigated, url: action.url } : undefined,
+      execution: EXECUTION.has(sent.case) ? (execution ? 'observed' : 'not observed') : 'not applicable',
       resources: resources.map(r => r.resource),
       signals: [...new Set(signals.map(r => r.signal))] };
     campaignCases.push(caseState);
     add('RUNTIME_CAMPAIGN_CASE', sent.route || 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
-      `Campaign ${sent.case}: request ${delivery}${sent.status ? ` (HTTP ${sent.status})` : ''}, saved view ${view}, script ${caseState.execution}${resources.length ? `, local resource requests ${resources.length}` : ''}. Silence is not a safe verdict`,
+      `Campaign ${sent.case}${sent.field ? ` in ${sent.field}` : ''}: request ${delivery}${sent.status ? ` (HTTP ${sent.status})` : ''}, saved view ${view}, script ${caseState.execution}${resources.length ? `, local resource requests ${resources.length}` : ''}. Silence is not a safe verdict`,
       caseState);
     if (!sent.ok) continue;
     for (const resource of resources)
       add('RUNTIME_CAMPAIGN_RESOURCE', 'http://127.0.0.1', severity.INFORMATIONAL, confidence.CERTAIN,
-        `The configured ${sent.case} payload caused a request to the tool's loopback ${resource.resource} receiver. This does not establish access to other internal services or response readability`,
+        `The configured ${sent.case} payload caused a request to the tool's loopback ${resource.resource} receiver. This does not establish which process sent it, access to other internal services or response readability`,
         { case: sent.case, resource: resource.resource, cookiePresent: resource.cookiePresent, authorizationPresent: resource.authorizationPresent });
+    if (sent.case === 'api-loopback-url' && resources.length)
+      add('RUNTIME_CAMPAIGN_API_EFFECT', 'http://127.0.0.1', severity.INFORMATIONAL, confidence.FIRM,
+        'The configured page API call was followed by a request to its unique loopback URL; this verifies a network effect, not IPC authorization or access to other hosts',
+        { case: sent.case, field: sent.field, slot: sent.slot });
+    if (sent.case.startsWith('nav-'))
+      add('RUNTIME_CAMPAIGN_NAVIGATION', action?.url || sent.route || 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
+        `${sent.case}: link ${action?.clicked ? 'clicked' : 'not confirmed clicked'}, Electron window ${action?.navigated ? 'changed URL' : 'did not show a URL change'}, loopback receiver ${resources.length ? 'received a request' : 'did not observe a request'}. OS handoff and policy enforcement require separate evidence`,
+        { case: sent.case, field: sent.field, slot: sent.slot, clicked: !!action?.clicked, navigated: !!action?.navigated, requests: resources.length });
+    for (const [name, signal] of [['cookie-canary', 'cookie-canary-read'], ['localstorage-canary', 'localstorage-canary-read'],
+      ['indexeddb-canary', 'indexeddb-canary-read']]) if (sent.case === name && signals.some(r => r.signal === signal))
+      add('RUNTIME_CAMPAIGN_DATA_CANARY', signals.find(r => r.signal === signal).url, severity.INFORMATIONAL, confidence.FIRM,
+        `The configured document script read the tool's own ${name} value in this origin. This does not demonstrate access to authentication data or another origin`,
+        { case: name, field: sent.field, slot: sent.slot });
     if (sent.case.startsWith('api-') && signals.some(r => r.signal === 'api-invoked'))
       add('RUNTIME_CAMPAIGN_API', signals.find(r => r.signal === 'api-invoked').url, severity.INFORMATIONAL, confidence.CERTAIN,
         `The ${sent.case} probe called a configured page API; ${signals.some(r => r.signal === 'api-resolved') ? 'the call resolved' : signals.some(r => r.signal === 'api-rejected') ? 'the call rejected' : 'the outcome was not observed'}. No IPC authorization or privileged effect is inferred from the call result`,
@@ -100,11 +117,26 @@ export function analyzeWatchLog(records) {
   }
   for (const error of records.filter(r => r.kind === 'campaign-error'))
     add('RUNTIME_CAMPAIGN_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
-      `Campaign could not start: ${error.message}`, { error: error.message });
+      `Campaign incomplete: ${error.message}`, { error: error.message });
   for (const restore of records.filter(r => r.kind === 'campaign-restore' && !r.ok))
     add('RUNTIME_CAMPAIGN_RESTORE', 'runtime', severity.MEDIUM, confidence.CERTAIN,
       `The campaign could not restore the original test field${restore.status ? ` (HTTP ${restore.status})` : ''}; inspect the disposable record`,
       { status: restore.status, error: restore.error });
+  for (const cleanup of records.filter(r => r.kind === 'campaign-cleanup' && !r.ok))
+    add('RUNTIME_CAMPAIGN_CLEANUP', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
+      'The campaign could not verify removal of all tool-owned browser data canaries from the configured view', { count: cleanup.count });
+  const docxCases = [];
+  for (const sent of records.filter(r => r.kind === 'docx-send')) {
+    const opened = records.some(r => r.kind === 'docx-view' && r.case === sent.case && r.opened);
+    const requested = records.some(r => r.kind === 'docx-resource' && r.case === sent.case);
+    const state = { case: sent.case, accepted: !!sent.ok, viewOpened: opened, loopbackRequested: requested, sha256: sent.sha256, bytes: sent.bytes };
+    docxCases.push(state);
+    add('RUNTIME_DOCX_IMPORT_CASE', sent.route || 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
+      `DOCX ${sent.case}: import ${sent.ok ? 'accepted' : 'failed or rejected'}${sent.status ? ` (HTTP ${sent.status})` : ''}, configured view ${opened ? 'opened' : 'not observed'}${requested ? ', loopback relationship requested' : ''}. Acceptance does not prove conversion or rendering`, state);
+    if (sent.ok && requested)
+      add('RUNTIME_DOCX_RESOURCE', 'http://127.0.0.1', severity.INFORMATIONAL, confidence.FIRM,
+        'The DOCX import was accompanied by a request to its controlled external relationship; the initiating process and response readability remain unknown', state);
+  }
 
   const started = records.some(r => r.kind === 'start');
   const pages = records.filter(r => r.kind === 'page' && !INTERNAL_PAGES.test(r.url));
@@ -330,6 +362,7 @@ export function analyzeWatchLog(records) {
     if (shot) issue.properties = { ...(issue.properties || {}), screenshot: shot.file };
   }
   return { issues, summary: { screenshots, started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic,
+    docxCampaign: docxCases.length ? { attempted: docxCases.length, accepted: docxCases.filter(c => c.accepted).length, cases: docxCases } : undefined,
     campaign: campaignCases.length ? { attempted: campaignCases.length, accepted: campaignCases.filter(c => c.delivery === 'accepted').length,
       executed: campaignCases.filter(c => c.execution === 'observed').length, cases: campaignCases } : undefined,
     userData: paths && paths.userData } };

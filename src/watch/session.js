@@ -68,7 +68,8 @@ export async function observeSession({ watch, watchLog, args = [], marker, activ
       fs.writeFileSync(commandsFile, '');
       assistant.useChannel({ confirm, cancel: typeof confirm?.cancel === 'function' ? () => confirm.cancel() : undefined,
         send: (command) => { try { fs.appendFileSync(commandsFile, JSON.stringify(command) + '\n'); } catch { /* best effort */ } } });
-      if (campaign?.mode === 'request') fs.appendFileSync(commandsFile, JSON.stringify({ kind: 'run-campaign', profile: campaign }) + '\n');
+      if (campaign?.mode === 'request' || campaign?.mode === 'docx')
+        fs.appendFileSync(commandsFile, JSON.stringify({ kind: 'run-campaign', profile: campaign }) + '\n');
     }
     const stopFollowing = followLog(logFile, record => assistant.handle(record));
     try {
@@ -83,8 +84,10 @@ export async function observeSession({ watch, watchLog, args = [], marker, activ
     console.log(chalk.gray(__('watchLogSaved', { file: log })));
   }
   const records = readWatchLog(log);
-  if (campaign && !records.some(r => r.kind === 'campaign-done' || r.kind === 'campaign-error'))
+  if (campaign && !records.some(r => r.kind === (campaign.mode === 'docx' ? 'docx-done' : 'campaign-done') || r.kind === 'campaign-error'))
     records.push({ kind: 'campaign-error', message: 'No completed campaign was observed; check the app hook, test window and capture workflow' });
+  if (campaign?.docxImport && !records.some(r => r.kind === 'docx-done' || r.kind === 'campaign-error'))
+    records.push({ kind: 'campaign-error', message: 'The configured DOCX import campaign did not complete' });
   const runtime = analyzeWatchLog(records);
   // for --diagnostics: what the hook captured, by kind, and anything that went wrong inside it
   const recordKinds = {};

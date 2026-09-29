@@ -250,6 +250,9 @@ export function createAssistant({ marker, active = false, campaign, staticIssues
       case 'campaign-done':
         say.note(`Campaign finished ${r.cases} cases. The report separates delivery, rendering and execution evidence.`);
         break;
+      case 'docx-done':
+        say.note(`DOCX import campaign finished ${r.cases} fixtures. Accepted imports are not treated as successful conversion or rendering.`);
+        break;
       case 'sink': {
         if (!r.live) break;
         const frame = (r.frames || [])[0];

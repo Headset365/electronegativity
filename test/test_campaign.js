@@ -12,7 +12,8 @@ import { analyzeWatchLog } from '../src/watch/analyze.js';
 
 chaiShould();
 const require = createRequire(import.meta.url);
-const { valueFor, runCampaign, startResourceReceiver, CASES } = require('../src/watch/campaign.cjs');
+const { valueFor, discoverFields, runCampaign, startResourceReceiver, CASES } = require('../src/watch/campaign.cjs');
+const { DOCX_CASES, fixture: docxFixture, runDocxCampaign } = require('../src/watch/docx.cjs');
 const { fillMarkerBody } = require('../src/watch/hook.cjs');
 const marker = 'ENGCAMPAIGN42';
 
@@ -22,7 +23,7 @@ describe('Profile-driven benign campaign', () => {
 
   it('requires an explicit route, field and view, and matches capture routes exactly', () => {
     direct().route.should.equal('POST http://127.0.0.1:9000/save');
-    (() => direct({ field: 'id;rm' })).should.throw(/field name/);
+    (() => direct({ field: 'id;rm' })).should.throw(/exact fields/);
     (() => direct({ cases: ['event-handler', 'event-handler'] })).should.throw(/unique/);
     (() => direct({ view: undefined })).should.throw(/view URL/);
     (() => direct({ request: { method: 'GET', url: 'https://example.test/x', body: '{}' } })).should.throw(/POST\/PUT\/PATCH/);
@@ -31,6 +32,29 @@ describe('Profile-driven benign campaign', () => {
     campaignMatch(capture, { method: 'PUT', url: 'https://other.test/notes/42', replay: 1, fields: [{ name: 'body', html: true }] }).should.equal(false);
     campaignMatch(capture, { method: 'PUT', url: 'https://app.test/notes/42', replay: 1, status: 403, fields: [{ name: 'body', html: false }] }).should.equal(false);
     (() => direct({ cases: ['api-normal'] })).should.throw(/API cases require/);
+    (() => direct({ cases: ['nav-loopback'] })).should.throw(/explicit view URL/);
+    (() => direct({ field: undefined, fields: ['body', 'title'] })).should.not.throw();
+    (() => direct({ field: undefined, fields: [] })).should.throw(/1–8 exact fields/);
+  });
+
+  it('discovers bounded document fields and keeps signals separate for each field', async () => {
+    discoverFields('{"id":"123","token":"secret","body":"old","meta":{"title":"keep"},"items":[{"text":"one"}]}')
+      .should.deep.equal(['body', 'meta.title', 'items[].text']);
+    const profile = direct({ field: undefined, fields: ['body', 'title'], cases: ['event-handler', 'text'], restoreOnDone: false });
+    const events = [];
+    const bodies = [];
+    await runCampaign({ profile, marker, fetch: async (_url, options) => { bodies.push(JSON.parse(options.body)); return { ok: true, status: 200 }; },
+      fill: fillMarkerBody, view: async () => true, write: (kind, data) => events.push({ kind, ...data }), delay: async () => {} });
+    bodies.should.have.length(4);
+    bodies[0].title.should.equal('keep');
+    bodies[2].body.should.equal('original');
+    bodies[0].body.should.include(`ENG_CAMPAIGN:${marker}:event-handler:0:executed`);
+    bodies[2].title.should.include(`ENG_CAMPAIGN:${marker}:event-handler:1:executed`);
+    const observed = analyzeWatchLog([...events,
+      { kind: 'campaign-result', case: 'event-handler', slot: 1, signal: 'executed', url: 'https://app.test/view' }]);
+    observed.issues.filter(i => i.id === 'RUNTIME_CAMPAIGN_SCRIPT').should.have.length(1);
+    observed.summary.campaign.cases.find(c => c.case === 'event-handler' && c.slot === 0).execution.should.equal('not observed');
+    observed.summary.campaign.cases.find(c => c.case === 'event-handler' && c.slot === 1).execution.should.equal('observed');
   });
 
   it('delivers typed mutations through a real local endpoint without rewriting unrelated fields', async () => {
@@ -92,8 +116,9 @@ describe('Profile-driven benign campaign', () => {
     const events = [];
     await runCampaign({ profile, marker, fetch: () => { throw Error('fetch should not run'); }, fill: fillMarkerBody, view: async () => true,
       write: (kind, data) => events.push({ kind, ...data }), delay: async () => {} });
-    events[0].should.include({ kind: 'campaign-send', ok: false });
-    events[0].error.should.match(/requires a JSON/);
+    const send = events.find(e => e.kind === 'campaign-send');
+    send.should.include({ ok: false });
+    send.error.should.match(/requires a JSON/);
     analyzeWatchLog(events).issues.some(i => i.id === 'RUNTIME_CAMPAIGN_SCRIPT').should.equal(false);
   });
 
@@ -126,6 +151,34 @@ describe('Profile-driven benign campaign', () => {
     JSON.stringify(signals).should.not.include('do-not-log');
   });
 
+  it('requires a separately seeded, matching renderer data canary before reporting a read', async () => {
+    const data = { name: 'eng_campaign_TEST42_cookie', value: '0123456789abcdef0123456789abcdef' };
+    const signals = [];
+    const scope = { console: { log: msg => signals.push(msg) }, document: { cookie: `${data.name}=${data.value}` },
+      localStorage: { getItem: key => key === data.name ? data.value : null },
+      indexedDB: { open: () => {
+        const req = {};
+        setImmediate(() => { req.result = { transaction: () => ({ objectStore: () => ({ get: () => {
+          const get = {};
+          setImmediate(() => { get.result = data.value; get.onsuccess(); });
+          return get;
+        } }) }), close: () => {} }; req.onsuccess(); });
+        return req;
+      } } };
+    for (const name of ['cookie-canary', 'localstorage-canary', 'indexeddb-canary'])
+      vm.runInNewContext(loadHtml(valueFor(name, marker, { data }))('img').attr('onerror'), scope);
+    await new Promise(resolve => setImmediate(() => setImmediate(resolve)));
+    signals.should.include(`ENG_CAMPAIGN:${marker}:cookie-canary:cookie-canary-read`);
+    signals.should.include(`ENG_CAMPAIGN:${marker}:localstorage-canary:localstorage-canary-read`);
+    signals.should.include(`ENG_CAMPAIGN:${marker}:indexeddb-canary:indexeddb-canary-read`);
+    (() => valueFor('cookie-canary', marker)).should.throw(/canary is required/);
+    const quiet = analyzeWatchLog([{ kind: 'campaign-send', case: 'cookie-canary', ok: true, status: 200 }]);
+    quiet.issues.some(i => i.id === 'RUNTIME_CAMPAIGN_DATA_CANARY').should.equal(false);
+    const proven = analyzeWatchLog([{ kind: 'campaign-send', case: 'cookie-canary', ok: true, status: 200 },
+      { kind: 'campaign-result', case: 'cookie-canary', signal: 'cookie-canary-read', url: 'https://app.test/view' }]);
+    proven.issues.some(i => i.id === 'RUNTIME_CAMPAIGN_DATA_CANARY').should.equal(true);
+  });
+
   it('serves controlled resources on loopback and records redirects without credential values', async () => {
     const events = [];
     const { server, url } = await startResourceReceiver(marker, (kind, data) => events.push({ kind, ...data }));
@@ -142,6 +195,58 @@ describe('Profile-driven benign campaign', () => {
       const found = analyzeWatchLog([{ kind: 'campaign-send', case: 'redirect-image', route: 'POST https://app.test/save', status: 200, ok: true }, ...events]).issues;
       found.filter(i => i.id === 'RUNTIME_CAMPAIGN_RESOURCE').should.have.length(2);
       found.some(i => i.id === 'RUNTIME_CAMPAIGN_SCRIPT').should.equal(false);
+      const apiUrl = valueFor('api-loopback-url', marker, { resourceBase: url,
+        api: { path: 'api.open', args: ['baseline'], mutationIndex: 0 }, slot: 1 });
+      const called = [];
+      const scope = { window: { api: { open: value => called.push(value) } }, console: { log: () => {} } };
+      vm.runInNewContext(loadHtml(apiUrl)('img').attr('onerror'), scope);
+      called.should.deep.equal([`${url}/api/${marker}/1`]);
+      (await fetch(called[0])).status.should.equal(200);
+      const effect = analyzeWatchLog([{ kind: 'campaign-send', case: 'api-loopback-url', slot: 1, route: 'POST https://app.test/save', status: 200, ok: true }, ...events]);
+      effect.issues.some(i => i.id === 'RUNTIME_CAMPAIGN_API_EFFECT').should.equal(true);
+      const nav = loadHtml(valueFor('nav-redirect', marker, { resourceBase: url, slot: 0 }))('a').attr('href');
+      (await fetch(nav)).status.should.equal(200);
+      events.slice(-2).map(e => e.case).should.deep.equal(['nav-redirect', 'nav-redirect']);
+      const navigation = analyzeWatchLog([{ kind: 'campaign-send', case: 'nav-redirect', slot: 0, route: 'POST https://app.test/save', ok: true, status: 200 },
+        { kind: 'campaign-action', case: 'nav-redirect', slot: 0, clicked: true, navigated: false, url: 'https://app.test/view' }, ...events]);
+      navigation.issues.find(i => i.id === 'RUNTIME_CAMPAIGN_NAVIGATION').description.should.include('did not show a URL change');
     } finally { server.close(); await once(server, 'close'); }
+  });
+
+  it('imports bounded DOCX fixtures through a configured multipart endpoint without claiming conversion', async () => {
+    const profile = normalizeCampaign({ version: 1, docxImport: { method: 'POST', url: 'http://127.0.0.1:9000/import', field: 'file',
+      cases: ['baseline', 'metadata', 'malformed-xml'] }, view: 'reload' });
+    profile.mode.should.equal('docx');
+    (() => normalizeCampaign({ version: 1, docxImport: { method: 'POST', url: 'https://app.test/import', field: 'file',
+      cases: ['zip-bomb'] }, view: 'reload' })).should.throw(/unique cases/);
+    DOCX_CASES.should.include('external-relationship');
+    const normal = docxFixture('baseline', marker);
+    const malformed = docxFixture('malformed-xml', marker);
+    normal.sha256.should.not.equal(malformed.sha256);
+    normal.bytes.readUInt32LE(0).should.equal(0x04034b50);
+    normal.bytes.length.should.be.below(100000);
+    normal.bytes.toString('utf8').should.include('word/document.xml').and.include(marker);
+    malformed.bytes.toString('utf8').should.include('</w:broken>');
+    const receiverEvents = [];
+    const receiver = await startResourceReceiver(marker, (kind, data) => receiverEvents.push({ kind, ...data }));
+    const relation = docxFixture('external-relationship', marker, receiver.url);
+    relation.bytes.toString('utf8').should.include(`${receiver.url}/docx/${marker}`);
+    try {
+      (await fetch(`${receiver.url}/docx/${marker}`)).status.should.equal(200);
+      receiverEvents[0].kind.should.equal('docx-resource');
+      const uploads = [];
+      const events = [];
+      await runDocxCampaign({ profile, marker, resourceBase: receiver.url,
+        fetch: async (_url, options) => { uploads.push(options); return { ok: true, status: 201 }; },
+        view: async () => true, write: (kind, data) => events.push({ kind, ...data }), delay: async () => {} });
+      uploads.should.have.length(3);
+      uploads[0].body.get('file').name.should.include('eng-baseline-');
+      uploads[0].headers.should.deep.equal({});
+      events.filter(e => e.kind === 'docx-send').should.have.length(3);
+      const report = analyzeWatchLog(events);
+      report.summary.docxCampaign.accepted.should.equal(3);
+      report.issues.some(i => i.id === 'RUNTIME_DOCX_RESOURCE').should.equal(false);
+      report.issues.find(i => i.id === 'RUNTIME_DOCX_IMPORT_CASE').description.should.include('does not prove conversion');
+    } finally { receiver.server.close(); await once(receiver.server, 'close'); }
   });
 });

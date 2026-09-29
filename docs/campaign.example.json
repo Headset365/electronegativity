@@ -16,6 +16,7 @@
     "text", "html", "event-handler", "script-tag", "svg-handler", "javascript-url",
     "node", "electron", "fs-read", "eval",
     "null", "boolean", "number", "array", "object", "empty", "long",
+    "cookie-canary", "localstorage-canary", "indexeddb-canary",
     "external-image", "external-svg", "external-script", "external-frame",
     "external-stylesheet", "external-font", "external-media", "redirect-image"
   ]
