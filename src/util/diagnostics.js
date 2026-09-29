@@ -140,6 +140,11 @@ export function sensitiveTerms(input, extra = []) {
   return [...terms].sort((a, b) => b.length - a.length);
 }
 
+/** A name that can be a host: letters, digits, dots and hyphens (or a bracketed IPv6 address), never punctuation left over from code. */
+export function isHostname(host) {
+  return /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/i.test(host) || /^\[[0-9a-f:.]+\]$/i.test(host);
+}
+
 /** Returns a sanitizer that replaces the terms, the home folder, and pseudonymizes hosts in URLs. */
 export function makeSanitizer(terms) {
   const home = os.homedir();
@@ -154,7 +159,8 @@ export function makeSanitizer(terms) {
   const sanitizeString = (text) => {
     let out = String(text);
     if (home && home.length > 1) out = out.split(home).join('<home>');
-    out = out.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^/\s:'"<>]+)/gi, (match, scheme, host) => `${scheme}${pseudonym(host)}`);
+    // (file:// has no host, and "://," in a regular expression or a template is not one)
+    out = out.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^/\s:'"<>]+)/gi, (match, scheme, host) => /^file:/i.test(scheme) || !isHostname(host) ? match : `${scheme}${pseudonym(host)}`);
     if (pattern) out = out.replace(pattern, '<redacted>');
     return out;
   };

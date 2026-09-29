@@ -409,6 +409,24 @@ ipcMain.handle('link', (event, url) => shell.openExternal(url));`);
       JSON.parse(text).audit.finalPassReplacements.should.be.a('number');
     });
 
+    it('does not treat punctuation after a scheme as a host, which would replace every comma in the report', () => {
+      const report = buildShare({ input: '/work/demo', version: '2.0.0', code: true, issues: [{
+        id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },
+        description: 'loaded over file:// (extra), see (324 critical, 1214 high), 12 of them; urls like "https://, " and ws://, wss://',
+        sample: "ipcMain.on('is-mac', event => { const scheme = ['http://', 'https://,']; })" }] });
+      report.findings[0].description.should.equal('loaded over file:// (extra), see (324 critical, 1214 high), 12 of them; urls like "https://, " and ws://, wss://');
+      report.findings[0].code.should.include("ipcMain.on('is-mac', event").and.not.include('host-');
+    });
+
+    it('replaces cookie domains with a leading dot, random-looking names and numeric ids in paths', () => {
+      const report = buildShare({ input: '/work/demo', version: '2.0.0', issues: [{
+        id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },
+        description: 'cookie ph_phc_tRgYsMLEaQgFz9uCcRwscqRC0h5vI6GDL1huLHiz8A2_posthog for .tracker.example-corp.com and .www.example-corp.com from https://cdn.example-corp.net/release-asset/599254612/file' }] });
+      const text = report.findings[0].description;
+      text.should.not.include('tRgYs').and.not.include('example-corp').and.not.include('599254612');
+      text.should.match(/for \.host-[0-9a-f]{8} and \.host-[0-9a-f]{8} from/).and.include('<id>');
+    });
+
     it('keeps documentation links and Electron API names that look like domains', () => {
       const report = buildShare({ input: '/work/demo', version: '2.0.0', issues: [{
         id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },

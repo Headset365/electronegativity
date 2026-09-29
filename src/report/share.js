@@ -10,7 +10,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import { createRequire } from 'node:module';
-import { sensitiveTerms, makeSanitizer } from '../util/diagnostics.js';
+import { sensitiveTerms, makeSanitizer, isHostname } from '../util/diagnostics.js';
 import { consequenceOf, interactionOf } from '../finder/consequences.js';
 
 const require = createRequire(import.meta.url);
@@ -34,6 +34,9 @@ function extraRedaction(text) {
   return redactText(String(text))
     .replace(/\b[A-Za-z]:\\Users\\[^\\\s"'<>]+/g, 'C:\\Users\\<user>')
     .replace(/\/(home|Users)\/[^/\s"'<>]+/g, '/$1/<user>')
+    // random-looking names (a cookie named after an analytics project key) and long numeric ids in paths (a repository or account id)
+    .replace(/[A-Za-z0-9]{24,}/g, token => looksRandomSecret(token) ? '<redacted>' : token)
+    .replace(/(\/)\d{6,}(?=[/?#\s'"<>)]|$)/g, '$1<id>')
     .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s'"<>?#]*)[?#][^\s'"<>)]*/gi, '$1')
     .replace(/\\\\[^\\\s"'<>]+\\/g, '\\\\<server>\\')
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<uuid>')
@@ -44,7 +47,8 @@ function extraRedaction(text) {
 // Domain names written without a scheme (a cookie domain, "sign in at portal.contoso.com"). Only endings that are hardly ever
 // a file extension are matched, and Electron's own names (electron.net, app.dev...) are left alone.
 const TLDS = 'com|net|org|io|dev|app|info|biz|xyz|cloud|online|site|tech|edu|gov|mil|local|internal|corp|lan|intranet|test|example|invalid|eu|uk|us|ca|au|de|fr|nl|jp|cn|ru|br|ch|se|dk|fi|ie|nz|za|mx';
-const BARE_DOMAIN = new RegExp(`(?<![\\w.@/-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:${TLDS})(?![\\w-])(?!\\s*\\()`, 'gi');
+// (a leading dot, as in a cookie's domain, is kept: .linkedin.com becomes .host-1a2b3c4d)
+const BARE_DOMAIN = new RegExp(`(?<![\\w@/-])(\\.?)((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:${TLDS}))(?![\\w-])(?!\\s*\\()`, 'gi');
 const NOT_DOMAINS = /^(?:electron|app|net|process|window|document|global|module|exports|this|require|remote|shell|dialog|session|navigator|location|console|api)\./i;
 // public documentation sites that name no one
 const PUBLIC_HOSTS = /(?:^|\.)(?:electronjs\.org|nodejs\.org|mozilla\.org|owasp\.org|mitre\.org|github\.com|npmjs\.com|w3\.org|chromium\.org|example\.com|example\.org|example\.net)$/i;
@@ -80,7 +84,7 @@ export function buildShare(scan) {
   const collect = (value, key = '') => {
     if (typeof value === 'string') {
       for (const match of value.matchAll(/\b[a-z][a-z0-9+.-]*:\/\/[^\s'"<>?#)]+/gi)) {
-        try { const host = new URL(match[0]).hostname; if (host) hosts.set(host.toLowerCase(), hostAlias(host)); } catch { /* incomplete URL */ }
+        try { const url = new URL(match[0]); if (url.protocol !== 'file:' && isHostname(url.hostname)) hosts.set(url.hostname.toLowerCase(), hostAlias(url.hostname)); } catch { /* incomplete URL */ }
       }
       if (/^(?:host|domain)$/i.test(key) && /^[\w.-]+\.[A-Za-z]{2,}$/.test(value)) {
         const host = value.replace(/^\./, '').toLowerCase();
@@ -95,7 +99,7 @@ export function buildShare(scan) {
     for (const [host, alias] of [...hosts].sort((a, b) => b[0].length - a[0].length))
       value = value.replace(new RegExp(`(^|[^\\w.-])(${host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?=$|[^\\w.-])`, 'gi'), (_all, before) => before + alias);
     value = extraRedaction(sanitize(value));
-    return value.replace(BARE_DOMAIN, (domain) => NOT_DOMAINS.test(domain) || PUBLIC_HOSTS.test(domain) ? domain : hostAlias(domain));
+    return value.replace(BARE_DOMAIN, (all, dot, domain) => NOT_DOMAINS.test(domain) || PUBLIC_HOSTS.test(domain) ? all : dot + hostAlias(domain));
   };
   const cleanValue = value => typeof value === 'string' ? clean(value) : Array.isArray(value) ? value.map(cleanValue) :
     value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cleanValue(item)])) : value;
