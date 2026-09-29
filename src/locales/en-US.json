@@ -198,7 +198,7 @@
 	"remoteFetchFailed": "Could not download {{{url}}}: {{{message}}}",
 	"remoteOffline": "--remote needs network access: nothing was downloaded, as --offline is set",
 	"remoteScanning": "Scanning {{count}} front-end files served remotely (saved in {{{dir}}})",
-	"appOptionDescription": "guided run: find the app in this install folder (or its executable), scan it, then walk through watch sessions, writing every report to one results folder",
+	"appOptionDescription": "guided run: find the app in this install folder (or its executable), scan it, then walk through watch sessions, writing every report to one results folder; -o chooses the reports each step writes (static-findings.md, session-1-components.xlsx...)",
 	"outOptionDescription": "results folder for --app (default: electronegativity-results-<date> in the current folder)",
 	"sessionsOptionDescription": "number of watch sessions --app runs without asking (0 for the static scan only)",
 	"appFound": "Found {{{name}}}: executable {{{executable}}}, code {{{code}}}",

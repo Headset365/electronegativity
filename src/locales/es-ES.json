@@ -198,7 +198,7 @@
 	"remoteFetchFailed": "No se pudo descargar {{{url}}}: {{{message}}}",
 	"remoteOffline": "--remote necesita acceso a la red: no se ha descargado nada, ya que se ha indicado --offline",
 	"remoteScanning": "Analizando {{count}} archivos front-end servidos de forma remota (guardados en {{{dir}}})",
-	"appOptionDescription": "ejecución guiada: busca la aplicación en esta carpeta de instalación (o su ejecutable), la analiza y guía las sesiones de observación, escribiendo todos los informes en una carpeta de resultados",
+	"appOptionDescription": "ejecución guiada: busca la aplicación en esta carpeta de instalación (o su ejecutable), la analiza y guía las sesiones de observación, escribiendo todos los informes en una carpeta de resultados; -o elige los informes de cada paso (static-findings.md, session-1-components.xlsx...)",
 	"outOptionDescription": "carpeta de resultados de --app (por defecto: electronegativity-results-<fecha> en la carpeta actual)",
 	"sessionsOptionDescription": "número de sesiones de observación que --app ejecuta sin preguntar (0 para solo el análisis estático)",
 	"appFound": "Encontrada {{{name}}}: ejecutable {{{executable}}}, código {{{code}}}",

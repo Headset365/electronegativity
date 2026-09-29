@@ -161,7 +161,7 @@ $ electronegativity -h
 |:------------:|:-------------------------------------------------:|
 | -V           | output the version number                         |
 | -i, --input  | input (directory, .js, .html, .asar, an installed app's folder or executable, or an installer or package: NSIS or Squirrel `.exe`, `.7z`, `.zip`, `.nupkg`) |
-| --app <location> | guided run: find the app in this install folder (or its executable), scan it, then walk through watch sessions, writing every report to one results folder |
+| --app <location> | guided run: find the app in this install folder (or its executable), scan it, then walk through watch sessions, writing every report to one results folder. Each step writes an HTML report, or with `-o` every report named there, prefixed with the step (`-o "report.html,findings.md,components.xlsx"` gives `static-report.html`, `static-findings.md`, `static-components.xlsx`, then `session-1-...`) |
 | --out <dir> | results folder for `--app` (default `electronegativity-results-<date>`) |
 | --report-dir [folder] | every run without `-o` already puts its reports in a new folder named `electronegativity-<UTC date and time>`, made in the folder you ran the tool from; give a folder to make it there instead (with `-o`, give `--report-dir` to get the folder as well), see [Report folder](#report-folder) |
 | --no-report-dir | don't create that folder; write only the outputs you ask for |
@@ -388,7 +388,7 @@ The folder (inside the folder you give, made if missing) holds:
 | `shareable-report.md`, `shareable-report.json` | the findings with client information removed, to send to a reviewer or an AI agent, see [Sharing findings](#sharing-findings) |
 | `diagnostics.json` | sanitized troubleshooting information |
 
-A scan given `-o` writes only the files it names, so a CI job doesn't leave full reports in its checkout; add `--report-dir` (with or without a folder) to get the report folder as well. `--diagnostics` writes that file elsewhere as well. With `--app`, the results folder gets this name, with a Markdown and JSON shareable report per step (`static-share.md`, `session-1-share.json`...); With `--out <dir>` that folder is used instead of a new one. Nothing is created when the run ends before writing anything (no input, an unreadable installer). A second run in the same second gets `-2` after the name.
+A scan given `-o` writes only the files it names, so a CI job doesn't leave full reports in its checkout; add `--report-dir` (with or without a folder) to get the report folder as well. `--diagnostics` writes that file elsewhere as well. With `--app`, the results folder gets this name, with a Markdown and JSON shareable report per step (`static-share.md`, `session-1-share.json`...) and the `-o` reports per step (`static-findings.md`...); With `--out <dir>` that folder is used instead of a new one. Nothing is created when the run ends before writing anything (no input, an unreadable installer). A second run in the same second gets `-2` after the name.
 
 ### Ignoring Lines or Files
 

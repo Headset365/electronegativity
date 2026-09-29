@@ -362,15 +362,19 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
   console.log(chalk.green(__('appFound', { name: located.name, executable: located.executable || '-', code: located.code })));
   console.log(chalk.gray(__('appResults', { dir: outDir })));
   const written = [];
+  // -o names the reports each step writes, prefixed with the step: static-findings.md, session-1-components.xlsx...
+  // (without -o, an HTML report per step)
+  const requested = options.output ? splitOutputs(options.output) : [];
   const step = async (name, extra) => {
-    const output = path.join(outDir, `${name}.html`);
+    const outputs = requested.length ? requested.map(file => path.join(outDir, `${name}-${path.basename(file)}`)) : [path.join(outDir, `${name}.html`)];
+    const output = outputs.find(file => /\.html?$/i.test(file)) || outputs[0];
     const diagnostics = path.join(outDir, `${name}-diag.json`);
     // --share: a redacted findings report per step, next to the others
     // (--report-dir: both Markdown and JSON)
     const shareTypes = options.share ? [/\.json$/i.test(options.share) ? '.json' : '.md'] : reportFolder || options.out ? ['.md', '.json'] : [];
     const shares = shareTypes.map(type => path.join(outDir, `${name}-share${type}`));
-    const result = await run({ ...common, input: located.code, output, diagnostics, share: shares.length ? shares : undefined, ...extra }, false);
-    written.push(output, diagnostics, ...shares);
+    const result = await run({ ...common, input: located.code, output: outputs, diagnostics, share: shares.length ? shares : undefined, ...extra }, false);
+    written.push(...outputs, diagnostics, ...shares);
     for (const error of result.errors.filter(e => !e.tolerable).slice(0, 5)) console.error(chalk.yellow(`${error.file}: ${error.message}`));
     console.log(chalk.green(__('appStepDone', { file: output, ...countBySeverity(result.reported) })));
     return result;

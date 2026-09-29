@@ -480,7 +480,7 @@ async function scan(options, forCli) {
       errors,
       issues: [...issues, ...suppressed],
       options: {
-        output: options.output ? path.extname(options.output) : undefined, offline: !!options.offline, allFiles: !!options.allFiles,
+        output: outputs.length ? outputs.map(file => path.extname(file)).join(',') : undefined, offline: !!options.offline, allFiles: !!options.allFiles,
         checks: options.customScan.length || 'all', excluded: options.excludeFromScan.length, electronVersionOverride: options.electronVersionOverride,
         baseline: !!options.baseline, severity: options.severitySet && options.severitySet.name, confidence: options.confidenceSet && options.confidenceSet.name,
         upgrade: options.electronUpgrade, watch: !!options.runtime,
