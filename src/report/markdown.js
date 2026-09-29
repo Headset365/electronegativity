@@ -3,6 +3,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { consequenceOf, interactionOf, worstCase, validationHint } from '../finder/consequences.js';
 import { remediationOf } from '../finder/remediation.js';
+import { matchingVariations } from './markdown_variations.js';
 
 const definitions = [
   ['Renderer Isolation Weakened', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX))/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
@@ -162,6 +163,7 @@ function details(i) {
 function proseNotes(g) {
   const i = g.items[0].issue;
   const notes = [`Rating basis — ${i.id} at ${location(i)}, ${nameOf(i.severity)} severity, ${nameOf(i.confidence)} confidence; ${isConfirmed(i) ? 'confirmed during a watch session' : 'not confirmed at runtime'}.`];
+  notes.push('Variation clauses are alternatives linked to observed checks. Retain only the outcomes supported by the application workflow and recorded evidence.');
   const open = g.issues.filter(issue => issue.manualReview && !isConfirmed(issue));
   if (open.length) notes.push(`${open.length} instance${open.length === 1 ? '' : 's'} require${open.length === 1 ? 's' : ''} reachability or configuration review; the scan has not confirmed exploitation for those instances.`);
   if (g.definition[0] === 'Sensitive Data Exposed in Network Traffic') notes.push('Remove third-party traffic observations if the listed hosts belong to the client.');
@@ -177,17 +179,24 @@ function renderGroup(g, meta) {
   const ids = unique(g.issues.map(i => i.id));
   const affected = unique(g.issues.map(details));
   const top = g.items[0].issue;
+  const variations = matchingVariations(title, g.issues, normalId);
   const examples = unique(g.issues.map(i => i.sample).filter(Boolean)).slice(0, 8);
   const notes = field => noteValues(g.issues, field).map(value => `- ${safeInline(value)}`);
   const lines = [`---\n${YAML.stringify({ Title: title, Consequence: g.rating.consequence, Likelihood: g.rating.likelihood, Notes: proseNotes(g) }).trimEnd()}\n---`,
     `# ${title}`, '## Issue Description', (introductions[title] || about).replaceAll('{app}', app),
     ...ids.map(id => `- **${id}** — ${safeInline(g.issues.find(i => i.id === id).description || (typeof __ === 'function' && __(id)) || id)}`),
+    ...variations.map(v => `- **Variation — ${v.label}:** ${v.description} **Observed checks:** ${unique(v.issues.map(i => i.id)).join(', ')}.`),
     ...notes('about'),
     '## Affected', `The following locations or components in ${app} were affected:`,
     ...affected.slice(0, 60).map(x => `- ${safeInline(x)}`),
     ...(affected.length > 60 ? [`- …and ${affected.length - 60} more.`] : []),
+    ...variations.map(v => {
+      const places = unique(v.issues.map(details));
+      return `- **${v.label}:** ${places.slice(0, 6).map(safeInline).join('; ')}${places.length > 6 ? `; …and ${places.length - 6} more` : ''}`;
+    }),
     '## Implication', about,
     ...ids.map(id => consequenceOf(id)?.text ? `- **${id}** — ${consequenceOf(id).text}` : undefined).filter(Boolean),
+    ...variations.map(v => `- **${v.label} — conditional outcome:** ${v.implication}`),
     ...(g.rating.consequence === 'N/A' ? ['This observation or hardening item does not establish an exploitable vulnerability on its own.'] :
       worstCase(top.id) ? [`Potential worst case for ${top.id}: ${worstCase(top.id)}`] : []),
     ...(interactionOf(top.id) ? [`Victim interaction: ${interactionOf(top.id)}.`] : []),
@@ -198,6 +207,7 @@ function renderGroup(g, meta) {
     ...noteValues(g.issues, 'steps').map(value => `- **Reproduction step:** ${safeInline(value)}`),
     ...g.issues.slice(0, 12).map(i => `- **${i.id}** at ${safeInline(details(i))}: ${safeInline(i.description)}`),
     ...(g.issues.length > 12 ? [`- …and ${g.issues.length - 12} further instances; see the affected list or full HTML/JSON report.`] : []),
+    ...variations.map(v => `- **${v.label} — validation:** ${v.evidence} Affected evidence: ${unique(v.issues.map(details)).slice(0, 3).map(safeInline).join('; ')}.`),
     ...examples.map(sample => {
       const item = g.issues.find(i => i.sample === sample);
       return `- ${safeInline(location(item))}\n\n${code(sample, language(item.file))}`;
@@ -207,7 +217,8 @@ function renderGroup(g, meta) {
     ...g.evidence.slice(0, 8).map(i => `- Supporting observation at ${safeInline(location(i))}: ${safeInline(i.description)}${i.properties?.screenshot ? `; screenshot ${i.properties.screenshot}` : ''}`),
     ...noteValues(g.issues, 'confirm').map(value => `- **How to confirm:** ${safeInline(value)}`),
     ...unique(ids.map(validationHint)).slice(0, 3).map(x => `- ${safeInline(x)}`),
-    '## Recommendations', `- ${fix}`, ...notes('recommendation')];
+    '## Recommendations', `- ${fix}`,
+    ...variations.map(v => `- **${v.label}:** ${v.recommendation}`), ...notes('recommendation')];
   if (title === 'Insecure Electron Fuse Configuration') lines.splice(lines.indexOf('## Recommendations'), 0, '- Re-run the packaged fuse check with `npx @electron/fuses read --app "<exe>"`.');
   if (title === 'Application Code Not Protected Against Inspection or Tampering') lines.splice(lines.indexOf('## Recommendations'), 0, '- Inspect the packaged asar with `npx @electron/asar extract app.asar out`.');
   if (title === 'Microsoft Word Integration') lines.splice(lines.indexOf('## Recommendations'), 0, '- Check the document stream with `Get-Item <doc> -Stream Zone.Identifier` on Windows.');
@@ -227,13 +238,11 @@ function renderGroup(g, meta) {
     if (remedy?.example) lines.push(code(remedy.example, exampleLanguage(remedy.example)));
   }
   const number = /^CWE-(\d+)/.exec(cwe)?.[1];
-  lines.push('## References', `- ${cwe}\n\n  https://cwe.mitre.org/data/definitions/${number}.html`);
-  const seenReferences = new Set();
-  for (const issue of g.issues) {
-    const url = issue.shortenedURL;
-    if (!url || seenReferences.has(url)) continue;
-    seenReferences.add(url);
-    lines.push(`- ${issue.id} reference\n\n  ${url}`);
+  const cweUrl = `https://cwe.mitre.org/data/definitions/${number}.html`;
+  lines.push('## References', `- ${cwe}\n\n  ${cweUrl}`);
+  for (const v of variations) {
+    const refs = unique(v.issues.map(i => i.shortenedURL));
+    for (const url of refs.length ? refs : [cweUrl]) lines.push(`- ${v.label} reference\n\n  ${url}`);
   }
   lines.push('- Electron security guidance\n\n  https://www.electronjs.org/docs/latest/tutorial/security');
   if (title === 'Microsoft Word Integration') lines.push('- Microsoft Protected View\n\n  https://learn.microsoft.com/en-us/office/troubleshoot/word/office-file-opens-in-protected-view');

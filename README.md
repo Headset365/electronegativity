@@ -357,7 +357,7 @@ Write both client deliverables alongside the interactive report in one scan:
 electronegativity -i ./my-app -o "report.html,findings.md,components.xlsx"
 ```
 
-`findings.md` groups related checks in the client template, includes accepted risks from `--suppress` and `--baseline`, and links to `components.xlsx` when both are requested. It contains real names, paths, URLs and evidence. The spreadsheet lists only outdated, unsupported, deprecated, malicious or advisory-affected components, including development dependencies, bundled libraries and Electron when applicable. `--share` separately creates a redacted report for outside review.
+`findings.md` groups related checks in the client template, includes accepted risks from `--suppress` and `--baseline`, and links to `components.xlsx` when both are requested. It contains real names, paths, URLs and evidence. Each emitted group is one finding with labelled variations across all six sections; alternatives are tied to detected checks, and conditional implications can be removed when the client workflow rules them out. The spreadsheet lists only outdated, unsupported, deprecated, malicious or advisory-affected components, including development dependencies, bundled libraries and Electron when applicable. `--share` separately creates a redacted report for outside review.
 
 ### Sharing findings
 

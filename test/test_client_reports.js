@@ -5,6 +5,7 @@ import { should as chaiShould } from 'chai';
 import YAML from 'yaml';
 import { severity, confidence } from '../src/finder/attributes.js';
 import { groupClientFindings, ratingOf, renderClientMarkdown } from '../src/report/markdown.js';
+import { VARIATIONS, matchingVariations } from '../src/report/markdown_variations.js';
 import { componentTable, renderComponentsXlsx } from '../src/report/xlsx.js';
 import { outputFormat, splitOutputs, writeIssues } from '../src/util/file.js';
 
@@ -45,6 +46,16 @@ describe('Client report outputs', () => {
     groups.length.should.equal(25);
     groups.find(g => g.definition[0] === 'Missing or Weak Content Security Policy').evidence.map(i => i.id).should.include('CSP_JS_CHECK');
     groups.some(g => g.definition[0] === 'Other Security Observations').should.equal(false);
+    for (const group of groups) {
+      const variants = matchingVariations(group.definition[0], group.issues, id => id.replace(/_(JS|HTML|JSON|GLOBAL|LOCK)_CHECK$/, ''));
+      variants.length.should.be.greaterThan(0);
+      for (const finding of group.issues) variants.some(v => v.issues.includes(finding)).should.equal(true);
+      const one = renderClientMarkdown(group.issues, { app: { name: 'Example App' } });
+      for (const heading of ['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References']) {
+        const section = one.split(`## ${heading}\n`)[1].split(/^## /m)[0];
+        for (const variant of variants) section.should.include(variant.label, `${group.definition[0]} ${heading} omitted ${variant.label}`);
+      }
+    }
     const markdown = renderClientMarkdown(checks.map(id => issue(id, severity.MEDIUM, confidence.FIRM, { sample: '' })), { app: { name: 'Example App' } });
     const headings = ['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References'];
     for (const heading of headings) (markdown.match(new RegExp(`^## ${heading}$`, 'gm')) || []).length.should.equal(25);
@@ -141,8 +152,38 @@ describe('Client report outputs', () => {
     markdown.should.include('Application-wide');
     markdown.should.include('**CSP_GLOBAL_CHECK** at Application-wide');
     markdown.should.include('```html\n<iframe');
-    markdown.should.include('IFRAME_SANDBOX_HTML_CHECK reference');
+    markdown.should.include('Embedded content reference');
     markdown.should.include('requires reachability or configuration review');
+  });
+
+  it('keeps several alternatives inside one finding and across all six sections', () => {
+    const issues = [issue('OPEN_EXTERNAL_JS_CHECK'), issue('OPEN_PATH_JS_CHECK')];
+    const markdown = renderClientMarkdown(issues, { app: { name: 'Client App' } });
+    (markdown.match(/^# Unsafe Hand-off of URLs and Files to the Operating System$/gm) || []).length.should.equal(1);
+    const sections = ['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References'];
+    for (const label of ['External URL or protocol', 'File path handed to the host']) {
+      for (const heading of sections) {
+        const section = markdown.split(`## ${heading}\n`)[1].split(/^## /m)[0];
+        section.should.include(label, `${heading} omitted ${label}`);
+      }
+    }
+    (markdown.match(/conditional outcome/g) || []).length.should.equal(
+      matchingVariations('Unsafe Hand-off of URLs and Files to the Operating System', issues, id => id.replace(/_JS_CHECK$/, '')).length);
+    const fuseVariants = matchingVariations('Insecure Electron Fuse Configuration', [issue('PACKAGED_FUSES')], id => id);
+    fuseVariants.length.should.equal(3);
+  });
+
+  it('defines several complete variants for every named group and falls back for new checks', () => {
+    Object.keys(VARIATIONS).length.should.equal(25);
+    for (const entries of Object.values(VARIATIONS)) {
+      entries.length.should.be.at.least(2);
+      for (const entry of entries) {
+        entry.length.should.equal(6);
+        entry[1].should.be.instanceOf(RegExp);
+        for (const text of [entry[0], ...entry.slice(2)]) text.trim().length.should.be.greaterThan(0);
+      }
+    }
+    matchingVariations('Other Security Observations', [issue('NEW_CHECK')], id => id).map(v => v.label).should.deep.equal(['NEW_CHECK']);
   });
 
   it('writes a valid workbook with only flagged rows, filter and frozen header', () => {
