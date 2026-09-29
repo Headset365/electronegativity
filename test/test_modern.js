@@ -13,6 +13,8 @@ import {
 } from '../src/util/electron_version.js';
 import { listLockfilePackages } from '../src/util/lockfiles.js';
 import { renderHtmlReport } from '../src/util/report_html.js';
+import { remediationOf } from '../src/finder/remediation.js';
+import { CONSEQUENCE_ROUTES } from '../src/finder/consequences.js';
 import { writeIssues } from '../src/util/index.js';
 import { severity, confidence } from '../src/finder/attributes.js';
 import UnsupportedVersionGlobalCheck from '../src/finder/checks/GlobalChecks/UnsupportedVersionGlobalCheck.js';
@@ -343,6 +345,27 @@ describe('Report output', () => {
     html.should.not.include('href="javascript:');
     html.should.include('https://osv.dev/vulnerability/GHSA-1234-abcd-efgh');
     html.should.not.match(/<(link|script) [^>]*src=/);
+  });
+
+  describe('remediation advice', () => {
+    it('covers every check that is not an inventory or coverage note', () => {
+      const missing = Object.entries(CONSEQUENCE_ROUTES).filter(([id, route]) => route !== 'info' && !remediationOf(id)).map(([id]) => id);
+      missing.should.deep.equal([]);
+    });
+
+    it('resolves suffixed ids, runtime aliases and upgrade notes, and skips inventories', () => {
+      remediationOf('NODE_INTEGRATION_JS_CHECK').fix.should.match(/nodeIntegration/);
+      remediationOf('RUNTIME_MARKER_OPEN_EXTERNAL').fix.should.equal(remediationOf('OPEN_EXTERNAL_JS_CHECK').fix);
+      remediationOf('SOME_API_REMOVAL').fix.should.match(/migration/i);
+      (remediationOf('WINDOW_SUMMARY_JS_CHECK') === undefined).should.equal(true);
+    });
+
+    it('shows how to fix in the HTML report, escaped, and in the JSON output', () => {
+      const meta = { version: '2.0.0', input: '/app', electronVersion: '38.0.0', filesScanned: 1, atomicChecks: 1, globalChecks: 1, generatedAt: 'now', errors: [] };
+      const html = renderHtmlReport([issue({ id: 'IPC_SENDER_VALIDATION_JS_CHECK' })], meta);
+      html.should.include('How to fix').and.include('senderFrame');
+      html.should.not.include('<img src=x');
+    });
   });
 
   it('renders the watch session coverage notes, whatever properties the coverage findings carry', () => {

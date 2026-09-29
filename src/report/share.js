@@ -12,6 +12,7 @@ import os from 'node:os';
 import { createRequire } from 'node:module';
 import { sensitiveTerms, makeSanitizer, isHostname } from '../util/diagnostics.js';
 import { consequenceOf, interactionOf } from '../finder/consequences.js';
+import { remediationOf } from '../finder/remediation.js';
 
 const require = createRequire(import.meta.url);
 const { redactText, looksRandomSecret } = require('../traffic/secrets.cjs');
@@ -134,6 +135,7 @@ export function buildShare(scan) {
       file: place(issue.file),
       line: issue.location && issue.location.line ? issue.location.line : undefined,
       description: clean(issue.description),
+      remediation: remediationOf(issue.id)?.fix,
       properties: properties(issue.properties),
       code: scan.code && issue.sample ? maskCode(issue.sample, clean) : undefined,
     }));
@@ -211,6 +213,7 @@ function markdown(report) {
       const first = items[0];
       lines.push(`### ${id} (${bySeverity})`, '');
       if (first.exploitableBy) lines.push(`Potential input source: ${first.exploitableBy}. Possible interaction: ${first.interaction || 'n/a'}. These are check-level threat models, not verified exploit conditions.`, '');
+      if (first.remediation) lines.push(`How to fix: ${first.remediation}`, '');
       items.forEach((f, i) => entry(f, i + 1));
       lines.push('');
     }

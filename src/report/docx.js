@@ -5,6 +5,7 @@
 // Modelled on Electron-Dynamic's report/docx_report.py.
 import { Doc } from './ooxml.js';
 import { ROUTES, consequenceOf, validationHint, interactionOf } from '../finder/consequences.js';
+import { remediationOf } from '../finder/remediation.js';
 import { scores } from './scores.js';
 
 const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
@@ -98,7 +99,14 @@ function renderGroup(doc, group, number, appendixIndex) {
 
   doc.label('Recommendations');
   if (notes && notes.recommendation) bulletsOrText(doc, notes.recommendation);
-  else doc.para([doc.run('Follow the guidance at '), doc.link(group.issues[0].shortenedURL, group.issues[0].shortenedURL), doc.run('.')]);
+  else {
+    const fix = remediationOf(group.id);
+    if (fix) {
+      doc.para(fix.fix);
+      if (fix.example) doc.para(doc.run(fix.example, { mono: true }));
+    }
+    doc.para([doc.run(fix ? 'Reference: ' : 'Follow the guidance at '), doc.link(group.issues[0].shortenedURL, group.issues[0].shortenedURL), doc.run('.')]);
+  }
 
   doc.label('References');
   const references = [...new Set(group.issues.map(i => i.shortenedURL).filter(Boolean))];

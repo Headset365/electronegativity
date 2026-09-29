@@ -7,6 +7,7 @@ import { sourceExtensions } from '../parser/types.js';
 import { renderHtmlReport } from './report_html.js';
 import { detectLibraries } from './libraries.js';
 import { consequenceOf, validationHint, interactionOf } from '../finder/consequences.js';
+import { remediationOf } from '../finder/remediation.js';
 import { cycloneDx } from '../report/cyclonedx.js';
 import { renderDocx } from '../report/docx.js';
 import { scores } from '../report/scores.js';
@@ -273,6 +274,8 @@ function jsonReport(result, meta) {
       interaction: interactionOf(issue.id),
       validation: issue.validation,
       howToValidate: issue.manualReview && !issue.validation ? validationHint(issue.id) : undefined,
+      remediation: remediationOf(issue.id)?.fix,
+      remediationExample: remediationOf(issue.id)?.example,
       notes: issue.notes,
       reference: issue.shortenedURL,
       properties: reportProperties(issue.properties)

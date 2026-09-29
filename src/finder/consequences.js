@@ -264,6 +264,9 @@ export function worstCase(id) {
   return WORST_CASE[id] || WORST_CASE[baseId(id)];
 }
 
+/** Every check id that has a consequence entry, with its route (for the test that keeps remediation.js in step). */
+export const CONSEQUENCE_ROUTES = Object.fromEntries(Object.entries(CONSEQUENCES).map(([id, entry]) => [id, entry[0]]));
+
 const baseId = (id) => String(id || '').replace(/_(JS|HTML|JSON|GLOBAL)_CHECK$/, '').replace(/_LOCK_CHECK$/, '');
 
 /** How to confirm or rule out a finding with this check id, or undefined. */

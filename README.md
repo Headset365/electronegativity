@@ -343,6 +343,10 @@ It never contains code, finding descriptions or data that passed through the app
 
 A check that crashes on a file no longer stops the other checks on that file: the failure is reported with the files that couldn't be analyzed, with or without `--diagnostics`.
 
+### Remediation advice
+
+Every finding that can be fixed comes with how to fix it: a short instruction and, for most checks, a code or configuration example (`contextIsolation`, IPC sender checks, the `shell.openExternal` and `shell.openPath` allowlists, fuses, CSP, permission handlers and so on). It appears as **How to fix** in the HTML report's finding groups, under **Recommendations** in the Word report (unless your `--finding-notes` give their own), as `remediation` and `remediationExample` in the JSON report, and as **How to fix** in the shareable report. Inventory and coverage findings have none. The advice is general guidance for the check, not a patch for your code: adapt the examples to the app before applying them, then re-scan with `--compare <earlier report.json>` to see what was fixed.
+
 ### Sharing findings
 
 To get help triaging a report without handing over the app, write a redacted copy of the findings:

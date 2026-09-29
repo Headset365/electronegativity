@@ -1,5 +1,6 @@
 // Self-contained HTML report: no external resources, so it can be archived, attached to tickets or opened offline.
 import { ROUTES, ROUTE_IMPACT, consequenceOf, validationHint, worstCase, interactionOf } from '../finder/consequences.js';
+import { remediationOf } from '../finder/remediation.js';
 import { NOTE_FIELDS } from '../report/notes.js';
 import { scores } from '../report/scores.js';
 
@@ -161,6 +162,7 @@ function groupCard(group) {
   ].filter(Boolean);
   const where = issues.slice(0, 12).map(i => `<li>${escapeHtml(i.session ? `[${i.session}] ` : '')}${escapeHtml(i.file === 'N/A' ? 'Application-wide' : place(i))}${i.validation ? ` <span class="v-${escapeHtml(i.validation.status)}-t">(${escapeHtml(VALIDATION_LABELS[i.validation.status] || i.validation.status)})</span>` : ''}</li>`).join('');
   const hint = validationHint(group.id);
+  const fix = remediationOf(group.id);
   return `
     <details class="group" data-route="${route}">
       <summary><span class="badge sev-${group.severity.name.toLowerCase()}">${group.severity.name === 'INFORMATIONAL' ? 'INFO' : group.severity.name}</span>
@@ -171,6 +173,7 @@ function groupCard(group) {
         <dt>What it is</dt><dd>${escapeHtml(meaning)}</dd>
         ${consequence ? `<dt>Implication</dt><dd>${escapeHtml(consequence.text)}</dd>` : ''}
         <dt>Impact</dt><dd>${impact.map(escapeHtml).join('<br>')}</dd>
+        ${fix ? `<dt>How to fix</dt><dd>${escapeHtml(fix.fix)}${fix.example ? `<pre class="sample"><code>${escapeHtml(fix.example)}</code></pre>` : ''}</dd>` : ''}
         ${hint ? `<dt>How to validate</dt><dd>${escapeHtml(hint)}</dd>` : ''}
         <dt>Where</dt><dd><ul class="where">${where}${issues.length > 12 ? `<li>and ${issues.length - 12} more</li>` : ''}</ul>
           <button type="button" class="linkish filter-check" data-check="${escapeHtml(group.id)}">Show these ${issues.length} finding${issues.length === 1 ? '' : 's'} below</button></dd>
