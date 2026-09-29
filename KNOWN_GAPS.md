@@ -146,7 +146,8 @@ the limits that remain, so the boundaries of the analysis stay clear.
   Deflate, Copy) and zip-based packages (MSIX/APPX, `.nupkg`, Squirrel). Not handled: NSIS installers whose script
   header is bzip2-compressed, encrypted 7z archives (refused with a message), macOS `.dmg`/`.pkg`, and Linux
   AppImage/`.deb`/`.rpm`. Extract those by hand (`7z x`, `hdiutil attach`, `--appimage-extract`, `dpkg-deb -x`,
-  `rpm2cpio | cpio -id`) and pass the folder.
+  `rpm2cpio | cpio -id`) and pass the folder. A single decoded stream over 2 GB, or an extraction over 8 GB, is refused
+  as a possible decompression bomb; `ELECTRONEGATIVITY_MAX_UNPACK_MB` raises the limit.
 - **Operating system checks.** Signature verification (`Get-AuthenticodeSignature`, `codesign`), credential lookups
   (`cmdkey`, `security`, `secret-tool`) and registry reads (`reg query`) have been tested with mocked command output
   only, not on real Windows and macOS hosts.
