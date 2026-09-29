@@ -4,7 +4,7 @@
 // what was fixed since. From Electron-Dynamic's triage.py.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fingerprints } from './baseline.js';
+import { fingerprints, expiryDate } from './baseline.js';
 
 // shell-style glob (* and ?) as a regular expression, matched against the whole value
 const glob = (pattern) => new RegExp(`^${String(pattern).replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
@@ -27,7 +27,11 @@ export function loadSuppressions(file, today = new Date().toISOString().slice(0,
       notes.push(`suppression #${i + 1} ignored: it needs a "reason" and one of "fingerprint", "check" or "file"`);
       return;
     }
-    if (entry.expires && String(entry.expires) < today) {
+    if (entry.expires && !expiryDate(entry.expires)) {
+      notes.push(`suppression #${i + 1} was not applied: its expiry date "${entry.expires}" is not a date in the form YYYY-MM-DD (${entry.reason})`);
+      return;
+    }
+    if (entry.expires && expiryDate(entry.expires) < today) {
       notes.push(`suppression #${i + 1} expired on ${entry.expires} and was not applied (${entry.reason})`);
       return;
     }
@@ -36,8 +40,8 @@ export function loadSuppressions(file, today = new Date().toISOString().slice(0,
   return { entries, notes };
 }
 
-function matches(entry, issue, fingerprint) {
-  if (entry.fingerprint && entry.fingerprint !== fingerprint) return false;
+function matches(entry, issue, print) {
+  if (entry.fingerprint && entry.fingerprint !== print.fingerprint && entry.fingerprint !== print.legacy) return false;
   if (entry.check && !(entry.check.endsWith('*') ? String(issue.id).startsWith(entry.check.slice(0, -1)) : entry.check === issue.id)) return false;
   if (entry.file && !glob(entry.file).test(String(issue.file).split(path.sep).join('/')) && !glob(`*/${entry.file}`).test(String(issue.file).split(path.sep).join('/'))) return false;
   if (entry.match && !`${issue.description} ${issue.sample || ''}`.toLowerCase().includes(String(entry.match).toLowerCase())) return false;
@@ -51,7 +55,7 @@ export function applySuppressions(issues, entries, root) {
   const kept = [];
   const suppressed = [];
   issues.forEach((issue, i) => {
-    const entry = entries.find(e => matches(e, issue, prints[i].fingerprint));
+    const entry = entries.find(e => matches(e, issue, prints[i]));
     if (!entry) return kept.push(issue);
     used.add(entry);
     suppressed.push({ ...issue, suppression: { reason: entry.reason, owner: entry.owner, expires: entry.expires, source: 'suppressions' } });
@@ -76,7 +80,7 @@ export function compareWithReport(issues, previousFile, root, accepted = []) {
   let fresh = 0;
   let unchanged = 0;
   issues.forEach((issue, i) => {
-    const old = before.get(prints[i].fingerprint);
+    const old = before.get(prints[i].fingerprint) || before.get(prints[i].legacy);
     if (!old) {
       issue.comparison = 'new';
       fresh++;
@@ -89,7 +93,7 @@ export function compareWithReport(issues, previousFile, root, accepted = []) {
     }
   });
   // findings accepted since (baseline, suppressions) are still there: not fixed
-  const now = new Set([...prints, ...fingerprints(accepted, root)].map(p => p.fingerprint));
+  const now = new Set([...prints, ...fingerprints(accepted, root)].flatMap(p => [p.fingerprint, p.legacy]));
   const fixed = previous.issues.filter(old => old.fingerprint && !now.has(old.fingerprint))
     .map(old => ({ id: old.id, severity: old.severity, file: old.file, line: old.line, description: String(old.description || '').slice(0, 200) }))
     .sort((a, b) => (RANK[b.severity] || 0) - (RANK[a.severity] || 0));

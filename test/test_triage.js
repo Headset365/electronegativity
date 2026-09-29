@@ -5,7 +5,7 @@ import { should as chaiShould } from 'chai';
 import _i18n from '../src/locales/i18n.js';
 import run from '../src/runner.js';
 import { loadSuppressions, applySuppressions } from '../src/util/triage.js';
-import { applyBaseline, writeBaseline, loadBaseline } from '../src/util/baseline.js';
+import { applyBaseline, writeBaseline, loadBaseline, fingerprints, expiryDate } from '../src/util/baseline.js';
 import { severity, confidence } from '../src/finder/attributes.js';
 
 chaiShould();
@@ -60,6 +60,43 @@ describe('Triage', () => {
     stale.should.deep.equal([]);
     writeBaseline(file, issues, dir, loadBaseline(file));
     loadBaseline(file).findings[0].should.include({ owner: 'appsec', expires: '2001-01-01', reason: 'accepted' });
+  });
+
+  it('reads expiry dates as dates: unpadded ones expire, unreadable ones are not applied', () => {
+    expiryDate('2026-9-1').should.equal('2026-09-01');
+    (expiryDate('31/12/2026') === undefined).should.equal(true);
+    (expiryDate('2026-02-30') === undefined).should.equal(true);
+    const dir = tmp();
+    const file = write(dir, 'suppress.json', { suppressions: [
+      { check: 'A', reason: 'unpadded, past', expires: '2026-9-1' },
+      { check: 'B', reason: 'unreadable', expires: '31/12/2099' },
+      { check: 'C', reason: 'fine', expires: '2099-1-1' },
+    ] });
+    const { entries, notes } = loadSuppressions(file, '2026-09-28');
+    entries.map(e => e.check).should.deep.equal(['C']);
+    notes[0].should.include('expired on 2026-9-1');
+    notes[1].should.include('not a date in the form YYYY-MM-DD');
+    const issues = [issue('OPEN_EXTERNAL_JS_CHECK', 'main.js')];
+    const baseline = path.join(dir, 'baseline.json');
+    writeBaseline(baseline, issues, dir);
+    const data = loadBaseline(baseline);
+    data.findings[0].expires = 'next year';
+    const { kept, expired } = applyBaseline(issues, data, dir, '2026-09-28');
+    kept.length.should.equal(1);
+    expired[0].invalidExpiry.should.equal(true);
+  });
+
+  it('keeps the fingerprint of a finding without code when only upstream counts change, and still matches old ones', () => {
+    const finding = (description) => ({ id: 'CHROMIUM_ADVISORIES', file: 'Chromium 87', sample: '', description, location: { line: 0 } });
+    const [before] = fingerprints([finding('misses 4157 upstream security fixes (376 critical, 1974 high), 51 exploited (CISA KEV: CVE-1, CVE-2)')], '/x');
+    const [after] = fingerprints([finding('misses 4201 upstream security fixes (380 critical, 1990 high), 52 exploited (CISA KEV: CVE-1, CVE-2, CVE-3)')], '/x');
+    after.fingerprint.should.equal(before.fingerprint);
+    before.legacy.should.not.equal(before.fingerprint);
+    // a baseline written by an earlier version (the legacy fingerprint) still accepts the finding
+    const issues = [finding('same text')];
+    const [print] = fingerprints(issues, '/x');
+    const { suppressed } = applyBaseline(issues, { findings: [{ fingerprint: print.legacy, reason: 'ok' }] }, '/x');
+    suppressed.length.should.equal(1);
   });
 
   it('compares a scan with the previous one, and marks accepted risks in every output', async () => {

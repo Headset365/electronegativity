@@ -363,7 +363,9 @@ async function scan(options, forCli) {
     ({ kept: issues, suppressed, stale, expired } = applyBaseline(issues, previousBaseline, options.input));
   }
   const baselineSuppressed = suppressed.length;
-  const triageNotes = expired.map(e => `baseline entry for ${e.id} in ${e.file} expired on ${e.expires}: the finding is reported again`);
+  const triageNotes = expired.map(e => e.invalidExpiry
+    ? `baseline entry for ${e.id} in ${e.file} has an expiry date that is not YYYY-MM-DD ("${e.expires}"): the finding is reported again`
+    : `baseline entry for ${e.id} in ${e.file} expired on ${e.expires}: the finding is reported again`);
   // accepted risks by check, file or text (--suppress), with reasons, owners and expiry dates
   if (options.suppress) {
     const { entries, notes } = loadSuppressions(options.suppress);
@@ -409,7 +411,12 @@ async function scan(options, forCli) {
   // file outputs and --fail-on honor the same severity/confidence thresholds as the CLI table
   const reported = issues.filter(issue => issue.severity.value >= options.severitySet.value && issue.confidence.value >= options.confidenceSet.value);
 
-  if (options.findingNotes) applyFindingNotes(reported, loadFindingNotes(options.findingNotes));
+  // (accepted risks too: the client Markdown lists them with the open findings)
+  if (options.findingNotes) {
+    const notes = loadFindingNotes(options.findingNotes);
+    applyFindingNotes(reported, notes);
+    applyFindingNotes(suppressed, notes);
+  }
   // new, unchanged or changed since an earlier JSON report (--compare), and what was fixed since
   const comparison = options.compare ? compareWithReport(reported, options.compare, options.input, suppressed) : undefined;
   const manifest = topManifest(filenames, loader) || {};
