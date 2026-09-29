@@ -279,7 +279,7 @@ async function scan(options, forCli) {
   let dependencies;
   // one or more outputs: -o report.html,report.json,report.cdx.json,report.docx
   const outputs = [].concat(options.output || []).flatMap(o => String(o).split(',')).map(o => o.trim()).filter(Boolean);
-  if (options.dependencies ?? outputs.some(o => ['html', 'json', 'cyclonedx', 'docx'].includes(outputFormat(o, options.isSarif)))) {
+  if (options.dependencies ?? outputs.some(o => ['html', 'json', 'cyclonedx', 'docx', 'md', 'xlsx'].includes(outputFormat(o, options.isSarif)))) {
     for (const issue of inventory) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
     dependencies = await dependencyTable(inventory, filenames, loader, electronVersion, options.input);
     endPhase('dependencies');
@@ -416,6 +416,7 @@ async function scan(options, forCli) {
   for (const output of outputs) {
     writeIssues(options.input, options.isRelative, output, reported, options.isSarif && outputs.length === 1, {
       app: { name: manifest.productName || manifest.name, version: manifest.version },
+      outputs,
       suppressedByBaseline: baselineSuppressed,
       suppressed,
       comparison,

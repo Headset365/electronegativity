@@ -11,7 +11,7 @@
 	"confidenceOption": "-c, --confidence <confidenceSet>",
 	"confidenceOptionDescription": "only return findings with the specified level of confidence or above",
 	"outputOption": "-o, --output <filename>",
-	"outputOptionDescription": "save the results to a file: .html report, .json, .sarif, .csv, .docx (Word report) or .cdx.json (CycloneDX SBOM); several separated by commas",
+	"outputOptionDescription": "save the results to a file: .html report, .json, .sarif, .csv, .docx (Word report), .md (client findings), .xlsx (outdated components) or .cdx.json (CycloneDX SBOM); several separated by commas",
 	"relativeOption": "-r, --relative",
 	"relativeOptionDescription": "show relative path for files",
 	"verboseOption": "-v, --verbose <bool>",

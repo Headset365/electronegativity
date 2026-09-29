@@ -10,6 +10,8 @@ import { consequenceOf, validationHint, interactionOf } from '../finder/conseque
 import { remediationOf } from '../finder/remediation.js';
 import { cycloneDx } from '../report/cyclonedx.js';
 import { renderDocx } from '../report/docx.js';
+import { renderClientMarkdown } from '../report/markdown.js';
+import { renderComponentsXlsx } from '../report/xlsx.js';
 import { scores } from '../report/scores.js';
 import { fingerprints } from './baseline.js';
 
@@ -224,7 +226,7 @@ function readHead(file) {
   }
 }
 
-export const OUTPUT_FORMATS = ['csv', 'sarif', 'html', 'htm', 'json', 'docx'];
+export const OUTPUT_FORMATS = ['csv', 'sarif', 'html', 'htm', 'json', 'docx', 'md', 'xlsx'];
 
 export function outputFormat(filename, isSarif) {
   if (isSarif) return 'sarif';
@@ -302,6 +304,14 @@ export function writeIssues(root, isRelative, filename, result, isSarif, meta = 
   }
   if (format === 'docx') {
     fs.writeFileSync(filename, renderDocx(result, meta));
+    return;
+  }
+  if (format === 'md') {
+    fs.writeFileSync(filename, renderClientMarkdown(result, { ...meta, outputFile: filename }));
+    return;
+  }
+  if (format === 'xlsx') {
+    fs.writeFileSync(filename, renderComponentsXlsx(meta.dependencies, { appName: meta.app?.name }));
     return;
   }
   isSarif = format === 'sarif';
@@ -427,7 +437,7 @@ export function writeCsvHeader(filename){
   fs.writeFileSync(filename, csvHeader());
 }
 
-const OUTPUT_EXTENSION = /\.(html?|json|sarif|csv|docx)$/i;
+const OUTPUT_EXTENSION = /\.(html?|json|sarif|csv|docx|md|xlsx)$/i;
 
 /**
  * The files of -o: comma-separated, and also space-separated when every part is an output file name. PowerShell turns

@@ -77,7 +77,7 @@ The black-box side of [Electron-Dynamic](https://github.com/Headset365/Electron-
 * **Storage and secrets in code**: files written with secrets, `electron-store` without (or with a constant) `encryptionKey`, cookies set without their flags, a *Saved credentials* inventory of every read and write of a credential with its protection, and hard-coded secrets (provider keys, secret-named assignments, entropy in configuration files, native modules and helper binaries).
 * **The packaged executable**: app.asar compared with the integrity hash embedded at build time, the code signature (verified by Windows or macOS when the scan runs there), exploit mitigations (ASLR, DEP, CFG; PIE, NX, RELRO), and `resources/app-update.yml`.
 * **Vulnerability intelligence**: CISA KEV (exploited in the wild) and FIRST EPSS on every advisory, malicious package versions, and the Chromium CVEs the bundled Chromium misses, minus the fixes Electron's release notes say were backported.
-* **Reports**: a Word report (`-o report.docx`) grouped by who can exploit each finding, with Appendix A of outdated components; a CycloneDX 1.5 SBOM (`-o report.cdx.json`); several outputs in one run (`-o report.html,report.json`); risk and external-only scores; your own notes per check (`--finding-notes`).
+* **Reports**: a Word report (`-o report.docx`) grouped by who can exploit each finding, with Appendix A of outdated components; client findings grouped by problem in Markdown (`-o findings.md`) and an outdated-components spreadsheet (`-o components.xlsx`); a CycloneDX 1.5 SBOM (`-o report.cdx.json`); several outputs in one run (`-o report.html,findings.md,components.xlsx`); risk and external-only scores; your own notes per check (`--finding-notes`).
 * **Triage**: accepted risks by check, file or text with an owner and an expiry date (`--suppress`), expiry dates on baseline entries, and a comparison with the previous scan (`--compare`). See [CI/CD](#cicd).
 
 ## Checks
@@ -170,7 +170,7 @@ $ electronegativity -h
 | -x, --exclude-checks <excludedCheckNames> | skip the specified checks list, passed in csv format |
 | -s, --severity | only return findings with the specified level of severity or above |
 | -c, --confidence | only return findings with the specified level of confidence or above |
-| -o, --output <filename> | save the results to a file: `.html` report, `.json`, `.sarif`, `.csv`, `.docx` (Word report) or `.cdx.json` (CycloneDX SBOM); several at once separated by commas. The `-s` and `-c` thresholds apply |
+| -o, --output <filename> | save the results to a file: `.html` report, `.json`, `.sarif`, `.csv`, `.docx` (Word report), `.md` (client findings), `.xlsx` (outdated components) or `.cdx.json` (CycloneDX SBOM); several at once separated by commas. The `-s` and `-c` thresholds apply |
 | -r, --relative | show relative path for files |
 | -v, --verbose <bool> | show the description for the findings, defaults to true |
 | -u, --upgrade <current version..target version> | run Electron upgrade checks, eg -u 22..32 to check an upgrade from Electron 22 to 32 (covers Electron 5 to 32) |
@@ -348,6 +348,16 @@ A check that crashes on a file no longer stops the other checks on that file: th
 ### Remediation advice
 
 Every finding that can be fixed comes with how to fix it: a short instruction and, for most checks, a code or configuration example (`contextIsolation`, IPC sender checks, the `shell.openExternal` and `shell.openPath` allowlists, fuses, CSP, permission handlers and so on). It appears as **How to fix** in the HTML report's finding groups, under **Recommendations** in the Word report (unless your `--finding-notes` give their own), as `remediation` and `remediationExample` in the JSON report, and as **How to fix** in the shareable report. Inventory and coverage findings have none. The advice is general guidance for the check, not a patch for your code: adapt the examples to the app before applying them, then re-scan with `--compare <earlier report.json>` to see what was fixed.
+
+### Client findings and components
+
+Write both client deliverables alongside the interactive report in one scan:
+
+```sh
+electronegativity -i ./my-app -o "report.html,findings.md,components.xlsx"
+```
+
+`findings.md` groups related checks in the client template, includes accepted risks from `--suppress` and `--baseline`, and links to `components.xlsx` when both are requested. It contains real names, paths, URLs and evidence. The spreadsheet lists only outdated, unsupported, deprecated, malicious or advisory-affected components, including development dependencies, bundled libraries and Electron when applicable. `--share` separately creates a redacted report for outside review.
 
 ### Sharing findings
 
