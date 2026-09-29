@@ -389,7 +389,7 @@ describe('Watch mode', () => {
 
       const output = path.join(root, 'report.json');
       const diagnostics = path.join(root, 'diag.json');
-      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', executable, '--watch-args', '--no-sandbox', '--offline', '-r', '-o', output, '--diagnostics', diagnostics];
+      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', executable, '--watch-args', '--no-sandbox', '--offline', '--no-report-dir', '-r', '-o', output, '--diagnostics', diagnostics];
       const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8' }) : spawnSync(process.execPath, cli, { encoding: 'utf8' });
       command.status.should.equal(0, command.stderr);
       const watch = JSON.parse(fs.readFileSync(diagnostics, 'utf8')).watch;
@@ -410,7 +410,7 @@ describe('Watch mode', () => {
       // the app keeps its profile here (app.setPath), and remembers this test password base64-encoded
       const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-traffic-profile-'));
       const shots = path.join(dir, 'shots');
-      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '-r', '--canary', 'Zq7-test-Pw!2026', '--watch-screenshots', shots, '-o', output];
+      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '--no-report-dir', '-r', '--canary', 'Zq7-test-Pw!2026', '--watch-screenshots', shots, '-o', output];
       const env = { ...process.env, TRAFFIC_APP_PROFILE: profile };
       const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8', env }) : spawnSync(process.execPath, cli, { encoding: 'utf8', env });
       command.status.should.equal(0, command.stderr);
@@ -451,7 +451,7 @@ describe('Watch mode', () => {
       fs.cpSync(path.join(import.meta.dirname, 'apps', 'runtime-app'), dir, { recursive: true });
       fs.symlinkSync(path.join(import.meta.dirname, '..', 'node_modules'), path.join(dir, 'node_modules'), 'junction');
       const output = path.join(dir, 'report.json');
-      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--watch-marker', 'ENGCANARY', '--offline', '-r', '-o', output];
+      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--watch-marker', 'ENGCANARY', '--offline', '--no-report-dir', '-r', '-o', output];
       const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8' }) : spawnSync(process.execPath, cli, { encoding: 'utf8' });
       command.status.should.equal(0, command.stderr);
       const report = JSON.parse(fs.readFileSync(output, 'utf8'));

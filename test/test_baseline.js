@@ -65,7 +65,7 @@ describe('Baselines and CI gating', () => {
 
   it('--fail-on sets the exit code', () => {
     const out = path.join(dir, 'out.json');
-    const args = (input) => [CLI, '-i', input, '--offline', '-x', NETWORK_CHECKS.join(','), '-o', out];
+    const args = (input) => [CLI, '-i', input, '--offline', '--no-report-dir', '-x', NETWORK_CHECKS.join(','), '-o', out];
     // the sample app has no navigation limits (HIGH)
     spawnSync(process.execPath, [...args(dir), '--fail-on', 'high']).status.should.equal(1);
     spawnSync(process.execPath, [...args(dir), '--fail-on', 'bogus']).status.should.equal(2);
@@ -76,7 +76,7 @@ describe('Baselines and CI gating', () => {
 
   it('--fail-on passes once the findings are baselined', () => {
     const baseline = path.join(dir, 'baseline.json');
-    const args = [CLI, '-i', dir, '--offline', '-x', NETWORK_CHECKS.join(','), '-o', path.join(dir, 'out.json')];
+    const args = [CLI, '-i', dir, '--offline', '--no-report-dir', '-x', NETWORK_CHECKS.join(','), '-o', path.join(dir, 'out.json')];
     execFileSync(process.execPath, [...args, '--write-baseline', baseline]);
     spawnSync(process.execPath, [...args, '--baseline', baseline, '--fail-on', 'low']).status.should.equal(0);
   });

@@ -71,3 +71,6 @@ typings/
 
 # Electron releases file
 releases.*
+
+# report folders written by every run
+electronegativity-20*/
