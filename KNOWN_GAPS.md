@@ -152,11 +152,16 @@ the limits that remain, so the boundaries of the analysis stay clear.
   only, not on real Windows and macOS hosts.
 - **Main-process traffic.** Watch mode records requests from Node's `http`/`https` modules, Node's global `fetch`
   (undici) and the renderer, but only the headers of main-process responses, not their bodies.
-- **Active testing.** The tool observes and reads; it does not send test payloads into the app (script, navigations,
-  IPC arguments, crafted documents). Checks that need them are not automated: whether injected script actually runs and
-  what it reaches, IPC argument fuzzing, forced navigations and pop-ups, CSP bypass attempts, external resource loading
-  from documents, malicious or malformed DOCX handling and JSON property fuzzing. The only thing it sends is the harmless
-  marker, after confirmation.
+- **Active testing.** By default the tool observes and reads; the only thing it sends is the harmless marker, after
+  confirmation. Two opt-ins send payloads through the app's own logged-in session and **write to the app's backend**:
+  `--active-tests` replays a save request you confirm with a benign event-handler probe in its HTML fields, and
+  `--campaign <profile>` runs the configured suite against the save request, fields and view in the profile (script,
+  event-handler, SVG and `javascript:` URL markup, Node/Electron/`eval` probes, JSON type and size cases, external
+  resources to a local receiver, renderer-data canaries, optional `api-*` and navigation cases, and six crafted DOCX
+  imports). A campaign overwrites the configured field repeatedly and then restores the original body; content it
+  creates through an import is not deleted, and a failed restore is reported but not retried. Use a disposable test
+  record and account only. Still not automated: IPC argument fuzzing beyond one configured page API, CSP bypass attempts,
+  JSON property fuzzing beyond the type cases, and whether content saved by one account reaches another.
 - **Judgment calls.** The inventories (exposed APIs, IPC capabilities and channel map, window sessions, CSP directives,
   document parsers, how Word is launched) state the facts; whether an API surface is the minimum needed, which pages
   render untrusted documents and should get a stricter CSP, and the organization's patching policy stay with the tester.

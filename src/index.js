@@ -15,7 +15,7 @@ import readline from 'node:readline/promises';
 import { locateApp } from './watch/locate.js';
 import { observeSession, collectRemote, parseHeaders } from './watch/session.js';
 import { createAssistant, writeMarkerFiles } from './watch/assistant.js';
-import { loadCampaign } from './watch/campaign.js';
+import { loadCampaign, hostsOutsideScope } from './watch/campaign.js';
 import { isPackage, unpackTarget } from './unpack/index.js';
 import { splitOutputs, unwritableOutput } from './util/file.js';
 import { createReportFolder, reportFiles } from './util/reportdir.js';
@@ -139,6 +139,12 @@ async function main() {
   const capture = options.watchCapture !== false;
   const traffic = options.watchTraffic !== false;
   const scope = (options.scope || []).flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
+  // a campaign writes payloads to a backend: with --scope, only to the domains it names
+  const outside = campaign ? hostsOutsideScope(campaign, scope) : [];
+  if (outside.length > 0) {
+    console.error(chalk.red(`--campaign would write to ${outside.join(', ')}, outside --scope ${scope.join(', ')}`));
+    process.exit(2);
+  }
   // --watch-screenshots alone: a screenshots folder in the current directory (or the --app results folder)
   const screenshots = options.watchScreenshots === true ? 'screenshots' : options.watchScreenshots;
 

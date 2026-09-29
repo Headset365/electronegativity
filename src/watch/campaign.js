@@ -90,3 +90,17 @@ export function campaignMatch(profile, record) {
     `${String(record.method).toUpperCase()} ${apiRoute(record.url)}` === profile.route &&
     record.fields?.some(field => (profile.fields === 'auto' || (profile.fields || [profile.field]).includes(field.name)) && typeof field.html === 'boolean');
 }
+
+/** The hosts a campaign profile writes to: its request, its DOCX import endpoint and its capture route. */
+export function campaignHosts(profile) {
+  const route = profile?.mode === 'capture' ? String(profile.route).split(' ')[1] : undefined;
+  const urls = [profile?.request?.url, profile?.docxImport?.url, route && route.replaceAll('{id}', '1')].filter(Boolean);
+  return [...new Set(urls.map(url => new URL(url).hostname.toLowerCase()))];
+}
+
+/** The hosts a campaign would write to outside the --scope domains (none when no scope is given). */
+export function hostsOutsideScope(profile, scope = []) {
+  const domains = scope.map(domain => domain.toLowerCase().replace(/^\*?\./, '')).filter(Boolean);
+  if (domains.length === 0) return [];
+  return campaignHosts(profile).filter(host => !domains.some(domain => host === domain || host.endsWith(`.${domain}`)));
+}

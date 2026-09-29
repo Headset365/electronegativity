@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import { once } from 'node:events';
 import { load as loadHtml } from 'cheerio';
 import { should as chaiShould } from 'chai';
-import { normalizeCampaign, campaignMatch } from '../src/watch/campaign.js';
+import { normalizeCampaign, campaignMatch, hostsOutsideScope } from '../src/watch/campaign.js';
 import { analyzeWatchLog } from '../src/watch/analyze.js';
 
 chaiShould();
@@ -35,6 +35,14 @@ describe('Profile-driven benign campaign', () => {
     (() => direct({ cases: ['nav-loopback'] })).should.throw(/explicit view URL/);
     (() => direct({ field: undefined, fields: ['body', 'title'] })).should.not.throw();
     (() => direct({ field: undefined, fields: [] })).should.throw(/1–8 exact fields/);
+  });
+
+  it('names the hosts a campaign would write to outside --scope', () => {
+    const capture = normalizeCampaign({ version: 1, capture: { method: 'PUT', route: 'https://api.app.test/notes/{id}' }, field: 'body', view: 'reload', cases: ['text'] });
+    hostsOutsideScope(capture, []).should.deep.equal([]);
+    hostsOutsideScope(capture, ['app.test']).should.deep.equal([]);
+    hostsOutsideScope(capture, ['other.test']).should.deep.equal(['api.app.test']);
+    hostsOutsideScope(direct(), ['app.test']).should.deep.equal(['127.0.0.1']);
   });
 
   it('discovers bounded document fields and keeps signals separate for each field', async () => {
