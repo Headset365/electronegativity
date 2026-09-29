@@ -108,10 +108,12 @@ async function main() {
   }
 
   // Every run gets its own folder, electronegativity-<date and time>, made in the folder the tool was run from (or inside
-  // --report-dir <folder>). --no-report-dir turns it off; --out (--app) names the results folder instead.
+  // --report-dir <folder>). --no-report-dir turns it off; --out (--app) names the results folder instead. A scan given
+  // -o writes only those files (a CI job's checkout gets no extra reports), unless --report-dir is given as well.
   let reportFolder;
   const scanning = options.input || options.app || options.watch || options.watchLog || options.remote || options.ingest || options.userData || options.canary;
-  if (options.reportDir !== false && scanning && !options.out) {
+  const onlyOutputs = options.output && !options.app && program.getOptionValueSource('reportDir') !== 'cli';
+  if (options.reportDir !== false && scanning && !options.out && !onlyOutputs) {
     const parent = typeof options.reportDir === 'string' ? options.reportDir : '.';
     try {
       reportFolder = createReportFolder(parent);
