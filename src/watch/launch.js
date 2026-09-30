@@ -108,13 +108,27 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
         resolve(log);
       });
       if (packaged) {
-        loadThroughInspector(port, () => exited, mainScriptOf(staticInput)).then(result => onNote(result)).catch(error => {
+        loadThroughInspector(port, () => exited, mainScriptOf(staticInput), 30000, inspectorTrace(log)).then(result => onNote(result)).catch(error => {
           fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind: 'hook-error', message: `inspector: ${error.message}` }) + '\n');
           onNote({ loaded: false, error: error.message });
         });
       }
     });
   })();
+}
+
+// The steps of loading the observer through the inspector, in the session log (and on stderr with
+// ELECTRONEGATIVITY_TRACE=1), so a session that could not be observed says where it stopped
+function inspectorTrace(log) {
+  const started = Date.now();
+  return (step) => {
+    try {
+      fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind: 'inspector-step', step }) + '\n');
+    } catch {
+      // best effort
+    }
+    if (process.env.ELECTRONEGATIVITY_TRACE === '1') process.stderr.write(`[inspector +${Date.now() - started}ms] ${step}\n`);
+  };
 }
 
 export function freePort() {
@@ -163,9 +177,10 @@ const scriptUrlPattern = (main) => {
  * EnableNodeCliInspectArguments fuse is off), the app runs normally and nothing is observed. The inspector closes once
  * the hook is in.
  */
-async function loadThroughInspector(port, hasExited, mainScript, timeoutMs = 30000) {
+async function loadThroughInspector(port, hasExited, mainScript, timeoutMs = 30000, trace = () => {}) {
   const deadline = Date.now() + timeoutMs;
   let target;
+  trace(`waiting for the inspector on 127.0.0.1:${port}`);
   while (!target && Date.now() < deadline && !hasExited()) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1000) });
@@ -176,47 +191,66 @@ async function loadThroughInspector(port, hasExited, mainScript, timeoutMs = 300
     }
   }
   if (!target) throw new Error(hasExited() ? 'the app exited before its inspector could be reached' : 'the app\'s inspector did not answer (is the EnableNodeCliInspectArguments fuse off?)');
+  trace('inspector target found');
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
-    socket.addEventListener('open', resolve, { once: true });
-    socket.addEventListener('error', () => reject(new Error('could not connect to the app\'s inspector')), { once: true });
+    const timer = setTimeout(() => reject(new Error('the app\'s inspector did not accept a connection')), 10000);
+    socket.addEventListener('open', () => { clearTimeout(timer); resolve(); }, { once: true });
+    socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('could not connect to the app\'s inspector')); }, { once: true });
   });
+  trace('connected');
   let id = 0;
+  let closed = false;
   const pending = new Map();
   const pauses = [];
   let wake = () => {};
   socket.addEventListener('message', (event) => {
-    const message = JSON.parse(String(event.data));
+    let message;
+    try {
+      message = JSON.parse(String(event.data));
+    } catch {
+      return;
+    }
     if (message.id && pending.has(message.id)) {
-      pending.get(message.id)(message);
+      pending.get(message.id).resolve(message);
       pending.delete(message.id);
     } else if (message.method === 'Debugger.paused') {
       pauses.push(message.params || {});
       wake();
     }
   });
-  const send = (method, params = {}) => new Promise((resolve) => {
+  // a closed connection (the app exited, or closed its inspector) fails what is still waiting for an answer
+  socket.addEventListener('close', () => {
+    closed = true;
+    for (const { reject } of pending.values()) reject(new Error('the app\'s inspector closed the connection'));
+    pending.clear();
+    wake();
+  });
+  // every command gets an answer or an error: a command left unanswered must not leave the app paused for good
+  const send = (method, params = {}, ms = 10000) => new Promise((resolve, reject) => {
+    if (closed) return reject(new Error(`${method}: the app's inspector closed the connection`));
     const messageId = ++id;
-    pending.set(messageId, resolve);
-    socket.send(JSON.stringify({ id: messageId, method, params }));
+    const timer = setTimeout(() => { pending.delete(messageId); reject(new Error(`${method} got no answer from the app's inspector`)); }, ms);
+    pending.set(messageId, { resolve: (message) => { clearTimeout(timer); resolve(message); }, reject: (error) => { clearTimeout(timer); reject(error); } });
+    try {
+      socket.send(JSON.stringify({ id: messageId, method, params }));
+    } catch (error) {
+      clearTimeout(timer);
+      pending.delete(messageId);
+      reject(error);
+    }
   });
   const nextPause = (ms) => pauses.length ? Promise.resolve(pauses.shift()) : new Promise(resolve => {
     const timer = setTimeout(() => { wake = () => {}; resolve(undefined); }, ms);
     wake = () => {
-      if (!pauses.length) return;
+      if (!pauses.length && !closed) return;
       clearTimeout(timer);
       wake = () => {};
       resolve(pauses.shift());
     };
   });
 
-  await send('Runtime.enable');
-  await send('Debugger.enable');
   const breakpoints = [];
-  if (mainScript) {
-    const set = await send('Debugger.setBreakpointByUrl', { urlRegex: scriptUrlPattern(mainScript), lineNumber: 0 });
-    if (set.result && set.result.breakpointId) breakpoints.push(set.result.breakpointId);
-  }
   // Electron's patch to Node's module loader passes process._firstFileName to the --inspect-brk path when the app's
   // entry script is compiled, and some releases (34 among them) assign it to a variable the loader no longer declares:
   // "ReferenceError: resolvedArgv is not defined", before any of the app's code runs, and the app can't start. The value
@@ -226,7 +260,6 @@ async function loadThroughInspector(port, hasExited, mainScript, timeoutMs = 300
     Object.defineProperty(Object.prototype, '_firstFileName', { get() { return undefined; }, set() {}, configurable: true, enumerable: false });
     return true;
   })()`;
-  await send('Runtime.runIfWaitingForDebugger');
   const hookExpression = `(() => {
     if (typeof process !== 'object' || !process || typeof process.cwd !== 'function') return 'not ready';
     delete Object.prototype._firstFileName;
@@ -236,28 +269,69 @@ async function loadThroughInspector(port, hasExited, mainScript, timeoutMs = 300
     setTimeout(() => { try { (typeof process.getBuiltinModule === 'function' ? process.getBuiltinModule('inspector') : require('inspector')).close(); } catch {} }, 2000);
     return 'loaded';
   })()`;
-  // the first pause is inside Electron's startup; load the hook at the first of our breakpoints that is reached
-  let result;
+  const valueOf = (answer) => answer && answer.result && answer.result.result && answer.result.result.value;
+  const failureOf = (answer) => answer && (answer.error || (answer.result && answer.result.exceptionDetails));
   let atEntry = false;
-  let guarded = false;
-  for (let pause = await nextPause(10000); pause && Date.now() < deadline; pause = await nextPause(15000)) {
-    if (!guarded) guarded = !!(await send('Runtime.evaluate', { expression: guard, returnByValue: true })).result;
-    if ((pause.hitBreakpoints || []).some(hit => breakpoints.includes(hit))) {
-      result = await send('Runtime.evaluate', { expression: hookExpression, includeCommandLineAPI: true, returnByValue: true });
-      if (result.result && result.result.result && result.result.result.value === 'loaded') {
-        atEntry = true;
-        break;
-      }
+  let loaded = false;
+  let failure;
+  try {
+    await send('Runtime.enable');
+    await send('Debugger.enable');
+    trace('debugger enabled');
+    if (mainScript) {
+      const set = await send('Debugger.setBreakpointByUrl', { urlRegex: scriptUrlPattern(mainScript), lineNumber: 0 });
+      if (set.result && set.result.breakpointId) breakpoints.push(set.result.breakpointId);
+      trace(`entry breakpoint ${breakpoints.length ? 'set' : 'not set'} for ${mainScript}`);
     }
-    await send('Debugger.resume');
+    await send('Runtime.runIfWaitingForDebugger');
+    // the first pause is inside Electron's startup; load the hook at the first of our breakpoints that is reached
+    let guarded = false;
+    let pausesSeen = 0;
+    for (let pause = await nextPause(10000); pause && Date.now() < deadline; pause = await nextPause(15000)) {
+      pausesSeen++;
+      if (!guarded) guarded = !!(await send('Runtime.evaluate', { expression: guard, returnByValue: true })).result;
+      if ((pause.hitBreakpoints || []).some(hit => breakpoints.includes(hit))) {
+        const answer = await send('Runtime.evaluate', { expression: hookExpression, includeCommandLineAPI: true, returnByValue: true });
+        failure = failureOf(answer);
+        if (valueOf(answer) === 'loaded') {
+          atEntry = loaded = true;
+          break;
+        }
+      }
+      await send('Debugger.resume');
+    }
+    trace(`${pausesSeen} pause(s) seen, ${atEntry ? 'loaded at the entry breakpoint' : 'entry breakpoint not reached'}`);
+    for (const breakpointId of breakpoints) await send('Debugger.removeBreakpoint', { breakpointId });
+    breakpoints.length = 0;
+    await send('Debugger.resume').catch(() => {});
+    // no breakpoint reached (an entry script we couldn't find): load it now, late, once Node's process object exists
+    for (let tries = 0; !loaded && tries < 20 && !closed && !hasExited(); tries++) {
+      const answer = await send('Runtime.evaluate', { expression: hookExpression, includeCommandLineAPI: true, returnByValue: true });
+      failure = failureOf(answer) || failure;
+      if (valueOf(answer) === 'loaded') loaded = true;
+      else if (failureOf(answer)) break;
+      else await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    trace(loaded ? 'hook loaded' : 'hook not loaded');
+  } catch (error) {
+    failure = failure || error.message;
+    trace(`failed: ${error.message}`);
+  } finally {
+    // Whatever happened, the app must not stay paused: drop our breakpoints and let it run
+    if (!closed) {
+      for (const breakpointId of breakpoints) await send('Debugger.removeBreakpoint', { breakpointId }, 3000).catch(() => {});
+      if (!loaded) await send('Runtime.evaluate', { expression: 'delete Object.prototype._firstFileName', returnByValue: true }, 3000).catch(() => {});
+      await send('Runtime.runIfWaitingForDebugger', {}, 3000).catch(() => {});
+      await send('Debugger.disable', {}, 3000).catch(() => {});
+      await send('Debugger.resume', {}, 3000).catch(() => {});
+    }
+    try {
+      socket.close();
+    } catch {
+      // already closed
+    }
   }
-  // no breakpoint reached (an entry script we couldn't find): load it now, late
-  if (!atEntry) result = await send('Runtime.evaluate', { expression: hookExpression, includeCommandLineAPI: true, returnByValue: true });
-  for (const breakpointId of breakpoints) await send('Debugger.removeBreakpoint', { breakpointId });
-  await send('Debugger.resume');
-  socket.close();
-  const error = result.error || (result.result && result.result.exceptionDetails);
-  if (error) throw new Error(`loading the hook failed: ${JSON.stringify(error).slice(0, 300)}`);
+  if (!loaded) throw new Error(`loading the hook failed: ${typeof failure === 'string' ? failure : JSON.stringify(failure || 'the app was never ready for it').slice(0, 300)}`);
   // not at a breakpoint: the app's code had already started when the hook loaded (it is marked late)
   return { loaded: true, atEntry };
 }

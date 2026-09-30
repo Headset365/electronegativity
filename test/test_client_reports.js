@@ -272,7 +272,8 @@ describe('Client report outputs', () => {
       properties: { screenshot: path.join(os.homedir(), 'shots', 'one.png') } })], { app: { name: 'Acme' }, root });
     markdown.should.include('`src/main.js:8`');
     markdown.should.not.include(os.homedir());
-    markdown.should.include('~/notes.txt'.replace(/\//g, path.sep));
+    // app text is Markdown-escaped, so a Windows backslash is written as \\ (it renders as one)
+    markdown.should.include(path.sep === '\\' ? '~\\\\notes.txt' : '~/notes.txt');
   });
 
   it('escapes what the app supplies, cuts long code and keeps code out of the finding separators', () => {

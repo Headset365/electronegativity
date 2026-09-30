@@ -109,6 +109,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
     mode: debugUrl ? 'debug-attached' : debugLaunch ? 'debug-launched' : watch ? 'launched' : 'log', packaged: !!packagedApp, hookStarted: !!start && !rendererDebug, lateStart: !!(start && start.late),
     electron: start && start.electron, markerSet: !!marker, activeTests: active, campaign: campaign && { mode: campaign.mode, route: campaign.route, cases: campaign.cases }, records: recordKinds,
     hookErrors: records.filter(r => r.kind === 'hook-error').slice(0, 20).map(r => r.message),
+    inspectorSteps: records.filter(r => r.kind === 'inspector-step').slice(0, 30).map(r => r.step),
     // field names stay out of the shared diagnostics: only how many there were and whether the marker was sent
     summary: { ...runtime.summary, fuses: undefined, api: runtime.summary.api.map(({ fields, ...endpoint }) => ({ ...endpoint, fields: fields.length, markerSent: fields.some(f => f.marker) })) },
     marker: { ...Object.fromEntries(['sink', 'shell', 'will-navigate', 'window-open', 'ipc', 'process'].map(kind => [kind, records.filter(r => r.kind === kind && (r.marker || (kind === 'sink' && r.live))).length])) },
@@ -129,7 +130,12 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
     } else console.error(chalk.yellow(__('watchFusesUnreadable', { file: fuses.binary })));
     watchDiagnostics.fusesRead = fuses.read;
   }
-  if (!runtime.summary.started && !(watch && injection && injection.loaded)) console.error(chalk.yellow(__('watchNoHook')));
+  if (!runtime.summary.started && !(watch && injection && injection.loaded)) {
+    console.error(chalk.yellow(__('watchNoHook')));
+    // why the observer could not be loaded, and the last step reached (the steps are in the session log)
+    const steps = records.filter(r => r.kind === 'inspector-step').map(r => r.step);
+    if (injection && injection.error) console.error(chalk.yellow(`  ${injection.error}${steps.length ? ` (last step: ${steps.at(-1)})` : ''}`));
+  }
   // the observer was in, but the app never opened a window: usually another copy of it was still running (a second
   // instance hands over to the first and exits), or it closed on its own
   else if (watch && runtime.summary.windows === 0) {

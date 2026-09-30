@@ -62,7 +62,12 @@ const isDir = (dir) => {
     return false;
   }
 };
-const inside = (child, parent) => child === parent || child.startsWith(parent.endsWith(path.sep) ? parent : parent + path.sep);
+// Windows (and macOS) folder names are case-insensitive: .MyApp and .myapp are one folder, searched once
+const foldCase = process.platform === 'win32' || process.platform === 'darwin';
+const inside = (child, parent) => {
+  const [c, p] = foldCase ? [child.toLowerCase(), parent.toLowerCase()] : [child, parent];
+  return c === p || c.startsWith(p.endsWith(path.sep) ? p : p + path.sep);
+};
 
 /**
  * The folders the app can write to: its profile and local app data (by app, package and publisher name), its updater

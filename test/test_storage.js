@@ -222,7 +222,9 @@ describe('Data at rest', () => {
       fs.mkdirSync(path.join(home, '.config', 'MyApp', 'nested'), { recursive: true });
       fs.mkdirSync(path.join(home, '.myapp'));
       const roots = searchRoots(['MyApp'], { platform: 'linux', env: {}, home, extra: [path.join(home, '.config', 'MyApp', 'nested')] });
-      roots.should.deep.equal([fs.realpathSync(path.join(home, '.config', 'MyApp')), fs.realpathSync(path.join(home, '.myapp'))]);
+      // .MyApp and .myapp are one folder where names are case-insensitive (Windows, macOS): searched once
+      const fold = (list) => process.platform === 'win32' || process.platform === 'darwin' ? list.map(p => p.toLowerCase()) : list;
+      fold(roots).should.deep.equal(fold([fs.realpathSync(path.join(home, '.config', 'MyApp')), fs.realpathSync(path.join(home, '.myapp'))]));
       const before = snapshot(roots);
       fs.writeFileSync(path.join(roots[0], 'new.json'), '{}');
       changedFiles(before, snapshot(roots)).map(d => [path.basename(d.path), d.change]).should.deep.equal([['new.json', 'created']]);

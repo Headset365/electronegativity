@@ -14,8 +14,8 @@ Run everything against a **test environment** with **test accounts**, never prod
 3. Install the tool from GitHub (no administrator rights needed; it installs for your user):
 
    ```powershell
-   npm install -g https://github.com/Headset365/electronegativity/archive/refs/heads/master.tar.gz
-   electronegativity -V          # prints 2.0.0
+   npm install -g https://github.com/Headset365/electronegativity/archive/refs/heads/merged-electron-dynamic.tar.gz
+   electronegativity -h | findstr debug-launch   # prints a line: this branch is installed
    ```
 
    To update later, run the same `npm install -g` command again.
@@ -61,7 +61,7 @@ diagnostics files; list any other words to remove (company name, internal host n
 
 What happens:
 
-1. It prints what it found and the results folder (`C:\electronegativity-results-<date>`), then scans all of the app's
+1. It prints what it found and the results folder (`C:\electronegativity-<UTC date and time>`, e.g. `C:\electronegativity-2026-09-30T08-52-43Z`), then scans all of the app's
    code, including screens behind the login.
 2. It prints a **marker** for this run (e.g. `ENGK7Q2XM`) and asks: **Start watch session 1?** Press Enter. The app
    opens. As **account A**:
@@ -85,11 +85,13 @@ What happens:
 5. Press `s` when asked about session 3 to finish. The results folder then holds `static.html`, `session-1.html`,
    `session-2.html` and a `-diag.json` file for each.
 
-In each session report, use the **Validation** filter: "Confirmed at runtime" lists the findings the marker proved
-(with the script line for HTML sinks), "Needs review, not validated" what is left, each with how to check it.
+In each session report, use the **Validation** filter: "Seen at runtime" lists the findings the marker reached (with the
+script line for HTML sinks), "Confirmed at runtime" the ones the captured traffic proved (requests over plain http, an
+intercepting proxy's certificate accepted), and "Needs review, not validated" what is left, each with how to check it.
 
-In `session-2.html`, `RUNTIME_MARKER` HIGH means the marker came back as live markup (stored content reaches another
-user's view unneutralized); INFORMATIONAL means it was shown safely as text.
+In `session-2.html`, `RUNTIME_MARKER` LOW (with `live` in its details) means the marker came back as live markup (stored
+content reaches another user's view unneutralized, script execution not proven); INFORMATIONAL means it was shown safely
+as text. Don't filter the report to HIGH only: this finding would be hidden.
 
 The code the app's pages loaded from the server is downloaded during each session with your logged-in session and
 scanned too: findings in it point at the URL it came from.

@@ -362,7 +362,7 @@ describe('Watch mode', () => {
 
   // Runs the test app for real: needs Electron (npm install --no-save electron) and, on Linux, xvfb-run
   describe('end to end', function () {
-    this.timeout(120000);
+    this.timeout(240000);
     let electron;
     try {
       electron = createRequire(import.meta.url)('electron');
@@ -373,6 +373,13 @@ describe('Watch mode', () => {
     if (process.env.ELECTRONEGATIVITY_REQUIRE_RUNTIME_TESTS === '1' && (!electron || !xvfb))
       throw new Error('Required runtime tests need Electron and, on Linux, xvfb-run; skipping is not allowed');
     const run = electron && xvfb ? it : it.skip;
+    // The CLI, with a time limit: spawnSync blocks the event loop, so without one a session that never ends hangs the run
+    // instead of failing it. ELECTRONEGATIVITY_TRACE shows how far loading the observer got.
+    const runCli = (cli, env = process.env) => {
+      const options = { encoding: 'utf8', env: { ...env, ELECTRONEGATIVITY_TRACE: '1' }, timeout: 150000 };
+      return process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], options) : spawnSync(process.execPath, cli, options);
+    };
+    const why = (command) => `${command.error ? `${command.error.message}\n` : ''}${command.signal ? `killed by ${command.signal}\n` : ''}${command.stderr}\n${String(command.stdout).slice(-3000)}`;
 
     run('launches and closes a real app through a managed renderer debug port', async () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-managed-cdp-'));
@@ -382,8 +389,8 @@ describe('Watch mode', () => {
         '--watch-args', '--no-sandbox', '--offline', '--no-watch-traffic', '--no-report-dir', '-o', output, '--diagnostics', diagnostics];
       const env = { ...process.env, DEBUG_APP_PROFILE: path.join(root, 'profile') };
       try {
-        const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8', env }) : spawnSync(process.execPath, cli, { encoding: 'utf8', env });
-        command.status.should.equal(0, command.stderr);
+        const command = runCli(cli, env);
+        command.status.should.equal(0, why(command));
         const watch = JSON.parse(fs.readFileSync(diagnostics, 'utf8')).watch;
         watch.mode.should.equal('debug-launched'); watch.hookStarted.should.equal(false);
         watch.injection.should.include({ method: 'renderer-cdp', launched: true, mainProcess: false, loaded: true });
@@ -395,7 +402,7 @@ describe('Watch mode', () => {
         let reachable = true;
         try { await fetch(`${watch.injection.endpoint}/json/list`, { signal: AbortSignal.timeout(1000) }); } catch { reachable = false; }
         reachable.should.equal(false, 'managed debug port closed with the owned app');
-      } finally { fs.rmSync(root, { recursive: true, force: true }); }
+      } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 }); }
     });
 
     run('captures and runs a campaign through a real debug port with DevTools UI disabled', async () => {
@@ -427,7 +434,7 @@ describe('Watch mode', () => {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         ready.should.equal(true, 'renderer debug endpoint opened');
-        running = watchDebug(endpoint, { marker, active: true, campaign: true, duration: 90, traffic: false, log, commands });
+        running = watchDebug(endpoint, { marker, active: true, campaign: true, duration: 150, traffic: false, log, commands });
         for (let attempt = 0; attempt < 100 && !readWatchLog(log).some(r => r.kind === 'start'); attempt++) await new Promise(resolve => setTimeout(resolve, 50));
         seedClient = await connectDebug(endpoint);
         await seedClient.send('Runtime.evaluate', { expression: 'document.getElementById("save").click()' });
@@ -444,7 +451,7 @@ describe('Watch mode', () => {
         report.issues.some(i => i.id === 'RUNTIME_DEBUG_COVERAGE').should.equal(true);
       } finally {
         seedClient?.close(); child.kill(); if (running) await running.catch(() => {});
-        stop(); assistant.clearChannel(); fs.rmSync(root, { recursive: true, force: true });
+        stop(); assistant.clearChannel(); fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
       }
     });
 
@@ -469,8 +476,8 @@ describe('Watch mode', () => {
       const output = path.join(root, 'report.json');
       const diagnostics = path.join(root, 'diag.json');
       const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', executable, '--watch-args', '--no-sandbox', '--offline', '--no-report-dir', '-r', '-o', output, '--diagnostics', diagnostics];
-      const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8' }) : spawnSync(process.execPath, cli, { encoding: 'utf8' });
-      command.status.should.equal(0, command.stderr);
+      const command = runCli(cli);
+      command.status.should.equal(0, why(command));
       const watch = JSON.parse(fs.readFileSync(diagnostics, 'utf8')).watch;
       watch.injection.should.include({ method: 'inspector', loaded: true });
       watch.hookStarted.should.equal(true, JSON.stringify(watch));
@@ -491,8 +498,8 @@ describe('Watch mode', () => {
       const shots = path.join(dir, 'shots');
       const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '--no-report-dir', '-r', '--canary', 'Zq7-test-Pw!2026', '--watch-screenshots', shots, '-o', output];
       const env = { ...process.env, TRAFFIC_APP_PROFILE: profile };
-      const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8', env }) : spawnSync(process.execPath, cli, { encoding: 'utf8', env });
-      command.status.should.equal(0, command.stderr);
+      const command = runCli(cli, env);
+      command.status.should.equal(0, why(command));
       const report = JSON.parse(fs.readFileSync(output, 'utf8'));
       const ids = report.issues.map(i => i.id);
       // the profile Chromium wrote (Local Storage LevelDB, the cookie store) and where the password went
@@ -531,8 +538,8 @@ describe('Watch mode', () => {
       fs.symlinkSync(path.join(import.meta.dirname, '..', 'node_modules'), path.join(dir, 'node_modules'), 'junction');
       const output = path.join(dir, 'report.json');
       const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--watch-marker', 'ENGCANARY', '--offline', '--no-report-dir', '-r', '-o', output];
-      const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8' }) : spawnSync(process.execPath, cli, { encoding: 'utf8' });
-      command.status.should.equal(0, command.stderr);
+      const command = runCli(cli);
+      command.status.should.equal(0, why(command));
       const report = JSON.parse(fs.readFileSync(output, 'utf8'));
       const ids = report.issues.map(i => i.id);
       ids.should.include.members(['RUNTIME_NODE_INTEGRATION', 'RUNTIME_CONTEXT_ISOLATION', 'RUNTIME_CSP', 'RUNTIME_PERMISSION', 'RUNTIME_COVERAGE']);
@@ -571,12 +578,13 @@ describe('Watch mode', () => {
       observed[0].file.should.match(/static\/viewer\.js \(source: src\/viewer\.js\)/);
       // and the assistant said so while the app ran
       command.stdout.should.match(/\[validate\] ✓ The marker was sent with PUT http:\/\/127\.0\.0\.1:\d+\/api\/documents\/\{id\} in: title, body/);
-      command.stdout.should.match(/\[validate\] ✗ Markup carrying the marker was written with innerHTML by http:\/\/127\.0\.0\.1:\d+\/static\/viewer\.js:1:\d+/);
+      command.stdout.should.match(/\[validate\] ! Marker markup reached innerHTML by http:\/\/127\.0\.0\.1:\d+\/static\/viewer\.js:1:\d+/);
       command.stdout.should.match(/\[validate\] ✓ The app blocked the window from navigating to the marker link/);
       // windows in the code link to the windows observed at runtime through their preload (path.join(__dirname, 'preload.js'))
       const staticWithPreload = report.issues.filter(i => i.id === 'WINDOW_SUMMARY_JS_CHECK' && i.properties.preload === 'preload.js');
       staticWithPreload.should.have.length(2);
-      staticWithPreload.every(i => i.properties.observedAt).should.equal(true, 'both preload windows were opened and linked');
+      // both use preload.js, so the preload can't tell which runtime window is which: neither is guessed
+      staticWithPreload.some(i => i.properties.observedAt).should.equal(false, 'windows sharing one preload are not linked by guesswork');
       report.issues.filter(i => i.id === 'RUNTIME_MARKER' && /safe-view\.html/.test(i.file) && !i.properties.live).should.have.length(1, 'text in a form field value is shown safely');
       report.issues.filter(i => i.id === 'RUNTIME_DOM_INJECTION' && /safe-view\.html/.test(i.file)).should.have.length(0, 'attributes merely starting with "on" are not event handlers');
       // the static scan of the same app ran too
@@ -585,10 +593,11 @@ describe('Watch mode', () => {
       // guided mode: pointed at the app, it scans it and runs one watch session, writing everything to one folder
       const out = path.join(dir, 'results');
       const guided = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--app', dir, '--sessions', '1', '--watch-args', '--no-sandbox', '--offline', '--out', out];
-      const guidedRun = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...guided], { encoding: 'utf8' }) : spawnSync(process.execPath, guided, { encoding: 'utf8' });
-      guidedRun.status.should.equal(0, guidedRun.stderr);
+      const guidedRun = runCli(guided);
+      guidedRun.status.should.equal(0, why(guidedRun));
       const files = fs.readdirSync(out).sort();
-      files.filter(f => !/^ENG[A-Z0-9]{6}/.test(f)).should.deep.equal(['session-1-diag.json', 'session-1.html', 'static-diag.json', 'static.html']);
+      files.filter(f => !/^ENG[A-Z0-9]{6}/.test(f)).should.deep.equal(['session-1-diag.json', 'session-1-share.json', 'session-1-share.md', 'session-1.html',
+        'static-diag.json', 'static-share.json', 'static-share.md', 'static.html']);
       // the marker files the assistant hands the tester: a page to copy formatted content from, and a file to attach
       files.filter(f => /^ENG[A-Z0-9]{6}/.test(f)).map(f => f.replace(/^ENG[A-Z0-9]{6}/, 'M')).sort().should.deep.equal(['M-paste-me.html', 'M.txt']);
       guidedRun.stdout.should.match(/\[validate\] Validation across all sessions:/);
