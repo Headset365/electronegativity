@@ -119,7 +119,7 @@ function valueFor(name, marker, canary) {
   }
 }
 
-async function runCampaign({ profile, marker, fetch, fill, view, write, canary, seed, delay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+async function runCampaign({ profile, marker, fetch, fill, view, write, canary, seed, signal, delay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   const { request, cases, waitMs } = profile;
   const fields = profile.fields === 'auto' ? discoverFields(request.body) : (profile.fields || [profile.field]);
   if (!fields.length) throw new Error('No mutable string fields were discovered in the configured request');
@@ -127,6 +127,7 @@ async function runCampaign({ profile, marker, fetch, fill, view, write, canary, 
   let sent = 0;
   let contentType;
   for (const [slot, field] of fields.entries()) for (const name of cases) {
+    if (signal?.aborted) throw new Error('Campaign cancelled before completion; restoration may be incomplete');
     let fixture;
     try {
       fixture = name === 'fs-read' || name === 'api-absolute' || name === 'api-file-url' ? canary() : undefined;
@@ -152,6 +153,7 @@ async function runCampaign({ profile, marker, fetch, fill, view, write, canary, 
     }
     await delay(waitMs);
   }
+  if (signal?.aborted) throw new Error('Campaign cancelled before restoration');
   if (profile.restoreOnDone !== false && sent) {
     try {
       const response = await fetch(request.url, { method: request.method,

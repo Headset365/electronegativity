@@ -497,6 +497,7 @@ function instrument(electron, late) {
 
   // API requests pages make (fetch/XHR), for server-side testing: the endpoints the app talks to, and which of them were
   // sent HTML in the request body. Only whether the body looks like markup and its size are kept, never the content.
+  const { inspectBody: inspectCapturedBody } = require('./capture.cjs');
   const MARKUP = /<\s*[a-z][\w-]*[\s>/]|&lt;\s*[a-z][\w-]*|\\u003c\s*[a-z]/i;
   const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH']);
   const requestBodies = new Map();
@@ -533,33 +534,6 @@ function instrument(electron, late) {
   };
   // the names of the fields a request body carries (JSON paths, form fields), each with whether its value looks like
   // markup and whether it holds the marker: the validation assistant asks for the marker in them. Values are not kept.
-  const bodyFields = (text) => {
-    const fields = [];
-    const add = (name, value) => {
-      if (fields.length < 60 && typeof value === 'string') fields.push({ name, html: MARKUP.test(value), marker: hasMarker(value) });
-    };
-    const walk = (value, name, depth) => {
-      if (depth > 6 || fields.length >= 60) return;
-      if (Array.isArray(value)) value.slice(0, 20).forEach(item => walk(item, `${name}[]`, depth + 1));
-      else if (value && typeof value === 'object') for (const key of Object.keys(value)) walk(value[key], name ? `${name}.${key}` : key, depth + 1);
-      else add(name || '(body)', value);
-    };
-    const trimmed = text.trim();
-    if (/^[[{]/.test(trimmed)) {
-      try {
-        walk(JSON.parse(trimmed), '', 0);
-        return fields;
-      } catch {
-        // not JSON after all
-      }
-    }
-    if (/^[\w.%[\]-]+=/.test(trimmed) && !/\s/.test(trimmed.slice(0, 200))) {
-      for (const [name, value] of new URLSearchParams(trimmed)) add(name, value);
-      return fields;
-    }
-    for (const [, name, value] of trimmed.matchAll(/name="([^"]{1,100})"(?:; filename="[^"]*")?\r?\n(?:[^\r\n]+\r?\n)*\r?\n([\s\S]*?)\r?\n--/g)) add(name, value);
-    return fields;
-  };
   const inspectBody = (details, ses) => {
     if (details.resourceType !== 'xhr' || !Array.isArray(details.uploadData) || details.uploadData.length === 0) return;
     let bytes = 0;
@@ -571,7 +545,7 @@ function instrument(electron, late) {
     }
     let fields = [];
     try {
-      fields = bodyFields(text);
+      fields = inspectCapturedBody(text, MARKER).fields;
     } catch {
       // unreadable body
     }
@@ -581,7 +555,8 @@ function instrument(electron, late) {
     let replay;
     if (COMMANDS && (html || CAMPAIGN) && WRITE_METHODS.has(String(details.method).toUpperCase()) && fields.length > 0 && /^https?:/i.test(details.url) && canReplayBody(text)) {
       replay = ++replayCounter;
-      replayable.set(replay, { method: String(details.method).toUpperCase(), url: details.url, text, ses });
+      replayable.set(replay, { method: String(details.method).toUpperCase(), url: details.url, text, ses, webContents: details.webContentsId,
+        viewURL: electron.webContents.fromId(details.webContentsId)?.getURL() });
       replayIdByRequest.set(details.id, replay);
       if (replayable.size > MAX_REPLAYS) {
         const oldest = replayable.keys().next().value;
@@ -589,7 +564,7 @@ function instrument(electron, late) {
       }
       if (replayIdByRequest.size > MAX_REPLAYS) replayIdByRequest.delete(replayIdByRequest.keys().next().value);
     }
-    requestBodies.set(details.id, { bytes, html, fields, marker: hasMarker(text), replay });
+    requestBodies.set(details.id, { bytes, html, fields, bodyFormat: inspectCapturedBody(text, MARKER).format, marker: hasMarker(text), replay });
     if (requestBodies.size > 5000) requestBodies.delete(requestBodies.keys().next().value);
   };
   const recordApi = (details) => {
@@ -598,7 +573,7 @@ function instrument(electron, late) {
     requestBodies.delete(details.id);
     replayIdByRequest.delete(details.id);
     write('api', { method: details.method, url: redact(details.url), status: details.statusCode, webContents: details.webContentsId,
-      bodyBytes: body ? body.bytes : 0, htmlBody: !!(body && body.html), fields: body && body.fields.length ? body.fields : undefined,
+      bodyBytes: body ? body.bytes : 0, htmlBody: !!(body && body.html), bodyFormat: body && body.bodyFormat, fields: body && body.fields.length ? body.fields : undefined,
       marker: !!(body && body.marker), replay: body && body.replay });
   };
 
@@ -776,7 +751,7 @@ function instrument(electron, late) {
       // every frame of the page, not only the top one: rich-text editors (TinyMCE, CKEditor 4) show the document inside
       // an iframe, which is where stored content is rendered. Frames that appear later (an editor initialising) get the
       // observer on the next poll.
-      const observerCode = rendererObserver(process.env.ELECTRONEGATIVITY_WATCH_MARKER);
+      const observerCode = require('./renderer.cjs').rendererObserver(process.env.ELECTRONEGATIVITY_WATCH_MARKER, OBSERVER_KEY);
       const drainCode = `(window[${JSON.stringify(OBSERVER_KEY)}] ? window[${JSON.stringify(OBSERVER_KEY)}].drain() : null)`;
       const frames = () => {
         try {
@@ -825,108 +800,6 @@ function instrument(electron, late) {
 
   // Script installed into each page. Buffers script-bearing DOM insertions and marker reflections; the main process
   // pulls them with drain(). Kept dependency-free and defensive so it runs under any page's CSP and isolation settings.
-  function rendererObserver(marker) {
-    return `(() => { try {
-      var KEY = ${JSON.stringify(OBSERVER_KEY)};
-      if (window[KEY]) return 'exists';
-      var events = [], seen = {};
-      var push = function (e) { var k = e.type + '|' + (e.detail || '') + '|' + (e.live === undefined ? '' : e.live); if (seen[k]) return; seen[k] = 1; events.push(e); };
-      var MARKER = ${JSON.stringify(marker || null)};
-      var inspect = function (node) {
-        if (!node || node.nodeType !== 1) return;
-        if (node.tagName === 'SCRIPT' && (node.src || (node.textContent || '').trim())) push({ type: 'script', detail: node.src ? 'src' : 'inline' });
-        var attrs = node.attributes || [];
-        for (var i = 0; i < attrs.length; i++) {
-          var a = attrs[i];
-          // an event handler attribute: onclick, onerror... (not onboarding="true"): the element has a matching property
-          if (/^on[a-z]+$/i.test(a.name) && (a.name.toLowerCase() in node)) push({ type: 'event-handler', detail: a.name });
-          if (/^\\s*javascript:/i.test(a.value || '')) push({ type: 'javascript-url', detail: a.name });
-        }
-      };
-      var scan = function (node) { inspect(node); if (node.querySelectorAll) { var all = node.querySelectorAll('*'); for (var i = 0; i < all.length; i++) inspect(all[i]); } };
-      var mo = new MutationObserver(function (muts) {
-        for (var i = 0; i < muts.length; i++) {
-          var m = muts[i];
-          if (m.type === 'attributes') inspect(m.target);
-          var added = m.addedNodes || [];
-          for (var j = 0; j < added.length; j++) scan(added[j]);
-        }
-      });
-      var checkMarker = function () {
-        if (!MARKER) return;
-        try {
-          var live = false, present = false;
-          var els = document.getElementsByTagName('*');
-          for (var i = 0; i < els.length; i++) {
-            var el = els[i];
-            if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue; // their text is source, not rendered markup
-            var attrs = el.attributes || [];
-            for (var j = 0; j < attrs.length; j++) {
-              var name = attrs[j].name.toLowerCase(), value = attrs[j].value || '';
-              // the marker shaped the markup: it became an attribute name, or landed in an event handler. Text in an
-              // ordinary attribute value (an input's value, a title) is how safely displayed content looks.
-              if (name.indexOf(MARKER.toLowerCase()) !== -1) { live = true; present = true; }
-              else if (value.indexOf(MARKER) !== -1) { present = true; if (/^on/.test(name)) live = true; }
-            }
-            if (el.tagName && el.tagName.indexOf(MARKER.toUpperCase()) !== -1) { live = true; present = true; } // marker as a tag name
-          }
-          var shown = (document.body && (document.body.innerText || document.body.textContent)) || '';
-          if (shown.indexOf(MARKER) !== -1) present = true; // marker visible as text (escaped, or alongside a live copy)
-          if (present) push({ type: 'marker', detail: MARKER, live: live });
-        } catch (e) {}
-      };
-      // HTML sinks: when a value carrying the marker is written as HTML, record the sink and the script location that
-      // did it, so the static finding at that line can be confirmed. Only values holding the marker are looked at.
-      var frames = function () {
-        var list = [];
-        String(new Error().stack || '').split('\\n').forEach(function (line) {
-          var m = line.match(/([a-z][\\w+.-]*:\\/\\/[^\\s()]+):(\\d+):(\\d+)/i);
-          if (m && list.length < 6) list.push({ url: m[1], line: Number(m[2]), column: Number(m[3]) });
-        });
-        return list;
-      };
-      var sinkSeen = {};
-      var sink = function (name, value) {
-        try {
-          if (!MARKER || typeof value !== 'string' || value.indexOf(MARKER) === -1) return;
-          var f = frames();
-          var live = new RegExp('<[a-z][^>]*' + MARKER, 'i').test(value);
-          var key = name + '|' + live + '|' + (f[0] ? f[0].url + ':' + f[0].line + ':' + f[0].column : '');
-          if (sinkSeen[key]) return;
-          sinkSeen[key] = 1;
-          events.push({ type: 'sink', detail: name, live: live, frames: f });
-        } catch (e) {}
-      };
-      if (MARKER) {
-        try {
-          ['innerHTML', 'outerHTML'].forEach(function (prop) {
-            var d = Object.getOwnPropertyDescriptor(Element.prototype, prop);
-            if (!d || !d.set || !d.configurable) return;
-            Object.defineProperty(Element.prototype, prop, { configurable: true, enumerable: d.enumerable, get: d.get, set: function (v) { sink(prop, v); return d.set.call(this, v); } });
-          });
-          var wrap = function (proto, name, argIndex) {
-            var original = proto && proto[name];
-            if (typeof original !== 'function') return;
-            proto[name] = function () { sink(name, arguments[argIndex]); return original.apply(this, arguments); };
-          };
-          wrap(Element.prototype, 'insertAdjacentHTML', 1);
-          wrap(Document.prototype, 'write', 0);
-          wrap(Document.prototype, 'writeln', 0);
-          wrap(window.Range && Range.prototype, 'createContextualFragment', 0);
-        } catch (e) {}
-      }
-      // a per-session name, hidden from enumeration and read-only, so pages don't trip over it or replace it
-      Object.defineProperty(window, KEY, { value: Object.freeze({ drain: function () { checkMarker(); return events.splice(0); } }), enumerable: false, writable: false, configurable: false });
-      // entry points the user exercised (for coverage): paste, drag and drop, file pickers. Only the kind is kept.
-      var types = function (list) { try { return Array.prototype.slice.call(list || []); } catch (e) { return []; } };
-      window.addEventListener('paste', function (e) { var t = types(e.clipboardData && e.clipboardData.types); push({ type: 'entry', detail: t.indexOf('text/html') !== -1 ? 'paste-html' : t.indexOf('Files') !== -1 ? 'paste-file' : 'paste-text' }); }, true);
-      window.addEventListener('drop', function (e) { var t = types(e.dataTransfer && e.dataTransfer.types); push({ type: 'entry', detail: t.indexOf('Files') !== -1 ? 'drop-file' : t.indexOf('text/html') !== -1 ? 'drop-html' : 'drop-text' }); }, true);
-      document.addEventListener('change', function (e) { if (e.target && e.target.type === 'file') push({ type: 'entry', detail: 'file-picker' }); }, true);
-      var start = function () { try { mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true }); } catch (e) {} scan(document.documentElement); checkMarker(); };
-      if (document.documentElement) start(); else document.addEventListener('DOMContentLoaded', start);
-      return 'installed';
-    } catch (e) { return 'error:' + (e && e.message); } })()`;
-  }
 
   app.on('web-contents-created', (event, contents) => instrumentWebContents(contents));
   app.on('session-created', (ses) => safely(() => instrumentSession(ses)));
@@ -981,7 +854,8 @@ function instrument(electron, late) {
           return { path: file, value };
         };
         const windowsForCampaign = () => electron.webContents.getAllWebContents().filter(c => !c.isDestroyed() && c.getType?.() === 'window' &&
-            (!profile.windowUrl || c.getURL().startsWith(profile.windowUrl)));
+            (!profile.windowUrl || c.getURL().startsWith(profile.windowUrl)) &&
+            (profile.view !== 'captured' || (entry && c.id === entry.webContents)));
         const view = async (name, slot) => {
           const windows = windowsForCampaign();
           if (windows.length !== 1) return false; // no guessing among different accounts/windows
@@ -995,7 +869,7 @@ function instrument(electron, late) {
                 target.reload();
               });
             }
-            else await target.loadURL(profile.view);
+            else await target.loadURL(profile.view === 'captured' ? entry.viewURL : profile.view);
             if (name === 'javascript-url' || name.startsWith('nav-')) {
               await new Promise(resolve => setTimeout(resolve, 600));
               const before = redact(target.getURL());

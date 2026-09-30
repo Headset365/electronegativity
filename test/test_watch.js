@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import net from 'node:net';
 import { createRequire } from 'node:module';
 import { should as chaiShould } from 'chai';
 import * as asar from '@electron/asar';
 import run from '../src/runner.js';
-import { analyzeWatchLog } from '../src/watch/analyze.js';
+import { analyzeWatchLog, readWatchLog } from '../src/watch/analyze.js';
+import { watchDebug, connectDebug } from '../src/watch/debug.js';
+import { createAssistant, followLog } from '../src/watch/assistant.js';
 import { resolveApp } from '../src/watch/launch.js';
 import { readFuseWire, analyzePackagedFuses, fuseBinaryFor } from '../src/watch/fuses.js';
 import { reconcileRuntime } from '../src/watch/reconcile.js';
@@ -370,6 +373,56 @@ describe('Watch mode', () => {
     if (process.env.ELECTRONEGATIVITY_REQUIRE_RUNTIME_TESTS === '1' && (!electron || !xvfb))
       throw new Error('Required runtime tests need Electron and, on Linux, xvfb-run; skipping is not allowed');
     const run = electron && xvfb ? it : it.skip;
+
+    run('captures and runs a campaign through a real debug port with DevTools UI disabled', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-cdp-app-'));
+      const server = net.createServer();
+      await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+      const port = server.address().port;
+      await new Promise(resolve => server.close(resolve));
+      const endpoint = `http://127.0.0.1:${port}`;
+      const fixture = path.join(import.meta.dirname, 'apps', 'debug-app');
+      const args = [fixture, '--no-sandbox', `--user-data-dir=${path.join(root, 'profile')}`, `--remote-debugging-port=${port}`];
+      const child = process.platform === 'linux' ? spawn('xvfb-run', ['-a', electron, ...args], { stdio: 'ignore' }) : spawn(electron, args, { stdio: 'ignore' });
+      const log = path.join(root, 'session.jsonl'), commands = path.join(root, 'commands.jsonl');
+      fs.writeFileSync(log, ''); fs.writeFileSync(commands, '');
+      const profiles = [], marker = 'ENG_DEBUG_REAL';
+      const assistant = createAssistant({ marker, active: true, autoCampaign: true, saveCampaign: p => { profiles.push(p); }, print: () => {} });
+      assistant.useChannel({ ask: async () => '', confirm: async () => true,
+        send: c => fs.appendFileSync(commands, JSON.stringify(c) + '\n') });
+      const stop = followLog(log, record => assistant.handle(record), 50);
+      let running, seedClient;
+      try {
+        let ready = false;
+        for (let attempt = 0; attempt < 150; attempt++) {
+          try {
+            const list = await (await fetch(`${endpoint}/json/list`)).json();
+            ready = list.some(item => item.type === 'page' && item.url.endsWith('/view'));
+          } catch { /* Electron is starting */ }
+          if (ready) break;
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        ready.should.equal(true, 'renderer debug endpoint opened');
+        running = watchDebug(endpoint, { marker, active: true, campaign: true, duration: 90, traffic: false, log, commands });
+        for (let attempt = 0; attempt < 100 && !readWatchLog(log).some(r => r.kind === 'start'); attempt++) await new Promise(resolve => setTimeout(resolve, 50));
+        seedClient = await connectDebug(endpoint);
+        await seedClient.send('Runtime.evaluate', { expression: 'document.getElementById("save").click()' });
+        seedClient.close(); seedClient = undefined;
+        await running;
+        const records = readWatchLog(log), report = analyzeWatchLog(records);
+        profiles.should.have.length(1);
+        profiles[0].fields.should.deep.equal(['body']);
+        profiles[0].cases.should.have.length(28);
+        records.filter(r => r.kind === 'campaign-done').should.have.length(1);
+        records.some(r => r.kind === 'campaign-restore' && r.ok).should.equal(true);
+        report.summary.campaign.cases.should.have.length(28);
+        report.summary.campaign.cases.some(c => c.case === 'event-handler' && c.execution === 'observed').should.equal(true, JSON.stringify(report.summary.campaign));
+        report.issues.some(i => i.id === 'RUNTIME_DEBUG_COVERAGE').should.equal(true);
+      } finally {
+        seedClient?.close(); child.kill(); if (running) await running.catch(() => {});
+        stop(); assistant.clearChannel(); fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
 
     run('observes a packaged app, which ignores NODE_OPTIONS, through the Node inspector', async () => {
       // package the test app the way installers ship it: Electron's binary with resources/app.asar next to it

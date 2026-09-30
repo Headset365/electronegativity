@@ -55,6 +55,10 @@ async function main() {
     .option('--watch-marker <token>', __('watchMarkerOptionDescription'))
     .option('--active-tests', 'Opt in to a benign HTML execution probe in watch mode; logs a nonce if the renderer executes it')
     .option('--campaign <file>', 'Run a bounded, profile-driven benign payload campaign without per-case prompts')
+    .option('--auto-campaign', 'Capture a content save, suggest fields and a view, then ask before running a bounded campaign')
+    .option('--debug-url <url>', 'Attach to an already running app through its local renderer DevTools endpoint, e.g. http://127.0.0.1:9222')
+    .option('--debug-target <id-or-url>', 'Select exactly one renderer target by ID or URL prefix when attaching')
+    .option('--debug-duration <seconds>', 'Stop debug attachment after this many seconds; default waits for Ctrl+C')
     .option('--app <location>', __('appOptionDescription'))
     .option('--out <dir>', __('outOptionDescription'))
     .option('--report-dir [folder]', __('reportDirOptionDescription'))
@@ -83,9 +87,14 @@ async function main() {
 
   const options = program.opts();
   const campaign = options.campaign ? loadCampaign(options.campaign) : undefined;
-  if (options.activeTests && !options.watch && !options.app) throw new Error('--active-tests requires --watch or --app');
-  if (campaign && !options.watch && !options.app) throw new Error('--campaign requires --watch or --app');
-  if ((options.activeTests || campaign) && options.watchMarker && !/^[A-Za-z0-9_-]{8,80}$/.test(options.watchMarker)) throw new Error('Active testing requires a marker of 8–80 letters, digits, _ or -');
+  if ((options.activeTests || campaign || options.autoCampaign) && !options.watch && !options.app && !options.debugUrl) throw new Error('Active testing requires --watch, --app or --debug-url');
+  if (options.autoCampaign && campaign) throw new Error('Choose --auto-campaign or --campaign, not both');
+  if (options.autoCampaign && !process.stdin.isTTY) throw new Error('--auto-campaign needs an interactive terminal for approval; use an explicit --campaign profile for unattended runs');
+  if (options.debugUrl && (!options.input && !options.app || options.watch || options.watchLog)) throw new Error('--debug-url requires -i or --app and cannot be combined with --watch or --watch-log');
+  if ((options.debugTarget || options.debugDuration) && !options.debugUrl) throw new Error('Debug target and duration require --debug-url');
+  const debug = { debugUrl: options.debugUrl, debugTarget: options.debugTarget, debugDuration: options.debugDuration === undefined ? 0 : Number(options.debugDuration) };
+  if (!Number.isInteger(debug.debugDuration) || debug.debugDuration < 0 || debug.debugDuration > 86400) throw new Error('--debug-duration must be 0–86400 seconds');
+  if ((options.activeTests || campaign || options.autoCampaign) && options.watchMarker && !/^[A-Za-z0-9_-]{8,80}$/.test(options.watchMarker)) throw new Error('Active testing requires a marker of 8–80 letters, digits, _ or -');
   const forCli = !options.output;
 
   if (forCli) {
@@ -213,15 +222,15 @@ async function main() {
 
   try {
     if (options.app) {
-      await guided(options, common, { reportFolder, watchArgs, headers, capture, traffic, scope, screenshots, campaign });
+      await guided(options, common, { reportFolder, watchArgs, headers, capture, traffic, scope, screenshots, campaign, debug });
       return;
     }
 
     // Watch mode: run the app with the observation hook while the user goes through it, then analyze what happened
     let session;
-    if (options.watch || options.watchLog) {
+    if (options.watch || options.watchLog || options.debugUrl) {
       try {
-        session = await observeSession({ watch: options.watch, watchLog: options.watchLog, args: watchArgs, marker: options.watchMarker || ((options.activeTests || campaign) ? generateMarker() : undefined), active: !!(options.activeTests || campaign), campaign, capture, traffic, scope, screenshots,
+        session = await observeSession({ watch: options.debugUrl ? options.input : options.watch, watchLog: options.watchLog, args: watchArgs, ...debug, marker: options.watchMarker || ((options.activeTests || campaign || options.autoCampaign) ? generateMarker() : undefined), active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, capture, traffic, scope, screenshots,
           reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm() });
       } catch (error) {
         console.error(chalk.red(error.message));
@@ -306,10 +315,11 @@ function generateMarker() {
   return 'ENG' + [...crypto.randomBytes(6)].map(b => alphabet[b % alphabet.length]).join('');
 }
 
-async function ask(question, signal) {
+async function ask(question, signal, preserveCase = false) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return (await rl.question(question, signal ? { signal } : undefined)).trim().toLowerCase();
+    const answer = (await rl.question(question, signal ? { signal } : undefined)).trim();
+    return preserveCase ? answer : answer.toLowerCase();
   } finally {
     rl.close();
   }
@@ -335,6 +345,13 @@ function interactiveConfirm() {
       if (active === controller) active = undefined;
     }
   };
+  confirm.ask = async (question) => {
+    const controller = new AbortController();
+    active = controller;
+    try { return await ask(question, controller.signal, true); }
+    catch { return undefined; }
+    finally { if (active === controller) active = undefined; }
+  };
   confirm.cancel = () => { if (active) active.abort(); };
   return confirm;
 }
@@ -355,7 +372,7 @@ function countBySeverity(issues) {
  * --app <location>: finds the app, scans it statically, then runs as many watch sessions as the user wants (one per
  * account, typically), each with its own report and diagnostics file, all in one results folder.
  */
-async function guided(options, common, { reportFolder, watchArgs, headers, capture, traffic, scope, screenshots, campaign }) {
+async function guided(options, common, { reportFolder, watchArgs, headers, capture, traffic, scope, screenshots, campaign, debug }) {
   const located = locateApp(options.app);
   const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
   const outDir = path.resolve(options.out || reportFolder || `electronegativity-results-${stamp}`);
@@ -395,25 +412,30 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
 
   // 2. watch sessions, until the user stops
   const interactive = !!process.stdin.isTTY;
-  const sessions = options.sessions !== undefined ? Math.max(0, Number.parseInt(options.sessions, 10) || 0) : campaign ? 1 : interactive ? Infinity : 0;
-  if (!located.executable && sessions > 0) console.error(chalk.yellow(__('appNoExecutable')));
+  const sessions = options.sessions !== undefined ? Math.max(0, Number.parseInt(options.sessions, 10) || 0) : campaign || options.debugUrl ? 1 : interactive ? Infinity : 0;
+  const observable = located.executable || options.debugUrl;
+  if (!observable && sessions > 0) console.error(chalk.yellow(__('appNoExecutable')));
   const marker = options.watchMarker || generateMarker();
-  if (located.executable && sessions > 0) console.log(chalk.cyan(__('appMarker', { marker })));
+  if (observable && sessions > 0) console.log(chalk.cyan(__('appMarker', { marker })));
   // one assistant for all sessions: what the static scan flagged for review, and what each session has shown so far
-  const assistant = createAssistant({ marker, active: !!(options.activeTests || campaign), campaign, staticIssues: staticResult.issues, files: writeMarkerFiles(outDir, marker, !!(options.activeTests || campaign)) });
-  if (located.executable && sessions > 0) assistant.intro();
-  for (let n = 1; located.executable && n <= sessions; n++) {
-    if (options.sessions === undefined && !campaign) {
+  let profileCount = 0;
+  const assistant = createAssistant({ marker, active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, scope,
+    saveCampaign: profile => { const file = path.join(outDir, `campaign-${++profileCount}.json`); fs.writeFileSync(file, JSON.stringify(profile, null, 2)); return file; },
+    staticIssues: staticResult.issues, files: writeMarkerFiles(outDir, marker, !!(options.activeTests || campaign || options.autoCampaign)) });
+  if (observable && sessions > 0) assistant.intro();
+  for (let n = 1; observable && n <= sessions; n++) {
+    if (interactive && options.sessions === undefined && !campaign && !options.debugUrl) {
       const answer = await ask(chalk.cyan(__(n === 1 ? 'appAskFirstSession' : 'appAskNextSession', { n })) + ' ');
       if (/^[snq]/.test(answer)) break;
     }
     let session;
     try {
-      session = await observeSession({ watch: located.kind === 'project' ? located.folder : located.executable, args: watchArgs, marker, active: !!(options.activeTests || campaign), campaign, capture, traffic, scope,
+      session = await observeSession({ watch: options.debugUrl ? located.folder : located.kind === 'project' ? located.folder : located.executable, args: watchArgs, ...debug, marker, active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, capture, traffic, scope,
         screenshots: screenshots && (path.isAbsolute(screenshots) ? screenshots : path.join(outDir, screenshots)),
         reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, assistant, confirm: interactiveConfirm() });
     } catch (error) {
       console.error(chalk.red(error.message));
+      process.exitCode = 1;
       break;
     }
     const captured = await collectRemote({ runtime: session.runtime, watchLog: session.watchLog, capture, headers, offline: options.offline });

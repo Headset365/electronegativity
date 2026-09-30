@@ -139,6 +139,8 @@ export function analyzeWatchLog(records) {
   }
 
   const started = records.some(r => r.kind === 'start');
+  for (const record of records.filter(r => r.kind === 'debug-coverage'))
+    add('RUNTIME_DEBUG_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN, record.message, { observer: 'renderer-cdp', mainProcess: false });
   const pages = records.filter(r => r.kind === 'page' && !INTERNAL_PAGES.test(r.url));
   const prefsById = new Map(pages.map(p => [p.id, p.prefs || {}]));
   // preload scripts captured where each window was constructed (getLastWebPreferences() omits them)
@@ -149,7 +151,7 @@ export function analyzeWatchLog(records) {
   for (const page of pages) {
     const prefs = page.prefs || {};
     const where = origin(page.url);
-    const settings = Object.fromEntries(['nodeIntegration', 'contextIsolation', 'sandbox', 'webSecurity'].map(name => [name, { value: prefs[name], source: 'observed' }]));
+    const settings = Object.fromEntries(['nodeIntegration', 'contextIsolation', 'sandbox', 'webSecurity'].map(name => [name, { value: prefs[name], source: prefs[name] === undefined ? 'unavailable' : 'observed' }]));
     const preload = prefs.preload || preloadByContents.get(page.id);
     if (first(`window:${page.id}:${where}`))
       add('RUNTIME_WINDOW_SUMMARY', page.url, severity.INFORMATIONAL, confidence.CERTAIN, `Window observed at runtime: ${page.type} showing ${page.url}`,

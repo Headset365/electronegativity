@@ -10,7 +10,7 @@ import { activeHtml } from './active.js';
 import path from 'node:path';
 import chalk from 'chalk';
 import { apiRoute } from './analyze.js';
-import { campaignMatch } from './campaign.js';
+import { campaignMatch, capturedCampaign, hostsOutsideScope } from './campaign.js';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 const WEB_SCHEMES = new Set(['http', 'https', 'mailto']);
@@ -58,7 +58,7 @@ const originOf = (url) => {
 /**
  * @param {{ marker?: string, staticIssues?: Array, files?: { page, file }, print?: Function }} options
  */
-export function createAssistant({ marker, active = false, campaign, staticIssues = [], files, print = (line) => console.log(line) } = {}) {
+export function createAssistant({ marker, active = false, campaign, autoCampaign = false, scope = [], saveCampaign, staticIssues = [], files, print = (line) => console.log(line) } = {}) {
   const forms = marker ? markerForms(marker) : undefined;
   const say = {
     next: (text) => print(chalk.cyan(`[validate] → ${text}`)),
@@ -72,7 +72,7 @@ export function createAssistant({ marker, active = false, campaign, staticIssues
     platform: process.platform, pageOrigins: new Map(), asked: new Map(), sent: new Map(), rendered: [], sinks: [], links: [],
     paths: [], commands: [], ipc: new Map(), entries: new Set(), activeSent: 0, activeExecuted: false, campaignSent: false,
     // set for the current session when the tool can re-send the marker request itself: { confirm(question)->bool, send(command) }
-    channel: undefined, confirming: false, autoSent: new Set(),
+    channel: undefined, confirming: false, campaignBusy: false, autoSent: new Set(),
     // requests waiting to be asked about while a question is open, and the endpoint keys already on that list
     queue: [], queued: new Set(),
   };
@@ -100,6 +100,7 @@ export function createAssistant({ marker, active = false, campaign, staticIssues
     if (html) say.next(`The static scan found ${html} place(s) that write data as HTML. Save the HTML marker and view it to trace where markup appears. This does not establish script execution.`);
     if (active && files?.activePage) say.next(`Optional execution probe in ${files.activePage}: place it in an HTML field and view the saved content. It only writes a unique console signal. The tool will record execution if that signal appears.`);
     if (campaign) say.note(`Campaign ${campaign.route}: ${campaign.cases.length} bounded cases will run automatically for the configured test field. Use a disposable record and a prepared test session.`);
+    if (autoCampaign) say.next('Save a disposable record normally. I will capture its save request, suggest content fields and its current view, and ask before running a campaign. No DevTools or copied request body is needed.');
     if (links) say.next(`${links} finding(s) are about links and navigation. Add the link ${forms.link} to shared content (a document, a comment) and click it; also try Ctrl+click and middle-click.`);
     if (paths) say.next(`${paths} finding(s) open files with their default program. If the app handles attachments or file names from content, attach ${files ? files.file : forms.file} and open it from the app.`);
     if (ipc) say.note(`${ipc} IPC handler(s) don't check which page sent the message. That can't be tested by using the app: read each handler for an event.senderFrame check. The report lists which origins used each channel.`);
@@ -123,6 +124,7 @@ export function createAssistant({ marker, active = false, campaign, staticIssues
   // Show exactly what we would send for one save request, ask the tester, then send it or fall back to a manual note.
   // Only one question is open at a time; when it resolves, the next queued request is asked about.
   function askAndSend(request) {
+    if (autoCampaign) return askCampaign(request);
     const { key, r, route, html, text } = request;
     const channel = state.channel;
     // the marker goes only into the fields that carried markup, never into every field: sending it in a title, an id or
@@ -149,9 +151,51 @@ export function createAssistant({ marker, active = false, campaign, staticIssues
       });
   }
 
+  async function askCampaign(request) {
+    const channel = state.channel;
+    let profile;
+    try {
+      profile = capturedCampaign(request.r);
+      if (hostsOutsideScope(profile, scope).length) { say.note(`Skipping ${request.key}: the save endpoint is outside --scope.`); return; }
+    } catch { return; }
+    if (!channel?.confirm || !channel?.ask || !channel?.send) {
+      say.note(`Captured ${request.key}. Interactive approval is required for --auto-campaign.`);
+      return;
+    }
+    state.confirming = true;
+    try {
+      say.next(`Captured ${request.key}. Available content fields: ${profile.fields.join(', ')}. The originating app window can be reopened automatically.`);
+      const selected = await channel.ask(`[validate] Fields to test, comma-separated [${profile.fields.join(', ')}]: `);
+      if (state.channel !== channel || selected === undefined) return;
+      const view = await channel.ask('[validate] Saved-content view URL, or Enter to reopen the captured app view: ');
+      if (state.channel !== channel || view === undefined) return;
+      profile = capturedCampaign(request.r, { fields: selected.trim() ? selected.split(',').map(field => field.trim()) : profile.fields, view: view.trim() || 'captured' });
+      const approved = await channel.confirm(`[validate] Run ${profile.cases.length} cases in ${profile.fields.join(', ')} using ${request.key}, open ${profile.view === 'captured' ? 'the captured view' : profile.view} after each save, and attempt restoration? This must be a disposable record. [y/N] `);
+      if (approved !== true || state.channel !== channel) { say.note('Campaign declined; no test requests sent.'); return; }
+      state.campaignBusy = true;
+      // Profiles contain field names and a generalized route, never bodies, headers or session tokens.
+      if (saveCampaign) {
+        let savedView = profile.view;
+        if (!['captured', 'reload'].includes(savedView)) { const url = new URL(savedView); url.username = ''; url.password = ''; url.search = ''; url.hash = ''; savedView = url.href; }
+        const saved = saveCampaign({ version: 1, capture: { method: request.r.method, route: apiRoute(request.r.url) },
+          fields: profile.fields, view: savedView, cases: profile.cases, closeOnDone: false, restoreOnDone: true });
+        if (saved) say.note(`Reusable capture profile saved to ${saved}; review its disposable record and view before reuse.`);
+      }
+      channel.send({ kind: 'run-campaign', replay: request.r.replay, profile });
+      say.note('Approved campaign started. Delivery, opened views and execution signals will be reported separately.');
+    } catch (error) {
+      state.campaignBusy = false;
+      say.note(`Campaign not started: ${error.message}`);
+    } finally {
+      state.confirming = false;
+      drainQueue();
+    }
+  }
+
   // After a question resolves, ask about the next waiting request, skipping any whose endpoint already carried the
   // marker in the meantime (covered some other way).
   function drainQueue() {
+    if (state.campaignBusy) return;
     while (state.queue.length) {
       const next = state.queue.shift();
       state.queued.delete(next.key);
@@ -175,6 +219,10 @@ export function createAssistant({ marker, active = false, campaign, staticIssues
           }
           break;
         }
+        if (autoCampaign && state.campaignBusy) break; // campaign traffic cannot trigger another campaign
+        if (autoCampaign) {
+          try { capturedCampaign(r); } catch { break; }
+        }
         if (!WRITE_METHODS.has(String(r.method).toUpperCase()) || !Array.isArray(r.fields) || r.fields.length === 0 || (r.status && r.status >= 400)) break;
         const route = apiRoute(r.url) || r.url;
         const key = `${r.method} ${route}`;
@@ -194,7 +242,7 @@ export function createAssistant({ marker, active = false, campaign, staticIssues
           const channel = state.channel;
           // offer to re-send only when we can and the request carried HTML: then the marker goes into those content
           // fields alone. A plain-text save gets manual instructions, so the tester chooses the field to mark.
-          if (channel && channel.confirm && channel.send && r.replay !== undefined && html.length > 0) {
+          if (channel && channel.confirm && channel.send && r.replay !== undefined && (autoCampaign || html.length > 0)) {
             if (state.confirming) {
               // a question is already open: wait our turn instead of falling back to manual instructions
               if (!state.queued.has(key)) { state.queued.add(key); state.queue.push(request); }
@@ -249,6 +297,13 @@ export function createAssistant({ marker, active = false, campaign, staticIssues
         break;
       case 'campaign-done':
         say.note(`Campaign finished ${r.cases} cases. The report separates delivery, rendering and execution evidence.`);
+        state.campaignBusy = false;
+        drainQueue();
+        break;
+      case 'campaign-error':
+        say.note(`Campaign stopped: ${r.message}. Coverage is incomplete.`);
+        state.campaignBusy = false;
+        drainQueue();
         break;
       case 'docx-done':
         say.note(`DOCX import campaign finished ${r.cases} fixtures. Accepted imports are not treated as successful conversion or rendering.`);
@@ -371,6 +426,7 @@ export function createAssistant({ marker, active = false, campaign, staticIssues
     state.queue = [];
     state.queued.clear();
     state.channel = undefined;
+    state.campaignBusy = false;
   }
 
   return { intro, handle, summary, printSummary, useChannel, clearChannel };

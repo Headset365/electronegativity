@@ -33,9 +33,9 @@ export function normalizeCampaign(input) {
   const waitMs = input.waitMs === undefined ? 1800 : input.waitMs;
   if (!Number.isInteger(waitMs) || waitMs < 500 || waitMs > 10000) throw new Error('Campaign waitMs must be 500–10000');
   const view = input.view;
-  if (!view || (view !== 'reload' && (typeof view !== 'string' || !/^(https?:|file:|app:)/i.test(view))))
+  if (!view || (view === 'captured' && !input.capture) || (!['reload', 'captured'].includes(view) && (typeof view !== 'string' || !/^(https?:|file:|app:)/i.test(view))))
     throw new Error('Campaign needs a view URL or "reload" to exercise the saved content');
-  if (cases.some(c => c.startsWith('nav-')) && view === 'reload')
+  if (cases.some(c => c.startsWith('nav-')) && ['reload', 'captured'].includes(view))
     throw new Error('Navigation cases need an explicit view URL so the app can return after a navigation');
   if (input.closeOnDone !== undefined && typeof input.closeOnDone !== 'boolean') throw new Error('closeOnDone must be a boolean');
   if (input.restoreOnDone !== undefined && typeof input.restoreOnDone !== 'boolean') throw new Error('restoreOnDone must be a boolean');
@@ -82,6 +82,20 @@ export function normalizeCampaign(input) {
 
 export function loadCampaign(file) {
   return normalizeCampaign(JSON.parse(fs.readFileSync(file, 'utf8')));
+}
+
+// Build a profile from observed metadata, never from guessed endpoints or stored body values.
+export function capturedCampaign(record, { fields, view = 'captured' } = {}) {
+  const eligible = (record.fields || []).filter(field => field.candidate === true).map(field => field.name);
+  if (!Number.isInteger(record.replay) || record.replay < 1 || !['json', 'form'].includes(record.bodyFormat) ||
+    record.status < 200 || record.status >= 300 || !record.status || !eligible.length)
+    throw new Error('No successful replayable content save was captured');
+  const selected = fields || eligible.slice(0, 8);
+  if (!Array.isArray(selected) || selected.some(field => !eligible.includes(field))) throw new Error('Choose only captured content fields');
+  const cases = CASES.filter(name => !name.startsWith('api-') && !name.startsWith('nav-') &&
+    (record.bodyFormat === 'json' || !['null', 'boolean', 'number', 'array', 'object'].includes(name)));
+  return normalizeCampaign({ version: 1, capture: { method: record.method, route: apiRoute(record.url) },
+    fields: selected, view, cases, closeOnDone: false, restoreOnDone: true });
 }
 
 export function campaignMatch(profile, record) {
