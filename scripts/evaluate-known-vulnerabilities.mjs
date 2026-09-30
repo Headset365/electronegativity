@@ -9,7 +9,13 @@ import { benchmarkFailures } from './benchmark-policy.mjs';
 
 const sources = path.resolve(process.argv[2] || '../electron-benchmark/sources');
 const output = path.resolve(process.argv[3] || '../electron-benchmark/results');
-const read = (name, mode = 'default') => JSON.parse(fs.readFileSync(path.join(output, `${name}-${mode}.json`), 'utf8'));
+const read = (name, mode = 'default') => {
+  const report = JSON.parse(fs.readFileSync(path.join(output, `${name}-${mode}.json`), 'utf8'));
+  // Reports use the host's path separators. Normalize the in-memory copy for
+  // both location matching and false-positive reviews; leave raw reports intact.
+  for (const issue of report.issues) if (typeof issue.file === 'string') issue.file = issue.file.replaceAll('\\', '/');
+  return report;
+};
 const at = (report, id, file, line) => report.issues.filter(i => i.id === id && i.file === file && (line === undefined || i.line === line));
 const summary = { pairs: [], falsePositives: [], controls: [], semanticEvidence: [], limitations: [
   'Offline static scans; dependency CVEs and native runtime vulnerabilities are not evaluated.',
