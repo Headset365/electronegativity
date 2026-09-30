@@ -362,6 +362,46 @@ module.exports = { unzip, unzipSafe };` });
       out.secrets[0].url.should.equal('https://a.test/api/me');
       out.secrets[0].shown.should.not.include(token);
     });
+
+    it('reads the blockfile cache Chromium uses on Windows: entries in data_1, bodies in block files and f_ files', () => {
+      const profile = tmp('eng-blockfile-');
+      const dir = path.join(profile, 'Cache', 'Cache_Data');
+      fs.mkdirSync(dir, { recursive: true });
+      const blockFile = (blockSize, blocks) => {
+        const header = Buffer.alloc(8192);
+        header.writeUInt32LE(0xc104cac3, 0);
+        header.writeUInt32LE(blockSize, 12);
+        return Buffer.concat([header, ...blocks]);
+      };
+      // an address: used, file type, block count - 1, data_N number, first block (or an f_ file number)
+      const blockAddress = (type, file, block, count = 1) => ((0x80000000 | (type << 28) | ((count - 1) << 24) | (file << 16) | block) >>> 0);
+      const entry = (key, bodySize, bodyAddress) => {
+        const record = Buffer.alloc(256);
+        record.writeInt32LE(Buffer.byteLength(key), 32);
+        record.writeInt32LE(bodySize, 44);
+        record.writeUInt32LE(bodyAddress, 60);
+        record.write(key, 96);
+        return record;
+      };
+      const token = ['sk_live_', 'Bf7Kq2Wm9Rt4Zx8Nc3Vy6Hs1Lp'].join('');
+      const json = Buffer.from(JSON.stringify({ apiToken: token }));
+      const large = Buffer.from(`${'x'.repeat(5000)}plain text`);
+      const block = Buffer.alloc(1024);
+      json.copy(block);
+      fs.writeFileSync(path.join(dir, 'data_1'), blockFile(256, [
+        entry('1/0/_dk_https://a.test https://a.test https://a.test/api/me?session=1', json.length, blockAddress(3, 2, 0)),
+        Buffer.alloc(256), // a free block
+        entry('https://cdn.test/big.txt', large.length, (0x80000000 | 0x1a) >>> 0),
+      ]));
+      fs.writeFileSync(path.join(dir, 'data_2'), blockFile(1024, [block]));
+      fs.writeFileSync(path.join(dir, 'f_00001a'), large);
+      fs.writeFileSync(path.join(dir, 'index'), Buffer.alloc(64));
+      const out = reviewCaches(profile);
+      out.stores['HTTP cache'].should.deep.equal({ entries: 2, hosts: { 'a.test': 1, 'cdn.test': 1 } });
+      out.secrets.should.have.length(1);
+      out.secrets[0].url.should.equal('https://a.test/api/me');
+      out.secrets[0].shown.should.not.include(token);
+    });
   });
 
   describe('Output options', () => {

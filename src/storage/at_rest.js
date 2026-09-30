@@ -191,23 +191,88 @@ const SIMPLE_MAGIC = Buffer.from('305c72a71b6dfbfc', 'hex'); // 0xfcfb6d1ba7725c
 const MAX_CACHE_FILES = 5000;
 const MAX_CACHE_BYTES = 16 * 1024 * 1024;
 
+// HTTP cache keys carry the isolation key before the URL: "1/0/_dk_https://a https://a https://a/path"
+const urlOfKey = (key) => (key.match(/(https?:\/\/\S+)$/) || [])[1] || key;
+// a gzip-encoded body is searched decoded as well
+function withDecoded(body) {
+  const gzip = body.indexOf(Buffer.from([0x1f, 0x8b, 0x08]));
+  if (gzip === -1) return body;
+  try {
+    return Buffer.concat([body, zlib.gunzipSync(body.subarray(gzip), { finishFlush: zlib.constants.Z_SYNC_FLUSH, maxOutputLength: MAX_CACHE_BYTES })]);
+  } catch {
+    return body; // not a whole gzip stream: search the raw bytes
+  }
+}
+
 export function readCacheEntry(data) {
   if (!data || data.length < 24 || !data.subarray(0, 8).equals(SIMPLE_MAGIC)) return undefined;
   const keyLength = data.readUInt32LE(12);
   if (keyLength === 0 || 24 + keyLength > data.length) return undefined;
   const key = data.subarray(24, 24 + keyLength).toString('utf8');
-  // HTTP cache keys carry the isolation key before the URL: "1/0/_dk_https://a https://a https://a/path"
-  const url = (key.match(/(https?:\/\/\S+)$/) || [])[1] || key;
-  let body = data.subarray(24 + keyLength);
-  const gzip = body.indexOf(Buffer.from([0x1f, 0x8b, 0x08]));
-  if (gzip !== -1) {
-    try {
-      body = Buffer.concat([body, zlib.gunzipSync(body.subarray(gzip), { finishFlush: zlib.constants.Z_SYNC_FLUSH })]);
-    } catch {
-      // not a whole gzip stream: search the raw bytes
+  return { url: urlOfKey(key), body: withDecoded(data.subarray(24 + keyLength)) };
+}
+
+// Chromium's blockfile disk cache, the HTTP cache backend on Windows: index, data_0..data_3 (block files with an 8 KB
+// header starting with 0xC104CAC3) and f_xxxxxx files for large streams. Entries are EntryStore records in data_1:
+// the key (the URL) at offset 96, the sizes of the four streams at 40 and their addresses at 56. An address: bit 31 set
+// when used; bits 28-30 the file type (0: an f_ file named by bits 0-27, 1-4: block files of 36, 256, 1024 and 4096
+// bytes); for block files, bits 24-25 the block count minus one, 16-23 the data_N number and 0-15 the first block.
+const BLOCK_MAGIC = 0xc104cac3;
+const BLOCK_HEADER = 8192;
+
+function blockfileEntries(dir) {
+  const files = new Map();
+  const blockFile = (n) => {
+    if (!files.has(n)) {
+      let data;
+      try {
+        const file = path.join(dir, `data_${n}`);
+        data = fs.statSync(file).size <= 64 * MAX_CACHE_BYTES ? fs.readFileSync(file) : undefined;
+      } catch {
+        data = undefined;
+      }
+      files.set(n, data && data.length >= BLOCK_HEADER && data.readUInt32LE(0) === BLOCK_MAGIC ? data : undefined);
     }
+    return files.get(n);
+  };
+  const read = (address, size) => {
+    if (!(address & 0x80000000) || size <= 0) return undefined;
+    const type = (address >>> 28) & 7;
+    const length = Math.min(size, MAX_CACHE_BYTES);
+    if (type === 0) {
+      try {
+        const fd = fs.openSync(path.join(dir, `f_${(address & 0x0fffffff).toString(16).padStart(6, '0')}`), 'r');
+        try {
+          const buffer = Buffer.alloc(length);
+          return buffer.subarray(0, fs.readSync(fd, buffer, 0, length, 0));
+        } finally {
+          fs.closeSync(fd);
+        }
+      } catch {
+        return undefined;
+      }
+    }
+    const data = blockFile((address >>> 16) & 0xff);
+    if (!data) return undefined;
+    const blockSize = data.readUInt32LE(12);
+    const start = BLOCK_HEADER + (address & 0xffff) * blockSize;
+    return start < data.length ? data.subarray(start, Math.min(data.length, start + Math.min(length, (((address >>> 24) & 3) + 1) * blockSize))) : undefined;
+  };
+  const entries = blockFile(1);
+  if (!entries || entries.readUInt32LE(12) !== 256) return [];
+  const out = [];
+  for (let at = BLOCK_HEADER; at + 256 <= entries.length && out.length < MAX_CACHE_FILES; at += 256) {
+    const keyLength = entries.readInt32LE(at + 32);
+    if (keyLength <= 0 || keyLength > 64 * 1024) continue;
+    const longKey = entries.readUInt32LE(at + 36);
+    const keyBytes = longKey ? read(longKey, keyLength) : entries.subarray(at + 96, Math.min(entries.length, at + 96 + keyLength));
+    const key = keyBytes && keyBytes.toString('utf8').replace(/\0+$/, '');
+    if (!key || !/^(\d+\/\d+\/|_dk_|https?:\/\/)/.test(key) || !/https?:\/\//.test(key)) continue;
+    // stream 1 is the response body; stream 0 the response headers, which name its encoding
+    const body = read(entries.readUInt32LE(at + 56 + 4), entries.readInt32LE(at + 40 + 4)) || Buffer.alloc(0);
+    out.push({ key, url: urlOfKey(key), body: withDecoded(body) });
   }
-  return { url, body };
+  return out;
 }
 
 const hostOfUrl = (url) => {
@@ -242,7 +307,9 @@ export function reviewCaches(profile, { reveal = false } = {}) {
   const out = { stores: {}, secrets: [] };
   const seen = new Set();
   const done = new Set();
+  const blockfileDirs = new Set();
   for (const { store, dir } of stores) {
+    const entries = [];
     for (const file of cacheFiles(dir)) {
       if (done.has(file)) continue;
       done.add(file);
@@ -254,7 +321,15 @@ export function reviewCaches(profile, { reveal = false } = {}) {
         continue;
       }
       const entry = readCacheEntry(data);
-      if (!entry) continue;
+      if (entry) entries.push(entry);
+    }
+    // the blockfile format (Windows): one set of data_N files per cache folder, each entry once by key
+    if (!blockfileDirs.has(dir)) {
+      blockfileDirs.add(dir);
+      const keys = new Set();
+      for (const entry of blockfileEntries(dir)) if (!keys.has(entry.key)) { keys.add(entry.key); entries.push(entry); }
+    }
+    for (const entry of entries) {
       const summary = out.stores[store] || (out.stores[store] = { entries: 0, hosts: {} });
       summary.entries++;
       const host = hostOfUrl(entry.url);
