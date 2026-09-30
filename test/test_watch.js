@@ -438,7 +438,8 @@ describe('Watch mode', () => {
         running = watchDebug(endpoint, { marker, active: true, campaign: true, duration: 150, traffic: false, log, commands });
         for (let attempt = 0; attempt < 100 && !readWatchLog(log).some(r => r.kind === 'start'); attempt++) await new Promise(resolve => setTimeout(resolve, 50));
         seedClient = await connectDebug(endpoint);
-        await seedClient.send('Runtime.evaluate', { expression: 'document.getElementById("save").click()' });
+        const clicked = await seedClient.send('Runtime.evaluate', { expression: 'location.href + " " + !!document.getElementById("save") + " " + (document.getElementById("save").click(), "clicked")', returnByValue: true });
+        process.stderr.write(`[test] seed ${JSON.stringify(clicked.result && clicked.result.value)} after ${JSON.stringify(readWatchLog(log).map(r => r.kind))}\n`);
         seedClient.close(); seedClient = undefined;
         await running;
         const records = readWatchLog(log), report = analyzeWatchLog(records);

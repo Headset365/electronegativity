@@ -214,6 +214,7 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
     else if (method === 'Runtime.executionContextDestroyed') contexts.delete(params.executionContextId);
     else if (method === 'Runtime.executionContextsCleared') contexts.clear();
     else if ((method === 'Page.frameNavigated' && !params.frame.parentId) || method === 'Page.navigatedWithinDocument') {
+      trace(`navigated ${redact(params.frame?.url || params.url)}`);
       currentURL = params.frame?.url || params.url;
       write('did-navigate', { id, url: redact(currentURL) });
     } else if (method === 'Page.loadEventFired') task(metadata());
@@ -230,7 +231,8 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
       else { extraHeaders.set(params.requestId, replayHeaders(params.headers)); if (extraHeaders.size > 200) extraHeaders.delete(extraHeaders.keys().next().value); }
     } else if (method === 'Network.requestWillBeSent') {
       const r = params.request;
-      if (r.method !== 'GET') trace(`request ${r.method} ${redact(r.url)} type=${params.type} postData=${r.postData === undefined ? (r.hasPostData ? 'separate' : 'none') : r.postData.length}${running ? ' (campaign running)' : ''}${commands ? '' : ' (no command channel)'}`);
+      trace(`request ${r.method} ${redact(r.url)} type=${params.type}`);
+      if (r.method !== 'GET') trace(`write request ${r.method} ${redact(r.url)} type=${params.type} postData=${r.postData === undefined ? (r.hasPostData ? 'separate' : 'none') : r.postData.length}${running ? ' (campaign running)' : ''}${commands ? '' : ' (no command channel)'}`);
       if (params.redirectResponse) { requests.delete(params.requestId); return; }
       if (running || !commands || !['XHR', 'Fetch'].includes(params.type) || !['POST', 'PUT', 'PATCH'].includes(r.method) || !/^https?:/.test(r.url)) return;
       const body = r.postData === undefined && r.hasPostData ? client.send('Network.getRequestPostData', { requestId: params.requestId }).then(result => result.postData).catch(() => undefined) : Promise.resolve(r.postData);
