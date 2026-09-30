@@ -85,11 +85,21 @@ export function loadCampaign(file) {
 }
 
 // Build a profile from observed metadata, never from guessed endpoints or stored body values.
+export function captureFailure(record) {
+  if (!METHODS.has(String(record?.method).toUpperCase())) return 'Only POST, PUT and PATCH saves can be captured';
+  if (!Number.isInteger(record.status) || record.status < 200 || record.status >= 300)
+    return Number.isInteger(record.status) ? `The save returned HTTP ${record.status}; a successful 2xx response is required` : 'The save response status was not captured';
+  if (!Array.isArray(record.fields) || !record.fields.length) return 'No text fields were captured from the save body';
+  if (!['json', 'form'].includes(record.bodyFormat)) return 'The save body is not supported JSON or URL-encoded form data';
+  if (!record.fields.some(field => field.candidate === true)) return 'No eligible content fields were found; IDs, credentials, control fields and oversized values are excluded';
+  if (!Number.isInteger(record.replay) || record.replay < 1) return 'The save was observed but its body is unavailable for replay; check capture/body limits and the command channel';
+  return undefined;
+}
+
 export function capturedCampaign(record, { fields, view = 'captured' } = {}) {
+  const failure = captureFailure(record);
+  if (failure) throw new Error(failure);
   const eligible = (record.fields || []).filter(field => field.candidate === true).map(field => field.name);
-  if (!Number.isInteger(record.replay) || record.replay < 1 || !['json', 'form'].includes(record.bodyFormat) ||
-    record.status < 200 || record.status >= 300 || !record.status || !eligible.length)
-    throw new Error('No successful replayable content save was captured');
   const selected = fields || eligible.slice(0, 8);
   if (!Array.isArray(selected) || selected.some(field => !eligible.includes(field))) throw new Error('Choose only captured content fields');
   const cases = CASES.filter(name => !name.startsWith('api-') && !name.startsWith('nav-') &&

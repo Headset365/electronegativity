@@ -564,7 +564,7 @@ function instrument(electron, late) {
     if (COMMANDS && complete && (html || CAMPAIGN) && WRITE_METHODS.has(String(details.method).toUpperCase()) && fields.length > 0 && /^https?:/i.test(details.url) && canReplayBody(text)) {
       replay = ++replayCounter;
       replayable.set(replay, { method: String(details.method).toUpperCase(), url: details.url, text, ses, webContents: details.webContentsId,
-        viewURL: electron.webContents.fromId(details.webContentsId)?.getURL() });
+        viewURL: Number.isInteger(details.webContentsId) && details.webContentsId > 0 ? electron.webContents.fromId(details.webContentsId)?.getURL() : undefined });
       replayIdByRequest.set(details.id, replay);
       if (replayable.size > MAX_REPLAYS) {
         const oldest = replayable.keys().next().value;
@@ -861,9 +861,8 @@ function instrument(electron, late) {
           fs.writeFileSync(file, value, { mode: 0o600 });
           return { path: file, value };
         };
-        const windowsForCampaign = () => electron.webContents.getAllWebContents().filter(c => !c.isDestroyed() && c.getType?.() === 'window' &&
-            (!profile.windowUrl || c.getURL().startsWith(profile.windowUrl)) &&
-            (profile.view !== 'captured' || (entry && c.id === entry.webContents)));
+        const selector = require('./campaign_window.cjs').campaignWindow(electron.webContents, profile, entry);
+        const windowsForCampaign = selector.candidates;
         const view = async (name, slot) => {
           const windows = windowsForCampaign();
           if (windows.length !== 1) return false; // no guessing among different accounts/windows
@@ -922,7 +921,9 @@ function instrument(electron, late) {
           if (!ses || typeof ses.fetch !== 'function') throw new Error('session.fetch is unavailable (needs Electron 25+)');
           for (let tries = 0; tries < 50 && windowsForCampaign().length !== 1; tries++)
             await new Promise(resolve => setTimeout(resolve, 200));
-          if (windowsForCampaign().length !== 1) throw new Error('Campaign requires one matching app window; set windowUrl for multiple windows');
+          const target = selector.select();
+          if (profile.view === 'captured' && !entry?.viewURL) throw new Error('The save has no captured view URL; capture a new save from the intended view');
+          write('campaign-window', { webContents: target.id, type: target.getType(), url: redact(target.getURL()) });
           const resourceBase = await resourceReceiver();
           if (request) await runCampaign({ profile: { ...profile, request, resourceBase }, marker: MARKER, fetch: (url, options) => ses.fetch(url, options),
             fill: fillMarkerBody, view, write, canary, seed });

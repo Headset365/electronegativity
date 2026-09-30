@@ -86,4 +86,60 @@ describe('Automatic capture campaigns', () => {
     assert.equal(commands[0].profile.view, 'https://app.test/view?token=SECRET#secret');
     assert.equal(saved[0].view, 'https://app.test/view');
   });
+  it('offers a campaign even when the seed save already contains the marker', async () => {
+    const commands = [];
+    const assistant = createAssistant({ marker: 'ENG_AUTO_TEST', autoCampaign: true, print: () => {} });
+    assistant.useChannel({ ask: async () => '', confirm: async () => true, send: c => commands.push(c) });
+    assistant.handle(record({ fields: inspectBody('{"body":"ENG_AUTO_TEST"}', 'ENG_AUTO_TEST').fields }));
+    await tick();
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0].kind, 'run-campaign');
+    assert.ok(assistant.summary().some(item => item.status === 'done' && item.text.includes('marker sent')));
+  });
+  it('reports unsupported saves without leaking their values or URL query', async () => {
+    const lines = [], commands = [];
+    const assistant = createAssistant({ marker: 'ENG_AUTO_TEST', autoCampaign: true, print: line => lines.push(line) });
+    assistant.useChannel({ ask: async () => '', confirm: async () => true, send: c => commands.push(c) });
+    assistant.handle(record({ replay: undefined }));
+    assistant.handle(record({ replay: undefined }));
+    await tick();
+    assert.equal(commands.length, 0);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0], /Save observed.*body is unavailable for replay/);
+    assert.ok(!lines[0].includes('private') && !lines[0].includes('secret') && !lines[0].includes('Hello'));
+    assistant.handle(record()); await tick();
+    assert.equal(commands.length, 1);
+  });
+  it('reports failed and unsupported body saves with specific reasons', () => {
+    const lines = [];
+    const assistant = createAssistant({ marker: 'ENG_AUTO_TEST', autoCampaign: true, print: line => lines.push(line) });
+    assistant.handle(record({ status: 403 }));
+    assistant.handle(record({ bodyFormat: undefined }));
+    assistant.handle(record({ fields: [{ name: 'id', candidate: false }] }));
+    assert.match(lines[0], /HTTP 403/);
+    assert.match(lines[1], /not supported JSON/);
+    assert.match(lines[2], /No eligible content fields/);
+  });
+  it('can offer the same endpoint in a new session without an old cancelled question consuming the queue', async () => {
+    const commands = []; let oldAnswer;
+    const assistant = createAssistant({ marker: 'ENG_AUTO_TEST', autoCampaign: true, print: () => {} });
+    assistant.useChannel({ ask: () => new Promise(resolve => { oldAnswer = resolve; }), confirm: async () => true, send: c => commands.push(c) });
+    assistant.handle(record()); assistant.clearChannel();
+    assistant.useChannel({ ask: async () => '', confirm: async () => true, send: c => commands.push(c) });
+    assistant.handle(record()); oldAnswer(''); await tick();
+    assert.equal(commands.length, 1);
+  });
+  it('requires explicit approval even if Enter accepted the fields and view', async () => {
+    const commands = [];
+    const assistant = createAssistant({ marker: 'ENG_AUTO_TEST', autoCampaign: true, print: () => {} });
+    assistant.useChannel({ ask: async () => '', confirm: async () => false, send: c => commands.push(c) });
+    assistant.handle(record()); await tick();
+    assert.equal(commands.length, 0);
+  });
+  it('announces automatic mode without asking for a marker seed save', () => {
+    const lines = [];
+    createAssistant({ marker: 'ENG_AUTO_TEST', autoCampaign: true, staticIssues: [{ id: 'XSS_SINK_JS_CHECK' }], print: line => lines.push(line) }).intro();
+    assert.ok(lines.some(line => line.includes('Automatic campaigns are ON')));
+    assert.ok(!lines.some(line => line.includes('Save the HTML marker')));
+  });
 });

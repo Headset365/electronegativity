@@ -381,6 +381,31 @@ describe('Watch mode', () => {
     };
     const why = (command) => `${command.error ? `${command.error.message}\n` : ''}${command.signal ? `killed by ${command.signal}\n` : ''}${command.stderr}\n${String(command.stdout).slice(-3000)}`;
 
+    run('runs a native captured campaign in its embedded source view with multiple app windows', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-native-campaign-'));
+      const server = net.createServer();
+      await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+      const port = server.address().port;
+      await new Promise(resolve => server.close(resolve));
+      const output = path.join(root, 'report.json'), profile = path.join(root, 'campaign.json');
+      fs.writeFileSync(profile, JSON.stringify({ version: 1, capture: { method: 'PUT', route: `http://127.0.0.1:${port}/api/documents/{id}` },
+        field: 'body', view: `http://127.0.0.1:${port}/saved-view`, cases: ['text', 'event-handler'], waitMs: 500 }));
+      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', path.join(import.meta.dirname, 'apps', 'debug-app'),
+        '--campaign', profile, '--watch-marker', 'ENG_NATIVE_CAMPAIGN', '--watch-args', '--no-sandbox', '--offline', '--no-watch-traffic', '--no-report-dir', '-o', output];
+      const env = { ...process.env, DEBUG_APP_PROFILE: path.join(root, 'profile'), DEBUG_APP_PORT: String(port),
+        DEBUG_APP_AUTO_SAVE: '1', DEBUG_APP_EXTRA_WINDOW: '1', DEBUG_APP_EMBEDDED_VIEW: '1' };
+      try {
+        const command = runCli(cli, env);
+        command.status.should.equal(0, why(command));
+        command.stdout.should.include('Campaign selected app view');
+        command.stdout.should.not.include('Campaign stopped');
+        const report = JSON.parse(fs.readFileSync(output, 'utf8'));
+        report.runtime.campaign.cases.should.have.length(2);
+        report.runtime.campaign.cases.some(c => c.case === 'event-handler' && c.execution === 'observed').should.equal(true);
+        command.stdout.should.include('Original request body restored');
+      } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    });
+
     run('launches and closes a real app through a managed renderer debug port', async () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-managed-cdp-'));
       const output = path.join(root, 'report.json'), diagnostics = path.join(root, 'diag.json');

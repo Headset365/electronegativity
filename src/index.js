@@ -320,7 +320,9 @@ function generateMarker() {
 async function ask(question, signal, preserveCase = false) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = (await rl.question(question, signal ? { signal } : undefined)).trim();
+    // App/debugger output can arrive while awaiting input. Keep the full question in terminal history.
+    process.stdout.write(`\n${question.trim()}\n`);
+    const answer = (await rl.question('> ', signal ? { signal } : undefined)).trim();
     return preserveCase ? answer : answer.toLowerCase();
   } finally {
     rl.close();

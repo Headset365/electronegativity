@@ -320,6 +320,10 @@ For interactive setup without writing a profile first, use `--auto-campaign`. Lo
 electronegativity --app "C:\Program Files\MyApp" --auto-campaign --out .\results
 ```
 
+Look for `Automatic campaigns are ON` at startup. After a successful supported save, the terminal prints `Captured ...`, then asks for fields, a view and approval. Each question is printed on its own line above `>`. Enter accepts the default fields/view; the final approval requires `y`. A save containing the marker can also start this setup. If a write was observed but cannot be used, `Save observed ... but no campaign prompt` explains the missing response, unsupported body, excluded fields or unavailable replay body.
+
+Captured campaigns keep the renderer that sent the save, including an embedded app view, even when you enter a different viewer URL and the app has several windows. Keep that view open. `Campaign selected app view ...` identifies the target before any case is sent; the tool keeps that target as its URL changes. If selection fails, the error distinguishes an unavailable source, no matching windows and multiple matches. For an explicit request profile without a captured source, set `windowUrl` in the profile to a unique initial app-window URL prefix. The terminal also reports whether the original request body was restored.
+
 For a single command that also manages the renderer debug port, add `--debug-launch`:
 
 ```powershell
