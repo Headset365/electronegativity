@@ -82,6 +82,8 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
   const contexts = new Set();
   const controller = new AbortController();
   const write = (kind, data = {}) => fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind, ...data }) + '\n');
+  // what the attachment sees of write requests, on stderr with ELECTRONEGATIVITY_TRACE=1 (no bodies or headers)
+  const trace = (text) => { if (process.env.ELECTRONEGATIVITY_TRACE === '1') process.stderr.write(`[debug] ${text}\n`); };
   const task = promise => { tasks.add(promise); promise.catch(error => { if (!stopped) write('hook-error', { message: error.message }); }).finally(() => tasks.delete(promise)); };
   const evaluate = async expression => {
     const result = await client.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
@@ -228,6 +230,7 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
       else { extraHeaders.set(params.requestId, replayHeaders(params.headers)); if (extraHeaders.size > 200) extraHeaders.delete(extraHeaders.keys().next().value); }
     } else if (method === 'Network.requestWillBeSent') {
       const r = params.request;
+      if (r.method !== 'GET') trace(`request ${r.method} ${redact(r.url)} type=${params.type} postData=${r.postData === undefined ? (r.hasPostData ? 'separate' : 'none') : r.postData.length}${running ? ' (campaign running)' : ''}${commands ? '' : ' (no command channel)'}`);
       if (params.redirectResponse) { requests.delete(params.requestId); return; }
       if (running || !commands || !['XHR', 'Fetch'].includes(params.type) || !['POST', 'PUT', 'PATCH'].includes(r.method) || !/^https?:/.test(r.url)) return;
       const body = r.postData === undefined && r.hasPostData ? client.send('Network.getRequestPostData', { requestId: params.requestId }).then(result => result.postData).catch(() => undefined) : Promise.resolve(r.postData);
@@ -247,6 +250,7 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
       requests.delete(params.requestId);
       task((async () => {
         const body = await entry.body;
+        trace(`response ${params.response.status} for ${entry.method} ${redact(entry.url)}, body ${typeof body === 'string' ? body.length : typeof body}`);
         if (typeof body !== 'string' || body.length > 100000) return;
         const inspected = inspectBody(body, marker);
         const replay = ++replayId;

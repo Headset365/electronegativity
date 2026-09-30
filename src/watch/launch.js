@@ -7,6 +7,8 @@ import net from 'node:net';
 import { createRequire } from 'node:module';
 
 const HOOK = path.join(import.meta.dirname, 'hook.cjs');
+// how long an app that has quit gets to end its process before it is closed
+const QUIT_GRACE_MS = 15000;
 const exists = (file) => {
   try {
     fs.accessSync(file);
@@ -97,14 +99,53 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
       const stop = () => child.kill();
       process.once('SIGINT', stop);
       let exited = false;
-      child.once('error', (error) => {
+      // An app that has quit (the observer recorded it) but whose process stays alive, e.g. held open by a dialog the
+      // operating system showed for a link or file it was handed, would keep the session waiting for good: after a grace
+      // period it is closed, and the log says so.
+      let quitSeen = false;
+      let lingerTimer;
+      let logOffset = 0;
+      const quitWatch = setInterval(() => {
+        if (quitSeen || exited) return;
+        try {
+          const size = fs.statSync(log).size;
+          if (size <= logOffset) return;
+          const fd = fs.openSync(log, 'r');
+          try {
+            const buffer = Buffer.alloc(size - logOffset);
+            fs.readSync(fd, buffer, 0, buffer.length, logOffset);
+            logOffset = size;
+            if (!buffer.toString('utf8').includes('"kind":"quit"')) return;
+          } finally {
+            fs.closeSync(fd);
+          }
+        } catch {
+          return;
+        }
+        quitSeen = true;
+        lingerTimer = setTimeout(() => {
+          if (exited) return;
+          try {
+            fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind: 'hook-error', message: `the app quit but its process was still running ${QUIT_GRACE_MS / 1000} s later: it was closed` }) + '\n');
+          } catch {
+            // best effort
+          }
+          onNote({ lingered: true });
+          child.kill();
+        }, QUIT_GRACE_MS);
+      }, 1000);
+      const done = () => {
         exited = true;
+        clearInterval(quitWatch);
+        clearTimeout(lingerTimer);
         process.removeListener('SIGINT', stop);
+      };
+      child.once('error', (error) => {
+        done();
         reject(error);
       });
       child.once('exit', () => {
-        exited = true;
-        process.removeListener('SIGINT', stop);
+        done();
         resolve(log);
       });
       if (packaged) {

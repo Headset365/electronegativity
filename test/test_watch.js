@@ -434,6 +434,7 @@ describe('Watch mode', () => {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         ready.should.equal(true, 'renderer debug endpoint opened');
+        process.env.ELECTRONEGATIVITY_TRACE = '1';
         running = watchDebug(endpoint, { marker, active: true, campaign: true, duration: 150, traffic: false, log, commands });
         for (let attempt = 0; attempt < 100 && !readWatchLog(log).some(r => r.kind === 'start'); attempt++) await new Promise(resolve => setTimeout(resolve, 50));
         seedClient = await connectDebug(endpoint);
@@ -452,6 +453,7 @@ describe('Watch mode', () => {
         report.summary.campaign.cases.some(c => c.case === 'event-handler' && c.execution === 'observed').should.equal(true, JSON.stringify(report.summary.campaign));
         report.issues.some(i => i.id === 'RUNTIME_DEBUG_COVERAGE').should.equal(true);
       } finally {
+        delete process.env.ELECTRONEGATIVITY_TRACE;
         seedClient?.close(); child.kill(); if (running) await running.catch(() => {});
         stop(); assistant.clearChannel(); fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
       }

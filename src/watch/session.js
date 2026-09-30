@@ -130,6 +130,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
     } else console.error(chalk.yellow(__('watchFusesUnreadable', { file: fuses.binary })));
     watchDiagnostics.fusesRead = fuses.read;
   }
+  if (injection && injection.lingered) console.error(chalk.yellow('The app quit but its process kept running (often a dialog Windows showed for a link or file the app handed it): it was closed after 15 seconds.'));
   if (!runtime.summary.started && !(watch && injection && injection.loaded)) {
     console.error(chalk.yellow(__('watchNoHook')));
     // why the observer could not be loaded, and the last step reached (the steps are in the session log)

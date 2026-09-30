@@ -100,5 +100,6 @@ app.whenReady().then(async () => {
   const second = new BrowserWindow({ show: false, webPreferences: { preload: path.join(app.getPath('userData'), 'preload.js') } });
   await second.loadURL(`http://app.traffic.test:${port}/landing`).catch(() => {});
   await second.loadURL(`http://app.traffic.test:${port}/go`).catch(() => {});
-  setTimeout(() => { server.close(); app.quit(); }, 3000);
+  // long enough for response bodies and WebSocket frames to be read through the debugger on a slow machine
+  setTimeout(() => { server.close(); app.quit(); }, 6000);
 });
