@@ -32,7 +32,8 @@ export async function connectDebug(endpoint, { target, fetchImpl = fetch, Socket
   const list = await response.json();
   const pages = list.filter(item => item.type === 'page' && item.webSocketDebuggerUrl &&
     !/^(devtools:|chrome:|about:blank)/.test(item.url || '') && (!target || item.id === target || item.url?.startsWith(target)));
-  if (pages.length !== 1) throw new Error(`Expected one renderer target, found ${pages.length}; use --debug-target with a target ID or URL prefix`);
+  if (pages.length !== 1) throw Object.assign(new Error(`Expected one renderer target, found ${pages.length}; use --debug-target with a target ID or URL prefix`),
+    { code: pages.length > 1 ? 'ENG_DEBUG_AMBIGUOUS_TARGET' : 'ENG_DEBUG_NO_TARGET' });
   const selected = pages[0], ws = localDebugURL(selected.webSocketDebuggerUrl, 'ws:');
   if (ws.port !== base.port) throw new Error('The target WebSocket must use the same local port as its debug endpoint');
   const socket = new Socket(ws.href), events = new EventEmitter(), pending = new Map();

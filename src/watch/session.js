@@ -13,6 +13,7 @@ import { crawl } from '../remote/fetch.js';
 import { prepareScanFolder, mapFrames } from '../remote/sources.js';
 import { createAssistant, followLog, writeMarkerFiles } from './assistant.js';
 import { watchDebug } from './debug.js';
+import { watchDebugApp } from './debug_launch.js';
 
 export function parseHeaders(list = []) {
   const headers = {};
@@ -28,21 +29,24 @@ export function parseHeaders(list = []) {
  * session log `watchLog`, and analyzes it. Returns { runtime, watchDiagnostics, watchLog, staticInput }.
  * @throws when the app can't be started or the log can't be read
  */
-export async function observeSession({ watch, watchLog, args = [], debugUrl, debugTarget, debugDuration = 0, marker, active = false, campaign, autoCampaign = false, capture = true, traffic = true, scope = [], reveal = false, canaries = [], searchDirs = [], userData,
+export async function observeSession({ watch, watchLog, args = [], debugUrl, debugLaunch = false, debugTarget, debugDuration = 0, marker, active = false, campaign, autoCampaign = false, capture = true, traffic = true, scope = [], reveal = false, canaries = [], searchDirs = [], userData,
   assistant, staticIssues = [], confirm, screenshots }) {
   let log = watchLog;
   let packagedApp;
   let injection;
   let staticInput;
   let credentials;
-  if (debugUrl && campaign && campaign.mode !== 'capture') throw new Error('Debug attachment needs a capture campaign or --auto-campaign; direct request and DOCX profiles use native watch mode');
+  const rendererDebug = !!debugUrl || debugLaunch;
+  if (debugLaunch && (!watch || debugUrl || watchLog)) throw new Error('--debug-launch requires an app to launch and cannot be combined with a saved log or --debug-url');
+  if (rendererDebug && campaign && (campaign.mode !== 'capture' || campaign.docxImport || campaign.cases.some(name => /^(api|nav)-/.test(name))))
+    throw new Error('Renderer debugging needs a standard capture campaign or --auto-campaign; direct request, API, navigation and DOCX profiles use native watch mode');
   if (watch) {
     const located = locateApp(watch);
     const app = debugUrl ? undefined : resolveApp(located.kind === 'project' ? located.folder : located.executable, args);
     packagedApp = debugUrl ? (located.kind === 'project' ? undefined : located.executable) : app.packaged ? app.command : undefined;
     staticInput = located.code;
     // a packaged app gets the observer through the Node inspector: a build that switched it off can't be observed
-    const wire = packagedApp && !debugUrl ? readFuseWire(fuseBinaryFor(packagedApp)) : undefined;
+    const wire = packagedApp && !rendererDebug ? readFuseWire(fuseBinaryFor(packagedApp)) : undefined;
     if (wire && wire.config.EnableNodeCliInspectArguments === false) {
       console.error(chalk.yellow(__('watchInspectFuseOff')));
       injection = { method: 'inspector', blockedByFuse: true };
@@ -78,8 +82,10 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
     }
     const stopFollowing = followLog(logFile, record => assistant.handle(record));
     try {
-      log = debugUrl ? await watchDebug(debugUrl, { target: debugTarget, duration: debugDuration, marker, active, campaign: !!campaign || autoCampaign,
-        traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, active, campaign: !!campaign || autoCampaign, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
+      const debugOptions = { target: debugTarget, duration: debugDuration, marker, active, campaign: !!campaign || autoCampaign,
+        traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile };
+      log = debugUrl ? await watchDebug(debugUrl, debugOptions) : debugLaunch ? await watchDebugApp(located.kind === 'project' ? located.folder : located.executable,
+        { ...debugOptions, args, onNote: note => { injection = note; } }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, active, campaign: !!campaign || autoCampaign, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
         onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
       stopFollowing();
@@ -100,14 +106,14 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
   for (const record of records) recordKinds[record.kind] = (recordKinds[record.kind] || 0) + 1;
   const start = records.find(r => r.kind === 'start');
   const watchDiagnostics = {
-    mode: debugUrl ? 'debug-attached' : watch ? 'launched' : 'log', packaged: !!packagedApp, hookStarted: !!start && !debugUrl, lateStart: !!(start && start.late),
+    mode: debugUrl ? 'debug-attached' : debugLaunch ? 'debug-launched' : watch ? 'launched' : 'log', packaged: !!packagedApp, hookStarted: !!start && !rendererDebug, lateStart: !!(start && start.late),
     electron: start && start.electron, markerSet: !!marker, activeTests: active, campaign: campaign && { mode: campaign.mode, route: campaign.route, cases: campaign.cases }, records: recordKinds,
     hookErrors: records.filter(r => r.kind === 'hook-error').slice(0, 20).map(r => r.message),
     // field names stay out of the shared diagnostics: only how many there were and whether the marker was sent
     summary: { ...runtime.summary, fuses: undefined, api: runtime.summary.api.map(({ fields, ...endpoint }) => ({ ...endpoint, fields: fields.length, markerSent: fields.some(f => f.marker) })) },
     marker: { ...Object.fromEntries(['sink', 'shell', 'will-navigate', 'window-open', 'ipc', 'process'].map(kind => [kind, records.filter(r => r.kind === kind && (r.marker || (kind === 'sink' && r.live))).length])) },
     // how the observer was loaded: NODE_OPTIONS for an app folder, the Node inspector for a packaged app
-    injection: debugUrl ? { method: 'renderer-cdp', loaded: !!start, mainProcess: false } : packagedApp ? { method: 'inspector', ...injection } : watch ? { method: 'NODE_OPTIONS' } : undefined,
+    injection: rendererDebug ? { ...injection, method: 'renderer-cdp', loaded: !!start, mainProcess: false } : packagedApp ? { method: 'inspector', ...injection } : watch ? { method: 'NODE_OPTIONS' } : undefined,
     debugCoverage: records.filter(record => record.kind === 'debug-coverage').map(record => record.message),
     // the traffic checks that ran inside the app: how much they saw, from which sources (no hosts: they identify the app)
     traffic: runtime.summary.traffic && { http: runtime.summary.traffic.http, ws: runtime.summary.traffic.ws, hosts: runtime.summary.traffic.hosts,

@@ -2,6 +2,7 @@
 // A deliberately unsafe disposable editor, with its DevTools UI disabled.
 const { app, BrowserWindow } = require('electron');
 const http = require('node:http');
+if (process.env.DEBUG_APP_PROFILE) app.setPath('userData', process.env.DEBUG_APP_PROFILE);
 let body = 'Hello', changed = false;
 const server = http.createServer((req, res) => {
   if (req.method === 'PUT' && req.url === '/api/documents/42') {

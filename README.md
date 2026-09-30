@@ -193,6 +193,7 @@ $ electronegativity -h
 | --campaign <file> | run the bounded payload suite from an explicit test profile; saves/reopens cases without per-case prompts |
 | --auto-campaign | watch a successful JSON/form save, suggest captured content fields and a saved-content view, then ask once before running the campaign; requires an interactive terminal |
 | --debug-url <url> | attach to one running renderer through its local HTTP DevTools endpoint, such as `http://127.0.0.1:9222`; use with `-i` or `--app` |
+| --debug-launch | launch the app, choose its local renderer debug port and attach automatically; use with `--app` or `--watch`; closes the launched app when observation ends |
 | --debug-target <id-or-url> | select one renderer by its target ID or URL prefix when more than one page is exposed |
 | --debug-duration <seconds> | detach after this many seconds; default `0` waits for Ctrl+C; detaching leaves the app running |
 | --user-data <dir> | review the app's profile folder for secrets at rest; `auto` finds it by the app's name (watch mode reviews it after the session), see [Data at rest](#data-at-rest) |
@@ -318,6 +319,16 @@ For interactive setup without writing a profile first, use `--auto-campaign`. Lo
 ```powershell
 electronegativity --app "C:\Program Files\MyApp" --auto-campaign --out .\results
 ```
+
+For a single command that also manages the renderer debug port, add `--debug-launch`:
+
+```powershell
+electronegativity --app "C:\Program Files\MyApp" --debug-launch --auto-campaign --out .\results
+```
+
+The tool picks an available local port, launches the app with Electron's debug option, waits for one renderer, and connects directly. You do not start the app separately, choose a port, use Edge or open DevTools. Close existing copies first: a single-instance app can hand off to an older process that lacks the new port. If several renderers appear, select the intended page with `--debug-target <unique-url-prefix>`. Ctrl+C, `--debug-duration` expiry, and observer/startup failures close the app process launched by this run. The default is to observe until you close the app or press Ctrl+C. Finish the campaign before stopping so restoration can run. Apps that ignore the debug switch produce an explicit startup error.
+
+`--debug-launch` has the renderer-only coverage described below. The ordinary `--app ... --auto-campaign` command uses the native hook and provides broader main-process coverage when that hook can load. Choose managed debug launch when you need the same debug-port path that works with Edge; it does not silently replace native watch mode.
 
 If you can connect Edge to your app's debug port, the tool can attach directly to that same local endpoint. Opening the DevTools UI is unnecessary. Start your app with its supported debug launch options; Electron's renderer option is `--remote-debugging-port`, which differs from the main-process `--inspect` port. For example, in PowerShell:
 

@@ -117,7 +117,7 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
   })();
 }
 
-function freePort() {
+export function freePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.unref();

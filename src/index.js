@@ -57,6 +57,7 @@ async function main() {
     .option('--campaign <file>', 'Run a bounded, profile-driven benign payload campaign without per-case prompts')
     .option('--auto-campaign', 'Capture a content save, suggest fields and a view, then ask before running a bounded campaign')
     .option('--debug-url <url>', 'Attach to an already running app through its local renderer DevTools endpoint, e.g. http://127.0.0.1:9222')
+    .option('--debug-launch', 'Launch the app with an automatically selected local renderer debug port and attach; closes this launched app when observation ends')
     .option('--debug-target <id-or-url>', 'Select exactly one renderer target by ID or URL prefix when attaching')
     .option('--debug-duration <seconds>', 'Stop debug attachment after this many seconds; default waits for Ctrl+C')
     .option('--app <location>', __('appOptionDescription'))
@@ -91,8 +92,9 @@ async function main() {
   if (options.autoCampaign && campaign) throw new Error('Choose --auto-campaign or --campaign, not both');
   if (options.autoCampaign && !process.stdin.isTTY) throw new Error('--auto-campaign needs an interactive terminal for approval; use an explicit --campaign profile for unattended runs');
   if (options.debugUrl && (!options.input && !options.app || options.watch || options.watchLog)) throw new Error('--debug-url requires -i or --app and cannot be combined with --watch or --watch-log');
-  if ((options.debugTarget || options.debugDuration) && !options.debugUrl) throw new Error('Debug target and duration require --debug-url');
-  const debug = { debugUrl: options.debugUrl, debugTarget: options.debugTarget, debugDuration: options.debugDuration === undefined ? 0 : Number(options.debugDuration) };
+  if (options.debugLaunch && ((!options.app && !options.watch) || options.debugUrl || options.watchLog)) throw new Error('--debug-launch requires --app or --watch and cannot be combined with --debug-url or --watch-log');
+  if ((options.debugTarget || options.debugDuration) && !options.debugUrl && !options.debugLaunch) throw new Error('Debug target and duration require --debug-url or --debug-launch');
+  const debug = { debugUrl: options.debugUrl, debugLaunch: !!options.debugLaunch, debugTarget: options.debugTarget, debugDuration: options.debugDuration === undefined ? 0 : Number(options.debugDuration) };
   if (!Number.isInteger(debug.debugDuration) || debug.debugDuration < 0 || debug.debugDuration > 86400) throw new Error('--debug-duration must be 0–86400 seconds');
   if ((options.activeTests || campaign || options.autoCampaign) && options.watchMarker && !/^[A-Za-z0-9_-]{8,80}$/.test(options.watchMarker)) throw new Error('Active testing requires a marker of 8–80 letters, digits, _ or -');
   const forCli = !options.output;
@@ -412,7 +414,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
 
   // 2. watch sessions, until the user stops
   const interactive = !!process.stdin.isTTY;
-  const sessions = options.sessions !== undefined ? Math.max(0, Number.parseInt(options.sessions, 10) || 0) : campaign || options.debugUrl ? 1 : interactive ? Infinity : 0;
+  const sessions = options.sessions !== undefined ? Math.max(0, Number.parseInt(options.sessions, 10) || 0) : campaign || options.debugUrl || options.debugLaunch ? 1 : interactive ? Infinity : 0;
   const observable = located.executable || options.debugUrl;
   if (!observable && sessions > 0) console.error(chalk.yellow(__('appNoExecutable')));
   const marker = options.watchMarker || generateMarker();
@@ -424,7 +426,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
     staticIssues: staticResult.issues, files: writeMarkerFiles(outDir, marker, !!(options.activeTests || campaign || options.autoCampaign)) });
   if (observable && sessions > 0) assistant.intro();
   for (let n = 1; observable && n <= sessions; n++) {
-    if (interactive && options.sessions === undefined && !campaign && !options.debugUrl) {
+    if (interactive && options.sessions === undefined && !campaign && !options.debugUrl && !options.debugLaunch) {
       const answer = await ask(chalk.cyan(__(n === 1 ? 'appAskFirstSession' : 'appAskNextSession', { n })) + ' ');
       if (/^[snq]/.test(answer)) break;
     }

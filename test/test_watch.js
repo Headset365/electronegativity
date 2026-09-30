@@ -374,6 +374,30 @@ describe('Watch mode', () => {
       throw new Error('Required runtime tests need Electron and, on Linux, xvfb-run; skipping is not allowed');
     const run = electron && xvfb ? it : it.skip;
 
+    run('launches and closes a real app through a managed renderer debug port', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-managed-cdp-'));
+      const output = path.join(root, 'report.json'), diagnostics = path.join(root, 'diag.json');
+      const fixture = path.join(import.meta.dirname, 'apps', 'debug-app');
+      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', fixture, '--debug-launch', '--debug-duration', '2',
+        '--watch-args', '--no-sandbox', '--offline', '--no-watch-traffic', '--no-report-dir', '-o', output, '--diagnostics', diagnostics];
+      const env = { ...process.env, DEBUG_APP_PROFILE: path.join(root, 'profile') };
+      try {
+        const command = process.platform === 'linux' ? spawnSync('xvfb-run', ['-a', process.execPath, ...cli], { encoding: 'utf8', env }) : spawnSync(process.execPath, cli, { encoding: 'utf8', env });
+        command.status.should.equal(0, command.stderr);
+        const watch = JSON.parse(fs.readFileSync(diagnostics, 'utf8')).watch;
+        watch.mode.should.equal('debug-launched'); watch.hookStarted.should.equal(false);
+        watch.injection.should.include({ method: 'renderer-cdp', launched: true, mainProcess: false, loaded: true });
+        watch.records['debug-launch-exit'].should.equal(1);
+        const report = JSON.parse(fs.readFileSync(output, 'utf8'));
+        report.issues.some(i => i.id === 'RUNTIME_DEBUG_COVERAGE').should.equal(true);
+        const window = report.issues.find(i => i.id === 'RUNTIME_WINDOW_SUMMARY');
+        window.properties.settings.contextIsolation.source.should.equal('unavailable');
+        let reachable = true;
+        try { await fetch(`${watch.injection.endpoint}/json/list`, { signal: AbortSignal.timeout(1000) }); } catch { reachable = false; }
+        reachable.should.equal(false, 'managed debug port closed with the owned app');
+      } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    });
+
     run('captures and runs a campaign through a real debug port with DevTools UI disabled', async () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-cdp-app-'));
       const server = net.createServer();
