@@ -4,7 +4,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, finding, literalValue, isFunction } from '../helpers.js';
-import { constantValue, enclosingFunction, untrustedSource, dependsOnParams, moduleBindings, programOf, callsIn, returnedValues,
+import { constantValue, enclosingFunction, untrustedSource, dependsOnParams, taintedNames, moduleBindings, programOf, callsIn, returnedValues,
   handlerFunction, paramNames, identifiersIn, hasUrlValidation, visit, isCall, isMember } from '../analysis.js';
 import { secretReference } from './StorageChecks.js';
 
@@ -63,12 +63,49 @@ export function fsOperation(call, ancestors) {
   return FS_MODULE.test(moduleOf(call.callee, ancestors) || '') ? { name, op } : undefined;
 }
 
+// The names in `fn` that carry a path value: the untrusted names in the path expressions, what was assigned from them
+// (`const resolved = path.resolve(base, file)`) and what they were assigned from, followed until nothing changes
+function pathNames(fn, paths) {
+  const tainted = taintedNames(fn);
+  const related = new Set(paths.flatMap(p => [...identifiersIn(p)]).filter(name => tainted.has(name)));
+  const assignments = [];
+  visit(fn.body, (n) => {
+    if (n.type === 'VariableDeclarator' && n.init && n.id.type === 'Identifier') assignments.push([n.id.name, n.init]);
+    if (n.type === 'AssignmentExpression' && n.left.type === 'Identifier') assignments.push([n.left.name, n.right]);
+    return true;
+  });
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [name, init] of assignments) {
+      const sources = [...identifiersIn(init)].filter(source => tainted.has(source));
+      if (!related.has(name) && sources.some(source => related.has(source))) { related.add(name); changed = true; }
+      if (related.has(name)) for (const source of sources) if (!related.has(source)) { related.add(source); changed = true; }
+    }
+  }
+  return related;
+}
+
 // Does the function hold its path to a folder? path.basename is noted apart: it keeps the file in the folder but lets
-// Windows reserved names (CON, NUL), alternate data streams (name:stream) and trailing dots or spaces through
-function containment(fn) {
-  const calls = callsIn(fn, (call, name) => CONTAINMENT.test(name || '')).map(({ call }) => calleeName(call.callee));
+// Windows reserved names (CON, NUL), alternate data streams (name:stream) and trailing dots or spaces through.
+// With `paths` (the path expressions reaching the file system), only checks that operate on that path count: a sender
+// check (validateSender(event)), a URL check or a log message saying "Reading..." does not keep a path in a folder.
+function containment(fn, paths) {
+  const related = paths ? pathNames(fn, paths) : undefined;
+  const onPath = (call) => !related || [call.callee, ...call.arguments].some(node => [...identifiersIn(node)].some(name => related.has(name)));
+  const calls = callsIn(fn, (call, name) => CONTAINMENT.test(name || '') && onPath(call)).map(({ call }) => calleeName(call.callee));
   let dotDot = false;
-  visit(fn.body, (n) => { if (typeof n.value === 'string' && n.value.includes('..')) dotDot = true; return !dotDot; });
+  const hasDotDot = (node) => {
+    let found = false;
+    visit(node, (n) => {
+      // '..' as a path segment ('..', '../', '..\\'), not an ellipsis in a message
+      if ((typeof n.value === 'string' && /(^|[\\/])\.\.([\\/]|$)/.test(n.value)) || (n.regex && /\\\.\\\.|\.\./.test(n.regex.pattern)) ||
+        (n.type === 'RegExpLiteral' && /\\\.\\\.|\.\./.test(n.pattern))) found = true;
+      return !found;
+    });
+    return found;
+  };
+  if (related) dotDot = callsIn(fn, (call) => onPath(call) && [call.callee, ...call.arguments].some(hasDotDot)).length > 0;
+  else visit(fn.body, (n) => { if (typeof n.value === 'string' && n.value.includes('..')) dotDot = true; return !dotDot; });
   const sanitized = callsIn(fn, (call, name) => NAME_SANITIZER.test(name || '') ||
     (name === 'replace' && call.arguments[0] && call.arguments[0].type === 'RegExpLiteral' && /[:<>|?*]/.test(call.arguments[0].pattern))).length > 0 ||
     callsIn(fn, (call) => call.arguments.some(a => a.regex && /[:<>|?*]/.test(a.regex.pattern))).length > 0;
@@ -96,7 +133,7 @@ export class IpcFileAccessJSCheck {
     const source = untrustedSource(context.ancestors, fn);
     if (!source) return null;
     const verb = { read: 'reads', write: 'writes', copy: 'copies or moves', delete: 'deletes' }[operation.op];
-    const kept = containment(fn);
+    const kept = containment(fn, tainted);
     const properties = { source, operation: operation.op, call: operation.name };
     if (!kept.any)
       return [finding(this, astNode, { severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false, properties,

@@ -149,7 +149,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
  * Front-end code served over the network: what a watch session captured (capture/ next to its log) and `remote` URLs,
  * downloaded and prepared for scanning. Returns { extraInputs, remoteDiagnostics, scanDir }.
  */
-export async function collectRemote({ watchLog, capture = true, remote = [], headers = {}, offline = false, runtime }) {
+export async function collectRemote({ watchLog, capture = true, remote = [], headers = {}, headerSites = [], scope = [], offline = false, runtime }) {
   const extraInputs = [];
   const captureDir = capture && watchLog ? path.join(path.dirname(watchLog), 'capture') : undefined;
   const hasCapture = !!captureDir && fs.existsSync(captureDir);
@@ -160,7 +160,7 @@ export async function collectRemote({ watchLog, capture = true, remote = [], hea
     if (offline && remote.length > 0) console.error(chalk.yellow(__('remoteOffline')));
     if (!offline) {
       console.log(chalk.cyan(__('remoteFetching')));
-      const stats = await crawl(dir, remote, { headers });
+      const stats = await crawl(dir, remote, { headers, headerSites, headerScope: scope });
       remoteDiagnostics.fetch = { fetched: stats.fetched, notFound: stats.notFound, skipped: stats.skipped, failed: stats.failed.slice(0, 20) };
       for (const failure of stats.failed.slice(0, 10)) console.error(chalk.yellow(__('remoteFetchFailed', { url: failure.url, message: failure.message })));
     }

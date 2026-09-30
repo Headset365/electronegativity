@@ -537,12 +537,17 @@ function instrument(electron, late) {
   const inspectBody = (details, ses) => {
     if (details.resourceType !== 'xhr' || !Array.isArray(details.uploadData) || details.uploadData.length === 0) return;
     let bytes = 0;
-    let text = '';
+    const chunks = [];
+    // a body with a part held as a file or blob, or larger than what is read here, can't be rebuilt in full: re-sending
+    // (and a campaign's restore) would write a cut-off body over the record
+    let complete = true;
     for (const part of details.uploadData) {
-      if (!part || !part.bytes) continue;
+      if (!part || !part.bytes) { if (part && (part.file || part.blobUUID)) complete = false; continue; }
       bytes += part.bytes.length;
-      if (text.length < 1024 * 1024) text += part.bytes.subarray(0, 1024 * 1024 - text.length).toString('utf8');
+      chunks.push(Buffer.from(part.bytes));
     }
+    if (bytes > 1024 * 1024) complete = false;
+    const text = Buffer.concat(chunks).subarray(0, 1024 * 1024).toString('utf8');
     let fields = [];
     try {
       fields = inspectCapturedBody(text, MARKER).fields;
@@ -553,7 +558,7 @@ function instrument(electron, late) {
     // only when the command channel is open. Campaign capture also accepts an ordinary plain-text seed request.
     const html = MARKUP.test(text);
     let replay;
-    if (COMMANDS && (html || CAMPAIGN) && WRITE_METHODS.has(String(details.method).toUpperCase()) && fields.length > 0 && /^https?:/i.test(details.url) && canReplayBody(text)) {
+    if (COMMANDS && complete && (html || CAMPAIGN) && WRITE_METHODS.has(String(details.method).toUpperCase()) && fields.length > 0 && /^https?:/i.test(details.url) && canReplayBody(text)) {
       replay = ++replayCounter;
       replayable.set(replay, { method: String(details.method).toUpperCase(), url: details.url, text, ses, webContents: details.webContentsId,
         viewURL: electron.webContents.fromId(details.webContentsId)?.getURL() });

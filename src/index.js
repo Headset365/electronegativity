@@ -241,7 +241,7 @@ async function main() {
       if (!options.input && session.staticInput) options.input = session.staticInput;
     }
     // Front-end code served over the network: what watch mode captured, and --remote URLs. It is scanned with the app.
-    const remote = await collectRemote({ runtime: session && session.runtime, watchLog: session && session.watchLog, capture, remote: options.remote || [], headers, offline: options.offline });
+    const remote = await collectRemote({ runtime: session && session.runtime, watchLog: session && session.watchLog, capture, remote: options.remote || [], headers, scope, offline: options.offline });
     // --remote on its own: the downloaded front end is the input
     if (!options.input && remote.scanDir) options.input = remote.scanDir;
 
@@ -408,7 +408,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
 
   // 1. the app's code, including what's behind the login, and --remote URLs if given
   console.log(chalk.cyan(__('appStatic')));
-  const remote = await collectRemote({ remote: options.remote || [], headers, offline: options.offline });
+  const remote = await collectRemote({ remote: options.remote || [], headers, scope, offline: options.offline });
   // the profile review and the password trace belong to the sessions, after the app has been used
   const staticResult = await step('static', { extraInputs: remote.extraInputs, remoteDiagnostics: remote.remoteDiagnostics, canaries: [], userData: undefined });
 
@@ -440,7 +440,8 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
       process.exitCode = 1;
       break;
     }
-    const captured = await collectRemote({ runtime: session.runtime, watchLog: session.watchLog, capture, headers, offline: options.offline });
+    // the --remote-header goes to the --remote sites (and --scope domains) only, not to whatever the session captured
+    const captured = await collectRemote({ runtime: session.runtime, watchLog: session.watchLog, capture, headers, headerSites: options.remote || [], scope, offline: options.offline });
     await step(`session-${n}`, { runtime: session.runtime, credentials: session.credentials, watchDiagnostics: session.watchDiagnostics, runtimeElectronVersion: session.watchDiagnostics.electron,
       extraInputs: captured.extraInputs, remoteDiagnostics: captured.remoteDiagnostics });
   }

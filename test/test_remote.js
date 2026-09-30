@@ -105,4 +105,43 @@ describe('Remote front end', () => {
     [...prepared.labels.values()].should.include(`${base}/static/app.min.js (source: src/editor.js)`);
     [...prepared.labels.values()].should.include(`${base}/views/doc.html`);
   });
+
+  it('sends --remote-header only to the named site: not to captured third parties, nor across a redirect', async () => {
+    // a third party the session happened to load (a sign-in provider, an embedded frame), and a redirect to it
+    const seen = [];
+    const other = http.createServer((req, res) => {
+      seen.push({ url: req.url, cookie: req.headers.cookie, token: req.headers['x-api-key'] });
+      res.writeHead(200, { 'content-type': req.url.endsWith('.js') ? 'application/javascript' : 'text/html' });
+      res.end(req.url.endsWith('.js') ? 'var x = 1;' : '<script src="/embed.js"></script>');
+    });
+    await new Promise(resolve => other.listen(0, '127.0.0.1', resolve));
+    const third = `http://127.0.0.1:${other.address().port}`;
+    const site = http.createServer((req, res) => {
+      if (req.url === '/go') { res.writeHead(302, { location: `${third}/landing.js` }); res.end(); return; }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<script src="/go"></script>');
+    });
+    await new Promise(resolve => site.listen(0, '127.0.0.1', resolve));
+    const mine = `http://127.0.0.1:${site.address().port}`;
+    try {
+      const capture = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-remote-scope-'));
+      fs.mkdirSync(path.join(capture, 'files'));
+      fs.writeFileSync(path.join(capture, 'files', 'w1.html'), '<script src="/embed.js"></script>');
+      fs.writeFileSync(path.join(capture, 'manifest.jsonl'), JSON.stringify({ kind: 'page', url: `${third}/frame`, file: 'files/w1.html' }) + '\n');
+      await crawl(capture, [`${mine}/`], { headers: { Cookie: 'session=test', 'X-Api-Key': 'k' } });
+      seen.length.should.be.above(0, 'the third party was fetched');
+      seen.every(r => !r.cookie && !r.token).should.equal(true, JSON.stringify(seen));
+      // a later step with no seeds of its own: only the sites named with --remote get the headers
+      const later = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-remote-scope-'));
+      fs.mkdirSync(path.join(later, 'files'));
+      fs.writeFileSync(path.join(later, 'manifest.jsonl'), JSON.stringify({ kind: 'page', url: `${third}/frame2` }) + '\n');
+      seen.length = 0;
+      await crawl(later, [], { headers: { Cookie: 'session=test' }, headerSites: [`${mine}/`] });
+      seen.some(r => r.url === '/frame2').should.equal(true);
+      seen.every(r => !r.cookie).should.equal(true);
+    } finally {
+      site.close();
+      other.close();
+    }
+  });
 });

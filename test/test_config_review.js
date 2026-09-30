@@ -91,6 +91,21 @@ ipcMain.handle('read-c', (e, p) => { if (!isInsideDocs(p)) return; return fs.rea
       found.some(([line, sev]) => line === 6 && sev === 'HIGH').should.equal(false);
     });
 
+    it('counts only checks on the path itself: not a sender check, a log message or an ellipsis', async () => {
+      const handlers = `const { ipcMain, app } = require('electron');
+const fs = require('fs');
+const path = require('path');
+ipcMain.handle('read-a', (e, p) => { console.log('Reading...'); return fs.readFileSync(p); });
+ipcMain.handle('read-b', (e, p) => { if (!validateSender(e)) return; return fs.readFileSync(p); });
+ipcMain.handle('read-c', (e, p) => { console.log('Reading...', p); return fs.readFileSync(p); });
+ipcMain.handle('read-d', (e, p) => { if (!e.senderFrame.url.startsWith('app://')) return; return fs.readFileSync(p); });
+ipcMain.handle('read-e', (e, p) => { const base = app.getPath('userData'); const full = path.resolve(base, p); if (!full.startsWith(base)) return; return fs.readFileSync(full); });
+ipcMain.handle('read-f', (e, p) => { if (p.includes('..')) return; return fs.readFileSync(p); });`;
+      const { of } = await scan({ 'package.json': PACKAGE, 'main.js': handlers });
+      const found = Object.fromEntries(of('IPC_FILE_ACCESS_JS_CHECK').filter(i => /main\.js$/.test(i.file)).map(i => [i.location.line, i.severity.name]));
+      found.should.include({ 4: 'HIGH', 5: 'HIGH', 6: 'HIGH', 7: 'HIGH', 8: 'LOW', 9: 'LOW' });
+    });
+
     it('does not take includes, normalize or isAbsolute for a folder check in a protocol handler', async () => {
       const handlers = `const { protocol, net } = require('electron');
 const path = require('node:path');

@@ -28,10 +28,12 @@ const kindOf = (url, contentType) => {
 /**
  * Fetches `seeds` (URLs) and what they refer to on the same origin, and completes a capture made by watch mode:
  * source maps of captured scripts and templates or chunks they name that were never loaded during the session.
- * `headers` (e.g. a Cookie or Authorization header for a test account) are only sent to the seeds' origin.
+ * `headers` (e.g. a Cookie or Authorization header for a test account) are only sent to the seeds' origins, the origins of
+ * `headerSites` (the --remote URLs of an earlier step) and hosts in the `headerScope` domains (--scope): never to another
+ * site a watch session happened to capture (a sign-in provider, an embedded frame), nor across a redirect to one.
  * Returns { fetched, failed, skipped, notFound } (notFound: guessed references the server doesn't have).
  */
-export async function crawl(captureDir, seeds = [], { headers = {}, maxFiles = 300, log = () => {} } = {}) {
+export async function crawl(captureDir, seeds = [], { headers = {}, headerSites = [], headerScope = [], maxFiles = 300, log = () => {} } = {}) {
   if (isOffline()) throw new OfflineError();
   fs.mkdirSync(path.join(captureDir, 'files'), { recursive: true });
   const entries = readManifest(captureDir);
@@ -49,6 +51,30 @@ export async function crawl(captureDir, seeds = [], { headers = {}, maxFiles = 3
     }
   };
   for (const seed of seeds) addPage(seed);
+  // where the headers may go
+  const headerOrigins = new Set([...seeds, ...headerSites].map(url => { try { return new URL(url).origin; } catch { return undefined; } }).filter(Boolean));
+  const domains = headerScope.map(domain => String(domain).toLowerCase().trim().replace(/^\*?\./, '')).filter(Boolean);
+  const mayCarryHeaders = (url) => {
+    try {
+      const { origin, hostname } = new URL(url);
+      return headerOrigins.has(origin) || domains.some(domain => hostname.toLowerCase() === domain || hostname.toLowerCase().endsWith(`.${domain}`));
+    } catch {
+      return false;
+    }
+  };
+  const withHeaders = Object.keys(headers).length > 0;
+  // redirects are followed here, not by fetch, so the headers stay behind when one leads to another site
+  const get = async (url) => {
+    let current = url;
+    for (let hop = 0; hop <= 5; hop++) {
+      const carry = withHeaders && mayCarryHeaders(current);
+      const response = await fetch(current, { headers: carry ? headers : {}, redirect: carry ? 'manual' : 'follow', signal: AbortSignal.timeout(20000) });
+      const location = response.status >= 300 && response.status < 400 && response.headers.get('location');
+      if (!carry || !location) return response;
+      current = new URL(location, current).href;
+    }
+    throw new Error('too many redirects');
+  };
   for (const entry of entries) if (entry.kind === 'page') addPage(entry.url);
   const stats = { fetched: 0, failed: [], skipped: 0, notFound: 0 };
   let counter = entries.length;
@@ -112,8 +138,7 @@ export async function crawl(captureDir, seeds = [], { headers = {}, maxFiles = 3
     if (stats.fetched >= maxFiles) { stats.skipped++; return; }
     let response;
     try {
-      const sameOrigin = origins.has(new URL(url).origin);
-      response = await fetch(url, { headers: sameOrigin ? headers : {}, redirect: 'follow', signal: AbortSignal.timeout(20000) });
+      response = await get(url);
     } catch (error) {
       const code = String(error && (error.cause && error.cause.code || error.message));
       // test servers often use an internal CA the app trusts through the OS, but Node doesn't
