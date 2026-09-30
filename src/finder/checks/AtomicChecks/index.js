@@ -59,6 +59,7 @@ import { AngularTrustHtmlJSCheck, RichTextEditorHtmlJSCheck, AngularBindHtmlUnsa
 import { WindowSummaryJSCheck, ExposedApiJSCheck, GlobalExposureJSCheck } from './AttackSurfaceChecks.js';
 import { IframeSandboxHTMLCheck, IframeSandboxJSCheck } from './IframeSandboxChecks.js';
 import CommandInjectionJSCheck from './CommandInjectionJSCheck.js';
+import DynamicModuleJSCheck from './DynamicModuleJSCheck.js';
 import DownloadJSCheck from './DownloadJSCheck.js';
 import { UpdateSecurityJSCheck, UpdateSecurityJSONCheck } from './UpdateSecurityChecks.js';
 import PlaintextSecretsJSCheck from './PlaintextSecretsJSCheck.js';
@@ -148,6 +149,7 @@ const CHECKS = [
   IframeSandboxHTMLCheck,
   IframeSandboxJSCheck,
   CommandInjectionJSCheck,
+  DynamicModuleJSCheck,
   DownloadJSCheck,
   UpdateSecurityJSCheck,
   UpdateSecurityJSONCheck,

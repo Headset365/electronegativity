@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, merged-electron-dynamic]
   pull_request:
 
 permissions:
@@ -30,10 +30,13 @@ jobs:
   watch-mode:
     name: Watch mode end to end (Electron ${{ matrix.electron }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      ELECTRONEGATIVITY_REQUIRE_RUNTIME_TESTS: '1'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-latest, macos-latest]
         # 34 ships a Node module loader that crashes under --inspect-brk (see watch/launch.js)
         electron: [34, 38]
     steps:
@@ -43,5 +46,21 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Install Linux display and Electron system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64
       - run: npm install --no-save electron@${{ matrix.electron }}
-      - run: npx mocha test/test_watch.js
+      - run: npx mocha --no-config --timeout 120000 test/test_watch.js --forbid-pending
+
+  benchmark:
+    name: Pinned vulnerable and patched application benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:benchmark

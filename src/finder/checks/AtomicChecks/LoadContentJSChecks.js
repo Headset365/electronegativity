@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, finding } from '../helpers.js';
-import { constantPrefix, enclosingFunction, untrustedSource, dependsOnParams, hasUrlValidation, isConditional } from '../analysis.js';
+import { constantPrefix, enclosingFunction, untrustedSource, dependsOnParams, urlArgumentIsGuarded } from '../analysis.js';
 
 // Electron security checklist #18: avoid the file:// protocol, prefer custom protocols
 export class FileProtocolJSCheck {
@@ -39,7 +39,7 @@ export class UntrustedLoadUrlJSCheck {
     const source = fn && untrustedSource(context.ancestors, fn);
     if (!source || !dependsOnParams(astNode.arguments[0], fn)) return null;
     if (/^https:\/\/[^/]+\//i.test(constantPrefix(astNode.arguments[0], scope) || '')) return null; // fixed origin
-    const validated = hasUrlValidation(fn) && isConditional(astNode, context.ancestors, fn);
+    const validated = urlArgumentIsGuarded(astNode, astNode.arguments[0], scope, context.ancestors, fn);
     return [finding(this, astNode, validated
       ? { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true, description: `${this.description} (${source}, validated first; review the allowlist)` }
       : { severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false, description: `${this.description} (${source}, not validated)`, properties: { source } })];

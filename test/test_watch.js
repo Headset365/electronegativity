@@ -367,6 +367,8 @@ describe('Watch mode', () => {
       electron = undefined;
     }
     const xvfb = process.platform !== 'linux' || spawnSync('which', ['xvfb-run']).status === 0;
+    if (process.env.ELECTRONEGATIVITY_REQUIRE_RUNTIME_TESTS === '1' && (!electron || !xvfb))
+      throw new Error('Required runtime tests need Electron and, on Linux, xvfb-run; skipping is not allowed');
     const run = electron && xvfb ? it : it.skip;
 
     run('observes a packaged app, which ignores NODE_OPTIONS, through the Node inspector', async () => {
@@ -483,10 +485,13 @@ describe('Watch mode', () => {
       report.issues.find(i => i.id === 'RUNTIME_MARKER_NEW_WINDOW').properties.blocked.should.equal(true);
       report.issues.find(i => i.id === 'RUNTIME_MARKER_IPC').properties.channel.should.equal('log');
       ids.should.include('RUNTIME_MARKER_OPEN_PATH');
-      // the static finding at the line that wrote it is confirmed, through the source map of the captured bundle
-      const confirmed = report.issues.filter(i => i.id === 'XSS_SINK_JS_CHECK' && i.validation && i.validation.status === 'confirmed');
-      confirmed.should.have.length(1);
-      confirmed[0].file.should.match(/static\/viewer\.js \(source: src\/viewer\.js\)/);
+      const moduleEvidence = report.issues.find(i => i.id === 'RUNTIME_MARKER_MODULE');
+      moduleEvidence.properties.loaded.should.equal(true);
+      moduleEvidence.properties.resolved.should.match(/ENGCANARY-module\.cjs$/);
+      // The marker links the sink to its source; it does not establish execution.
+      const observed = report.issues.filter(i => i.id === 'XSS_SINK_JS_CHECK' && i.validation && i.validation.status === 'observed');
+      observed.should.have.length(1);
+      observed[0].file.should.match(/static\/viewer\.js \(source: src\/viewer\.js\)/);
       // and the assistant said so while the app ran
       command.stdout.should.match(/\[validate\] ✓ The marker was sent with PUT http:\/\/127\.0\.0\.1:\d+\/api\/documents\/\{id\} in: title, body/);
       command.stdout.should.match(/\[validate\] ✗ Markup carrying the marker was written with innerHTML by http:\/\/127\.0\.0\.1:\d+\/static\/viewer\.js:1:\d+/);

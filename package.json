@@ -24,6 +24,7 @@
   "scripts": {
     "lint": "eslint .",
     "test": "mocha",
+    "test:benchmark": "node scripts/benchmark-known-vulnerabilities.mjs ../electron-benchmark/sources ../electron-benchmark/results-ci --download && node scripts/evaluate-known-vulnerabilities.mjs ../electron-benchmark/sources ../electron-benchmark/results-ci --ci",
     "check:references": "node scripts/check-references.js"
   },
   "repository": {

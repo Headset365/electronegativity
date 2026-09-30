@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, finding } from '../helpers.js';
-import { constantValue, constantPrefix, possibleValues, enclosingFunction, untrustedSource, dependsOnParams, hasUrlValidation, isConditional, onlyConstantCallers } from '../analysis.js';
+import { constantValue, constantPrefix, possibleValues, enclosingFunction, untrustedSource, dependsOnParams, urlArgumentIsGuarded, fixedUrlPrefix, onlyConstantCallers } from '../analysis.js';
 
 // Schemes that are fine to hand to the OS: web pages and mail
 const SAFE_URL = /^(https:\/\/[^/?#]+[/?#]|https:\/\/[^/?#]+$|mailto:)/i;
@@ -48,10 +48,12 @@ export function assessUrlSink(check, call, arg, scope, ancestors, safePattern, {
   // a fixed https://host/ prefix can't be turned into another scheme or host
   const prefix = constantPrefix(arg, scope);
   if (trustPrefix && prefix && safePattern.test(prefix)) return null;
+  const fixedOrigin = trustPrefix && fixedUrlPrefix(arg, scope);
+  if (fixedOrigin && safePattern.test(fixedOrigin)) return null;
 
   const fn = enclosingFunction(ancestors);
   const source = fn && untrustedSource(ancestors, fn);
-  const validated = fn && hasUrlValidation(fn) && isConditional(call, ancestors, fn);
+  const validated = fn && urlArgumentIsGuarded(call, arg, scope, ancestors, fn);
 
   if (source && dependsOnParams(arg, fn) && !validated) {
     return finding(check, call, { severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false,

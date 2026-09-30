@@ -11,14 +11,51 @@ export function setAnalysisContext(context) {
 }
 
 // Runs `fn` as if analyzing another file (to evaluate a value defined there)
-function inFile(file, program, fn) {
+export function inFile(file, program, fn, ancestors = []) {
   const previous = analysisContext;
-  analysisContext = { ...analysisContext, file, program, ancestors: [] };
+  analysisContext = { ...analysisContext, file, program, ancestors };
   try {
     return fn();
   } finally {
     analysisContext = previous;
   }
+}
+
+export function currentAnalysisContext() { return analysisContext; }
+
+// A callable together with its lexical/module context, for evaluating small local or imported helpers.
+export function functionDefinition(callee, scope) {
+  if (!callee) return undefined;
+  const imported = callee.type === 'Identifier' && importedDefinition(callee.name);
+  if (imported && isFunction(imported.node)) return imported;
+  const fn = handlerFunction(callee, scope, analysisContext.ancestors || []);
+  return fn && { node: fn, file: analysisContext.file, program: analysisContext.program };
+}
+
+// CommonJS loaders keep their identity through aliases and Node's createRequire factory.
+export function isModuleLoader(callee, scope, depth = 0) {
+  if (!callee || depth > 6) return false;
+  const shadowed = name => (analysisContext.ancestors || []).some(fn => isFunction(fn) && paramNames(fn).includes(name));
+  if (callee.type === 'Identifier') {
+    if (shadowed(callee.name)) return false;
+    const resolved = resolveLocal(callee, scope);
+    if (resolved !== callee) return isModuleLoader(resolved, scope, depth + 1);
+    return callee.name === 'require' && !moduleBindings(analysisContext.program).has(callee.name);
+  }
+  if (isMember(callee) && memberName(callee) === 'require' && callee.object.name === 'module')
+    return !shadowed('module') && resolveLocal(callee.object, scope) === callee.object;
+  if (!isCall(callee)) return false;
+  const factory = callee.callee;
+  const object = isMember(factory) ? factory.object : undefined;
+  const reference = object || factory;
+  if (reference.type === 'Identifier' && shadowed(reference.name)) return false;
+  const binding = reference.type === 'Identifier' && moduleBindings(analysisContext.program).get(reference.name);
+  if (binding && ['module', 'node:module'].includes(binding.module)) {
+    const imported = object ? memberName(factory) : binding.imported;
+    return imported === 'createRequire';
+  }
+  return object && isCall(object) && isModuleLoader(object.callee, scope, depth + 1) &&
+    ['module', 'node:module'].includes(constantValue(object.arguments[0], scope)) && memberName(factory) === 'createRequire';
 }
 
 /**
@@ -273,6 +310,165 @@ export function hasUrlValidation(fn) {
     return true;
   });
   return found;
+}
+
+// Only a guard referring to the URL reaching this sink may downgrade it. Merely parsing a URL elsewhere in a
+// function, or checking an unrelated parameter, provides no protection.
+export function urlArgumentIsGuarded(call, value, scope, ancestors, fn) {
+  const related = urlRelatedNames(urlReads(value), fn);
+  const unchanged = guard => {
+    let changed = false;
+    const after = (a, b) => a?.loc && b?.loc && (a.loc.start.line > b.loc.start.line ||
+      (a.loc.start.line === b.loc.start.line && a.loc.start.column > b.loc.start.column));
+    visit(fn.body, node => {
+      if (node.type === 'AssignmentExpression' && [...urlReads(node.left)].some(name => related.has(name)) && after(node, guard) && after(call, node)) changed = true;
+      return node === fn.body || !isFunction(node);
+    });
+    return !changed;
+  };
+  const start = ancestors.indexOf(fn);
+  const chain = [...ancestors.slice(start + 1), call];
+  for (let i = 0; i < chain.length - 1; i++) {
+    const parent = chain[i], child = chain[i + 1];
+    if ((parent.type === 'IfStatement' || parent.type === 'ConditionalExpression') && child !== parent.test &&
+      unchanged(parent.test) && urlPredicateAllows(parent.test, child === parent.consequent, related, scope)) return true;
+    if (parent.type === 'LogicalExpression' && child === parent.right && unchanged(parent.left) &&
+      urlPredicateAllows(parent.left, parent.operator === '&&', related, scope)) return true;
+    if (parent.type === 'BlockStatement') {
+      const position = parent.body.indexOf(child);
+      if (position < 0) continue;
+      if (parent.body.slice(0, position).some(statement => statement.type === 'IfStatement' &&
+        guardExits(statement.consequent) && unchanged(statement.test) && urlPredicateAllows(statement.test, false, related, scope))) return true;
+    }
+  }
+  return false;
+}
+
+function urlReads(node) {
+  const names = new Set();
+  visit(node, (n, chain) => {
+    const parent = chain.at(-1);
+    if (isCall(parent) && parent.callee === n && !(isMember(n) && ['toString', 'toJSON'].includes(memberName(n)))) return false;
+    if (n.type === 'Identifier' && !(isMember(parent) && parent.property === n && !parent.computed)) names.add(n.name);
+    return true;
+  });
+  return names;
+}
+
+function urlRelatedNames(names, fn) {
+  const related = new Set(names), aliases = [];
+  visit(fn?.body, node => {
+    if (node.type === 'VariableDeclarator' && node.init) {
+      for (const name of paramNames({ params: [node.id] })) aliases.push([name, node.init]);
+    }
+    if (node.type === 'AssignmentExpression' && node.left.type === 'Identifier') aliases.push([node.left.name, node.right]);
+    return node === fn?.body || !isFunction(node);
+  });
+  for (let depth = 0; depth < 6; depth++) for (const [name, init] of aliases) {
+    const reads = [...urlReads(init)];
+    if (related.has(name)) reads.forEach(read => related.add(read));
+    if (reads.some(read => related.has(read))) related.add(name);
+  }
+  return related;
+}
+
+function guardExits(node) {
+  if (!node) return false;
+  if (['ReturnStatement', 'ThrowStatement'].includes(node.type)) return true;
+  if (node.type === 'BlockStatement') return node.body.some(guardExits);
+  return node.type === 'IfStatement' && guardExits(node.consequent) && guardExits(node.alternate);
+}
+
+// A true AND or false OR guarantees each operand; their opposite paths must all be restrictive.
+function urlPredicateAllows(test, accepted, related, scope, depth = 0) {
+  if (!test || depth > 6) return false;
+  if (test.type === 'UnaryExpression' && test.operator === '!') return urlPredicateAllows(test.argument, !accepted, related, scope, depth + 1);
+  if (test.type === 'LogicalExpression') {
+    const checks = [test.left, test.right].map(node => urlPredicateAllows(node, accepted, related, scope, depth + 1));
+    return (test.operator === '&&') === accepted ? checks.some(Boolean) : checks.every(Boolean);
+  }
+  const refers = node => [...urlReads(node)].some(name => related.has(name));
+  if (test.type === 'BinaryExpression' && ['===', '==', '!==', '!='].includes(test.operator)) {
+    if (['===', '=='].includes(test.operator) !== accepted) return false;
+    return [[test.left, test.right], [test.right, test.left]].some(([field, allow]) =>
+      /^(protocol|origin|host|hostname)$/.test(isMember(field) ? memberName(field) || '' : field.name || '') &&
+      refers(field) && typeof constantValue(allow, scope) === 'string' && constantValue(allow, scope).length > 0);
+  }
+  if (!isCall(test)) return false;
+  const definition = functionDefinition(test.callee, scope);
+  if (definition) {
+    const names = definition.node.params.flatMap((param, i) => test.arguments[i] && refers(test.arguments[i]) ? paramNames({ params: [param] }) : []);
+    if (!names.length) return false;
+    return inFile(definition.file, definition.program, () => {
+      const returns = returnedValues(definition.node);
+      const helperNames = urlRelatedNames(names, definition.node);
+      return returns.length > 0 && returns.every(({ value }) => urlPredicateAllows(value, accepted, helperNames, null, depth + 1));
+    }, [definition.program, definition.node, definition.node.body]);
+  }
+  if (!accepted || !isMember(test.callee)) return false;
+  const method = memberName(test.callee), target = test.callee.object;
+  if (['startsWith', 'endsWith', 'includes'].includes(method)) return refers(target) &&
+    typeof constantValue(test.arguments[0], scope) === 'string' && constantValue(test.arguments[0], scope).length > 0;
+  if (method === 'test') {
+    const regex = resolveLocal(target, scope), pattern = regex?.regex?.pattern || regex?.pattern;
+    return !!pattern && pattern.startsWith('^') && !/^\^\.\*/.test(pattern) && test.arguments.some(refers);
+  }
+  if (method === 'has') return test.arguments.some(refers);
+  return false;
+}
+
+// A URL created with a fixed origin remains fixed when only its query/hash is changed. Resolve small helper
+// return values too; reject reassigned URL objects, origin/path mutations, or unknown methods.
+export function fixedUrlPrefix(value, scope, depth = 0) {
+  if (!value || depth > 6) return undefined;
+  if (value.type === 'Identifier') {
+    const resolved = resolveLocal(value, scope);
+    return resolved !== value ? fixedUrlPrefix(resolved, scope, depth + 1) : undefined;
+  }
+  if (value.type === 'NewExpression' && value.callee.name === 'URL') {
+    if (resolveLocal(value.callee, scope) !== value.callee) return undefined;
+    if ((analysisContext.ancestors || []).some(node => isFunction(node) && paramNames(node).includes('URL'))) return undefined;
+    const binding = moduleBindings(analysisContext.program).get('URL');
+    if (binding && (!['url', 'node:url'].includes(binding.module) || binding.imported !== 'URL')) return undefined;
+    const initial = constantValue(value.arguments[0], scope);
+    if (typeof initial !== 'string') return undefined;
+    try { const url = new URL(initial); return `${url.origin}/`; } catch { return undefined; }
+  }
+  if (isMember(value) && ['href', 'origin'].includes(memberName(value))) return fixedUrlObject(value.object, scope, depth + 1);
+  if (isCall(value) && isMember(value.callee) && value.arguments.length === 0 && ['toString', 'toJSON'].includes(memberName(value.callee))) return fixedUrlObject(value.callee.object, scope, depth + 1);
+  if (isCall(value) && value.type !== 'NewExpression') {
+    const definition = functionDefinition(value.callee, scope);
+    if (!definition) return undefined;
+    return inFile(definition.file, definition.program, () => {
+      const values = returnedValues(definition.node);
+      const prefixes = values.map(({ value: returned, ancestors }) => inFile(definition.file, definition.program, () => fixedUrlPrefix(returned, null, depth + 1), [definition.program, ...ancestors]));
+      return prefixes.length && prefixes.every(prefix => prefix && prefix === prefixes[0]) ? prefixes[0] : undefined;
+    }, [definition.program, definition.node, definition.node.body]);
+  }
+  return undefined;
+}
+
+function fixedUrlObject(object, scope, depth) {
+  if (object.type !== 'Identifier') return fixedUrlPrefix(object, scope, depth);
+  const prefix = fixedUrlPrefix(resolveLocal(object, scope), scope, depth);
+  if (!prefix) return undefined;
+  let mutated = false;
+  const fn = enclosingFunction(analysisContext.ancestors || []);
+  const aliases = new Set([object.name]);
+  for (let depth = 0; depth < 6; depth++) visit(fn?.body || analysisContext.program, n => {
+    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.init?.type === 'Identifier' && aliases.has(n.init.name)) aliases.add(n.id.name);
+    return true;
+  });
+  visit(fn?.body || analysisContext.program, n => {
+    if (n.type === 'AssignmentExpression') {
+      if (n.left.type === 'Identifier' && aliases.has(n.left.name)) mutated = true;
+      if (isMember(n.left) && n.left.object.type === 'Identifier' && aliases.has(n.left.object.name) && !['search', 'hash'].includes(memberName(n.left))) mutated = true;
+    }
+    if (isCall(n) && n.arguments.some(arg => arg.type === 'Identifier' && aliases.has(arg.name))) mutated = true;
+    if (isCall(n) && isMember(n.callee) && n.callee.object.type === 'Identifier' && aliases.has(n.callee.object.name) && !['toString', 'toJSON'].includes(memberName(n.callee))) mutated = true;
+    return !mutated;
+  });
+  return mutated ? undefined : prefix;
 }
 
 /**

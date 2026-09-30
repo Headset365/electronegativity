@@ -194,9 +194,39 @@ export class ProjectIndex {
       return undefined;
     }
     const local = localFunctions(program);
+    const dispatch = new Map();
+    const addDispatch = (name, key, value) => {
+      if (!dispatch.has(name)) dispatch.set(name, []);
+      dispatch.get(name).push({ key, value });
+    };
+    visit(program, node => {
+      if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier') {
+        if (node.init?.type === 'ObjectExpression') for (const p of node.init.properties)
+          if (p.type !== 'SpreadElement') addDispatch(node.id.name, keyName(p.key), p.value || p);
+        if (node.init?.type === 'NewExpression' && node.init.callee.name === 'Map' && node.init.arguments[0]?.type === 'ArrayExpression')
+          for (const pair of node.init.arguments[0].elements) if (pair?.type === 'ArrayExpression') addDispatch(node.id.name, keyName(pair.elements[0]), pair.elements[1]);
+      }
+      if (node.type === 'AssignmentExpression' && isMember(node.left) && node.left.object.type === 'Identifier')
+        addDispatch(node.left.object.name, node.left.computed && node.left.property.type === 'Identifier' ? undefined : keyName(node.left.property), node.right);
+      if (node.type === 'CallExpression' && isMember(node.callee) && node.callee.object.type === 'Identifier' && keyName(node.callee.property) === 'set')
+        addDispatch(node.callee.object.name, keyName(node.arguments[0]), node.arguments[1]);
+      return true;
+    });
     const names = new Map();
     for (const [name, fns] of local) for (const fn of fns) names.set(functionKey(file, fn), name);
-    const resolve = (callee) => {
+    const resolve = (callee, depth = 0) => {
+      if (depth > MAX_CALL_DEPTH) return [];
+      // handlers.get(name)(...args), with known Map entries and later .set() calls.
+      if (callee?.type === 'CallExpression' && isMember(callee.callee) && keyName(callee.callee.property) === 'get' && callee.callee.object.type === 'Identifier') {
+        const key = callee.arguments[0]?.type === 'Identifier' ? undefined : keyName(callee.arguments[0]);
+        return (dispatch.get(callee.callee.object.name) || []).filter(p => key === undefined || p.key === undefined || key === p.key).flatMap(p => resolve(p.value, depth + 1));
+      }
+      if (isMember(callee) && callee.object.type === 'Identifier') {
+        // Explicit dispatch tables forward their arguments to every possible selected handler.
+        const key = callee.computed && callee.property.type === 'Identifier' ? undefined : keyName(callee.property);
+        return (dispatch.get(callee.object.name) || []).filter(p => key === undefined || p.key === undefined || key === p.key)
+          .flatMap(p => resolve(p.value, depth + 1));
+      }
       if (!callee || callee.type !== 'Identifier') return isFunction(callee) ? [functionKey(file, callee)] : [];
       if (local.has(callee.name)) return local.get(callee.name).map(fn => functionKey(file, fn));
       const binding = moduleBindings(program).get(callee.name);

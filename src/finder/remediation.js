@@ -3,6 +3,7 @@
 // Each entry is [what to do, an example] and the example is optional. Inventory findings (route "info") have none:
 // there is nothing to fix in them. Runtime and traffic findings that prove a static finding share its advice (ALIASES).
 const REMEDIATION = {
+  DYNAMIC_MODULE: ['Keep renderer input out of require() and import() paths. Map an allowlisted identifier to a fixed module, and reject unknown identifiers before loading anything.'],
   AFFINITY: ['Remove the affinity option so each window gets its own renderer process (it was removed in Electron 14).'],
   ALLOWPOPUPS: ['Remove the allowpopups attribute from the <webview>, or handle new-window requests and deny what the app does not need.'],
   ANGULAR_BIND_HTML_UNSAFE: ['Bind text with interpolation ({{ value }}) or ng-bind. If HTML is required, sanitize it first (ngSanitize or DOMPurify) and bind the sanitized result.'],
@@ -136,7 +137,7 @@ const ALIASES = {
   RUNTIME_MARKER_OPEN_EXTERNAL: 'OPEN_EXTERNAL', RUNTIME_OPEN_PATH: 'OPEN_PATH', RUNTIME_MARKER_OPEN_PATH: 'OPEN_PATH', RUNTIME_NAVIGATION: 'LIMIT_NAVIGATION',
   RUNTIME_MARKER_NAVIGATION: 'LIMIT_NAVIGATION', RUNTIME_REDIRECT: 'NAVIGATION_REDIRECT', RUNTIME_NEW_WINDOW: 'WINDOW_OPEN_HANDLER',
   RUNTIME_MARKER_NEW_WINDOW: 'WINDOW_OPEN_HANDLER', RUNTIME_PERMISSION: 'PERMISSION_REQUEST_HANDLER', RUNTIME_PERMISSION_CHECK: 'PERMISSION_REQUEST_HANDLER',
-  RUNTIME_CERTIFICATE_ERROR: 'CERTIFICATE_ERROR_EVENT', RUNTIME_INSECURE_LOAD: 'INSECURE_CONTENT', RUNTIME_DOM_INJECTION: 'XSS_SINK', RUNTIME_MARKER_SINK: 'XSS_SINK',
+  RUNTIME_CERTIFICATE_ERROR: 'CERTIFICATE_ERROR_EVENT', RUNTIME_INSECURE_LOAD: 'INSECURE_CONTENT', RUNTIME_DOM_INJECTION: 'XSS_SINK', RUNTIME_MARKER_SINK: 'XSS_SINK', RUNTIME_MARKER_MODULE: 'DYNAMIC_MODULE',
   RUNTIME_MARKER: 'XSS_SINK', RUNTIME_MARKER_COMMAND: 'COMMAND_INJECTION', RUNTIME_MARKER_IPC: 'IPC_SENDER_VALIDATION', RUNTIME_WINDOW_SESSION: 'WINDOW_SESSION',
   RUNTIME_SECRET_IN_CONSOLE: 'DEBUG_LOGGING',
 };

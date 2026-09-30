@@ -29,6 +29,8 @@ export const ROUTES = {
 
 // keyed by check id without its _JS_CHECK / _HTML_CHECK / _JSON_CHECK / _GLOBAL_CHECK suffix
 const CONSEQUENCES = {
+  DYNAMIC_MODULE: ['escalation', 'A renderer or deep link chooses the JavaScript module loaded by the main process: a traversal path can execute a file outside the intended module folder with the app’s privileges.'],
+  RUNTIME_MARKER_MODULE: ['escalation', 'A planted marker reached a module-loading path. Review whether untrusted input can select executable modules outside the intended set.'],
   AFFINITY: ['escalation', 'Windows sharing a renderer process are not isolated from each other: script injected into one of them can affect the others.'],
   ALLOWPOPUPS: ['content', 'The content shown in this <webview> can open new windows, e.g. for phishing or to get around navigation limits.'],
   ANGULAR_BIND_HTML_UNSAFE: ['content', 'The bound value is rendered as raw HTML with no escaping: markup stored by another user runs as script in this view (XSS).'],
@@ -186,6 +188,7 @@ const MARKER_HTML = 'Automatic: in a watch session (electronegativity --app <ins
 const MARKER_LINK = 'Automatic: in a watch session, put the link https://example.invalid/<marker> the tool prints into shared content and click it (also Ctrl+click and middle-click). The report shows whether the app navigated, opened a window, handed it to the OS, or blocked it.';
 const SETTINGS = 'Automatic: a watch session reports the settings each window really ran with.';
 const HOW_TO_VALIDATE = {
+  DYNAMIC_MODULE: 'Follow the input from its handler to the module loader. Check every path component and any dispatch allowlist. In an isolated test with require/import mocked, verify that separators, dot segments and absolute paths cannot select a module outside the intended set.',
   XSS_SINK: MARKER_HTML, ANGULAR_TRUST_HTML: MARKER_HTML, RICH_TEXT_EDITOR: MARKER_HTML, SANITIZER_CONFIG: MARKER_HTML, ANGULAR_BIND_HTML_UNSAFE: MARKER_HTML,
   DANGEROUS_FUNCTIONS: MARKER_HTML, RUNTIME_DOM_INJECTION: MARKER_HTML,
   OPEN_EXTERNAL: 'Automatic: in a watch session, put the link https://example.invalid/<marker> in shared content and click it, then a file:/// link the tool suggests. The report shows whether content reaches openExternal and whether non-web schemes get through.',

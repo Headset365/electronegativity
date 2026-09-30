@@ -9,10 +9,15 @@ if (logFile && process.versions.electron && process.type === 'browser') {
   // it: before its own code can register IPC handlers or create windows. ES module apps get it through the ESM
   // loader instead, so also try again as soon as the app's entry point has started.
   const Module = require('module');
+  const fs = require('fs');
+  const { observeModuleLoads } = require('./module-load.cjs');
+  const observe = load => observeModuleLoads(load, { marker: process.env.ELECTRONEGATIVITY_WATCH_MARKER,
+    resolve: (...args) => Module._resolveFilename(...args),
+    record: data => fs.appendFileSync(logFile, JSON.stringify({ t: Date.now(), ...data }) + '\n') });
   let started = false;
   let wrappedElectron;
   // wraps a module loader so the first load of `electron` is instrumented, and the app gets the wrapped module
-  const wrapLoader = (load) => function (request, ...rest) {
+  const wrapLoader = (load) => observe(function (request, ...rest) {
     const loaded = load.call(this, request, ...rest);
     if (request === 'electron' && loaded && loaded.app) {
       if (!started) {
@@ -23,7 +28,7 @@ if (logFile && process.versions.electron && process.type === 'browser') {
       return wrappedElectron || loaded;
     }
     return loaded;
-  };
+  });
   const originalLoad = Module._load;
   let currentLoad = wrapLoader(originalLoad);
   // Electron installs its own Module._load (which answers `electron` itself) after NODE_OPTIONS=--require has run on

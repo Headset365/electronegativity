@@ -255,5 +255,6 @@
 	"noReportDirOptionDescription": "no crear la carpeta de informes electronegativity-<fecha y hora> (solo se escriben las salidas solicitadas)",
 	"reportFolder": "Carpeta de informes: {{{dir}}}",
 	"reportDirFailed": "No se puede crear la carpeta de informes dentro de {{{dir}}} ({{{reason}}}). Indique una carpeta en la que pueda escribir: --report-dir <carpeta>.",
-	"shareAudit": "Comprobación de anonimización: se reemplazaron {{{count}}} valor(es) identificativo(s) que los pasos anteriores no habían detectado en el informe para compartir"
+	"shareAudit": "Comprobación de anonimización: se reemplazaron {{{count}}} valor(es) identificativo(s) que los pasos anteriores no habían detectado en el informe para compartir",
+  "DYNAMIC_MODULE_JS_CHECK": "Se carga un módulo desde una ruta elegida por una entrada no confiable"
 }

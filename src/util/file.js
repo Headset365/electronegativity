@@ -76,10 +76,16 @@ const NON_APP_FILES = /\.(test|spec|stories|e2e)\.[cm]?[jt]sx?$|[.-]min\.js$|^(y
 const PACKAGED_NON_APP_DIRECTORIES = new Set(['test', 'tests', '__tests__', '__mocks__', 'spec', 'specs', 'e2e', '.git']);
 const PACKAGED_NON_APP_FILES = /\.(test|spec|stories|e2e)\.[cm]?[jt]sx?$/i;
 
+export function isSourceBuildTooling(relativePath) {
+  return /^build[\\/](vite|bin|webpack|rollup)[\\/]/i.test(relativePath) && !isManifestFile(relativePath);
+}
+
 // relativePath is relative to the scanned folder, so scanning a folder inside a `test` directory still works
 export function isNonAppFile(relativePath, { packaged = false } = {}) {
   const parts = relativePath.split(/[\\/]/);
   if (packaged) return parts.slice(0, -1).some(part => PACKAGED_NON_APP_DIRECTORIES.has(part.toLowerCase())) || PACKAGED_NON_APP_FILES.test(parts[parts.length - 1]);
+  // Source tooling under build/ is distinct from built app code in dist/. Keep electron-builder manifests.
+  if (isSourceBuildTooling(relativePath)) return true;
   // dot-directories hold tooling: .yarn/releases, .husky, .vscode, ...
   return parts.slice(0, -1).some(part => NON_APP_DIRECTORIES.has(part.toLowerCase()) || (part.startsWith('.') && part !== '.' && part !== '..')) ||
     NON_APP_FILES.test(parts[parts.length - 1]);

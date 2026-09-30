@@ -255,5 +255,6 @@
 	"noReportDirOptionDescription": "ne pas créer le dossier de rapports electronegativity-<date et heure> (seules les sorties demandées sont écrites)",
 	"reportFolder": "Dossier de rapports : {{{dir}}}",
 	"reportDirFailed": "Impossible de créer le dossier de rapports dans {{{dir}}} ({{{reason}}}). Indiquez un dossier accessible en écriture : --report-dir <dossier>.",
-	"shareAudit": "Contrôle d'anonymisation : {{{count}}} valeur(s) identifiante(s) manquée(s) par les étapes précédentes ont été remplacées dans le rapport à partager"
+	"shareAudit": "Contrôle d'anonymisation : {{{count}}} valeur(s) identifiante(s) manquée(s) par les étapes précédentes ont été remplacées dans le rapport à partager",
+  "DYNAMIC_MODULE_JS_CHECK": "Un module est chargé depuis un chemin choisi par une entrée non fiable"
 }

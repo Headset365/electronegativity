@@ -15,6 +15,7 @@ import { reconcileRuntime } from './watch/reconcile.js';
 import { analyzePackagedFuses, packagedBinaryFor, readElectronVersion, fuseBinaryFor } from './watch/fuses.js';
 import { GlobalChecks, severity, confidence } from './finder/index.js';
 import { extension, input_exists, is_directory, writeIssues, getRelativePath, outputFormat } from './util/index.js';
+import { isSourceBuildTooling } from './util/file.js';
 import { dependencyReport, sortRows } from './util/dependencies.js';
 import { validationHint } from './finder/consequences.js';
 import { startDiagnostics, stopDiagnostics, diagnostics, writeDiagnostics } from './util/diagnostics.js';
@@ -159,6 +160,9 @@ async function scan(options, forCli) {
   // lets checks follow handlers and constants imported from other files
   finder.projectIndex = new ProjectIndex(loader, new Parser(false, true), is_directory(options.input) ? options.input : undefined);
   const filenames = [...loader.list_files];
+  // --all-files includes build scripts for analysis, but they are not evidence of shipped development tooling.
+  finder.sourceToolingFiles = new Set(!packagedInput && is_directory(options.input) ? filenames.filter(file =>
+    !remoteLabels.has(file) && isSourceBuildTooling(path.relative(path.resolve(options.input), file))) : []);
 
   // Results' table initialization
   let issues = [];

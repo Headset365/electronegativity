@@ -4,5 +4,5 @@ document.write(location.hash);
 const View = ({ html }) => <div dangerouslySetInnerHTML={{ __html: html }} />;
 element.innerHTML = '<b>static</b>';
 element.innerHTML = DOMPurify.sanitize(message.body);
-const Safe = ({ html }) => <div dangerouslySetInnerHTML={{ __html: sanitize(html) }} />;
+const Safe = ({ html }) => <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />;
 element.textContent = message.body;

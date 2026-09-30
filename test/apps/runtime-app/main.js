@@ -7,6 +7,7 @@ const os = require('os');
 // the marker the tester plants (watch mode passes it to the hook): here the server's stored document carries it, and the
 // app is driven through the ways content moves (a save request, a link, a window.open, IPC, a file path)
 const MARKER = process.env.ELECTRONEGATIVITY_WATCH_MARKER || 'ENGNONE';
+require('./ENGCANARY-module.cjs');
 
 ipcMain.handle('documents:get', (event, id) => ({ id, title: 'Quarterly report' }));
 ipcMain.handle('documents:delete', () => true); // registered but never called: shows up in the coverage report

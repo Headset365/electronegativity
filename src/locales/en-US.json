@@ -255,5 +255,6 @@
 	"noReportDirOptionDescription": "do not create the electronegativity-<date and time> report folder (only the outputs you ask for are written)",
 	"reportFolder": "Report folder: {{{dir}}}",
 	"reportDirFailed": "Can't create the report folder inside {{{dir}}} ({{{reason}}}). Give a folder you can write to: --report-dir <folder>.",
-	"shareAudit": "Redaction check: {{{count}}} identifying value(s) that earlier steps missed were replaced in the shareable report"
+	"shareAudit": "Redaction check: {{{count}}} identifying value(s) that earlier steps missed were replaced in the shareable report",
+  "DYNAMIC_MODULE_JS_CHECK": "A module is loaded from a path chosen by untrusted input"
 }

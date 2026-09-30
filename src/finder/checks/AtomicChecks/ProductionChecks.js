@@ -76,6 +76,7 @@ export class DevelopmentCodeJSCheck {
   }
 
   match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
+    if (context.sourceTooling) return null;
     let what;
     let alwaysBad = false;
     if (astNode.type === 'ImportDeclaration' && DEV_MODULES.test(literalValue(astNode.source) || '')) {
@@ -355,4 +356,3 @@ export class DocumentPipelineJSCheck {
     return null;
   }
 }
-

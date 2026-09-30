@@ -140,7 +140,7 @@ export class Finder {
       {
         // nodes enclosing the current one, outermost first, so checks can reason about the surrounding code
         const ancestors = [];
-        const context = { ancestors, file };
+        const context = { ancestors, file, sourceTooling: this.sourceToolingFiles?.has(file) || false };
         setAnalysisContext({ file, program: data.type === 'File' ? data.program : data, index: this.projectIndex, ancestors, propertyName: data.astParser.PropertyName });
         data.astParser.traverseTree(data, {
           enter: (node) => {

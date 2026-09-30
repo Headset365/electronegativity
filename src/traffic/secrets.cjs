@@ -104,7 +104,10 @@ function findSecrets(text, { maxHits = 50, config = false, patternsOnly = false 
     return hits.length >= maxHits;
   };
   for (const [kind, pattern] of SECRET_PATTERNS) {
-    for (const match of input.matchAll(pattern)) if (add(kind, match[0], match.index)) return hits;
+    for (const match of input.matchAll(pattern)) {
+      if (kind === 'Basic-auth credentials in URL' && placeholderCredentials(match[0])) continue;
+      if (add(kind, match[0], match.index)) return hits;
+    }
   }
   if (patternsOnly) return hits;
   for (const match of input.matchAll(GENERIC_ASSIGN)) {
@@ -125,6 +128,16 @@ function findSecrets(text, { maxHits = 50, config = false, patternsOnly = false 
     if (classes >= 3 && shannonEntropy(value) >= 4.3 && add(`High-entropy value (${key})`, value, match.index + match[0].lastIndexOf(value))) return hits;
   }
   return hits;
+}
+
+// Suppress only explicit user/password templates, not a real password paired with a generic-looking user.
+function placeholderCredentials(value) {
+  const credentials = value.match(/:\/\/([^:]+):([^@]+)@/);
+  if (!credentials) return false;
+  const decode = text => { try { return decodeURIComponent(text); } catch { return text; } };
+  const user = decode(credentials[1]), password = decode(credentials[2]);
+  return (user === '[username]' && password === '[password]') ||
+    (user === 'username' && password === 'password' && /@(some-[\w.-]+|example\.(com|org|net)|host)([:/]|$)/i.test(value));
 }
 
 /** Redacts every provider-pattern secret inside free-form text. */

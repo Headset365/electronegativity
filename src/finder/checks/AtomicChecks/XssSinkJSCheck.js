@@ -1,13 +1,15 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
-import { memberName, keyName, calleeObjectName, finding } from '../helpers.js';
-import { constantValue, identifiersIn, isCall, resolveLocal, onlyConstantParts } from '../analysis.js';
+import { memberName, keyName, calleeObjectName, finding, isFunction, combineAssignments } from '../helpers.js';
+import { constantValue, isCall, isMember, resolveLocal, onlyConstantParts, currentAnalysisContext, moduleBindings,
+  functionDefinition, inFile, returnedValues, visit } from '../analysis.js';
 import { htmlOrigin, looksLikeHtml, ORIGINS } from '../html.js';
 
 const HTML_PROPERTIES = ['innerHTML', 'outerHTML'];
 const JQUERY_INSERTION = ['append', 'prepend', 'before', 'after', 'replaceWith'];
 // sanitizers make the value safe to insert
-const SANITIZED = /(sanitize|purify|escape|encode|DOMPurify|xss|trustedTypes|createHTML)/i;
+const SANITIZER_MODULES = /^(dompurify|isomorphic-dompurify|sanitize-html|escape-html|he|lodash|underscore)(\/|$)/;
+const SANITIZER_MUTATIONS = new WeakMap();
 
 // XSS in an Electron renderer can reach IPC, preload APIs and, without isolation, Node.js itself
 export default class XssSinkJSCheck {
@@ -42,6 +44,15 @@ export default class XssSinkJSCheck {
       if ((isJQuery || isAngularElement) && astNode.arguments.length >= 1 && isHtmlArgument(astNode.arguments[0], scope, context)) {
         sink = isJQuery ? '$(html)' : 'angular.element(html)';
         value = astNode.arguments[0];
+      }
+      // Attribute a shared HTML helper to its caller as well as to the helper's generic sink.
+      if (!sink) {
+        const definition = functionDefinition(astNode.callee, scope);
+        if (definition) {
+          const parameters = htmlSinkParameters(definition.node);
+          const index = parameters.find(i => astNode.arguments[i] && !isSanitized(astNode.arguments[i], scope));
+          if (index !== undefined) { sink = 'HTML helper'; value = astNode.arguments[index]; }
+        }
       }
     }
     // <div dangerouslySetInnerHTML={{ __html: x }} />
@@ -85,19 +96,144 @@ function isBuiltString(node) {
  * Whether every dynamic part of the HTML goes through a sanitizer. A sanitizer nested deeper doesn't count:
  * in render(escape(text)) the render function can re-introduce markup (Signal Desktop CVE-2018-10994).
  */
-function isSanitized(value, scope) {
-  if (!value) return false;
+export function isSanitized(value, scope, depth = 0, parameters = new Map()) {
+  if (!value || depth > 12) return false;
+  if (value.type === 'Identifier' && parameters.has(value.name)) return parameters.get(value.name);
   if (constantValue(value, scope) !== undefined) return true;
+  const safe = node => isSanitized(node, scope, depth + 1, parameters);
   switch (value.type) {
-    case 'Identifier': return SANITIZED.test(value.name);
+    case 'Identifier': {
+      const resolved = resolveLocal(value, scope);
+      return resolved !== value && safe(resolved);
+    }
     case 'CallExpression':
-    case 'OptionalCallExpression': return SANITIZED.test(memberName(value.callee) || (value.callee.type === 'Identifier' ? value.callee.name : ''));
-    case 'TemplateLiteral': return value.expressions.every(e => isSanitized(e, scope));
-    case 'BinaryExpression': return value.operator === '+' && isSanitized(value.left, scope) && isSanitized(value.right, scope);
-    case 'ConditionalExpression': return isSanitized(value.consequent, scope) && isSanitized(value.alternate, scope);
-    case 'LogicalExpression': return isSanitized(value.left, scope) && isSanitized(value.right, scope);
-    case 'MemberExpression': return SANITIZED.test(memberName(value) || '') || [...identifiersIn(value)].some(name => SANITIZED.test(name));
-    case 'AwaitExpression': return isSanitized(value.argument, scope);
+    case 'OptionalCallExpression': {
+      const definition = functionDefinition(value.callee, scope);
+      if (definition) {
+        if (isHtmlEscaper(definition.node)) return true;
+        const states = new Map();
+        definition.node.params.forEach((param, i) => { if (param.type === 'Identifier') states.set(param.name, safe(value.arguments[i])); });
+        visit(definition.node.body, node => {
+          if (node.type === 'AssignmentExpression' && node.left.type === 'Identifier' && states.has(node.left.name)) states.set(node.left.name, false);
+          if (node.type === 'UpdateExpression' && node.argument.type === 'Identifier' && states.has(node.argument.name)) states.set(node.argument.name, false);
+          return node === definition.node.body || !isFunction(node);
+        });
+        return inFile(definition.file, definition.program, () => {
+          const localScope = functionValueScope(definition.node);
+          const returns = returnedValues(definition.node);
+          return returns.length > 0 && returns.every(({ value: returned }) => isSanitized(returned, localScope, depth + 1, states));
+        }, [definition.program, definition.node, definition.node.body]);
+      }
+      if (knownSanitizer(value.callee, scope)) return true;
+      // String slicing preserves escaped content; decoding, replace(), render(), etc. do not.
+      return isMember(value.callee) && ['slice', 'substring', 'substr', 'trim', 'trimStart', 'trimEnd'].includes(memberName(value.callee)) && safe(value.callee.object);
+    }
+    case 'TemplateLiteral': return value.expressions.every(safe);
+    case 'BinaryExpression': return value.operator === '+' && safe(value.left) && safe(value.right);
+    case 'ConditionalExpression': return safe(value.consequent) && safe(value.alternate);
+    case 'LogicalExpression': return safe(value.left) && safe(value.right);
+    case 'AwaitExpression': return safe(value.argument);
+    case 'TSAsExpression': case 'TSNonNullExpression': return safe(value.expression);
     default: return false;
   }
+}
+
+function htmlSinkParameters(fn) {
+  const indexes = new Set();
+  visit(fn.body, n => {
+    if (n.type === 'AssignmentExpression' && HTML_PROPERTIES.includes(memberName(n.left)) && n.right.type === 'Identifier') {
+      const index = fn.params.findIndex(p => p.type === 'Identifier' && p.name === n.right.name);
+      if (index !== -1) indexes.add(index);
+    }
+    return n === fn.body || !isFunction(n);
+  });
+  return [...indexes];
+}
+
+// Recognize a concrete HTML-escaping implementation, rather than trusting its name. Require a global
+// replacement of every HTML metacharacter and an entity for every matched character.
+function isHtmlEscaper(fn) {
+  const returns = returnedValues(fn);
+  if (!returns.length) return false;
+  return returns.every(({ value }) => {
+    if (!isCall(value) || !isMember(value.callee) || memberName(value.callee) !== 'replace') return false;
+    const [regex, replacement] = value.arguments;
+    const pattern = regex?.regex?.pattern || regex?.pattern;
+    const flags = regex?.regex?.flags || regex?.flags || '';
+    if (!pattern || !flags.includes('g') || !/^\[[&<>"']{5}\]$/.test(pattern) || new Set(pattern.slice(1, -1)).size !== 5 || !isFunction(replacement)) return false;
+    const outputs = returnedValues(replacement);
+    if (outputs.length !== 1) return false;
+    let table = outputs[0].value;
+    if (table.type === 'LogicalExpression' && table.operator === '||') table = table.left;
+    if (!isMember(table) || !table.computed || table.object.type !== 'ObjectExpression' || table.property.name !== replacement.params[0]?.name) return false;
+    const entities = new Map(table.object.properties.map(p => [keyName(p.key), p.value?.value]));
+    return [...'&<>"\''].every(char => /^&(?:amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);$/i.test(entities.get(char) || ''));
+  });
+}
+
+function knownSanitizer(callee, scope) {
+  const { program, ancestors = [] } = currentAnalysisContext();
+  const bindings = moduleBindings(program);
+  const method = callee.type === 'Identifier' ? callee.name : memberName(callee);
+  const object = isMember(callee) && callee.object.type === 'Identifier' ? callee.object : undefined;
+  const reference = object || callee;
+  if (reference.type !== 'Identifier' || ancestors.some(node => isFunction(node) && node.params.some(p => p.type === 'Identifier' && p.name === reference.name))) return false;
+  const binding = bindings.get(object ? object.name : method);
+  const resolved = resolveLocal(reference, scope);
+  const required = isMember(resolved) ? resolved.object : resolved;
+  const boundRequire = binding && isCall(required) && required.callee.name === 'require' && constantValue(required.arguments[0], scope) === binding.module;
+  if (resolved !== reference && !boundRequire) return false;
+  if (sanitizerWasMutated(reference, object && method, program)) return false;
+  if (binding && SANITIZER_MODULES.test(binding.module || '')) {
+    if (/dompurify/.test(binding.module)) return (object ? method : binding.imported) === 'sanitize';
+    if (/^(sanitize-html|escape-html)(\/|$)/.test(binding.module)) return !object && ['default', '*'].includes(binding.imported);
+    return ['escape', 'encode', 'escapeHtml'].includes(object ? method : binding.imported);
+  }
+  // Recognized browser globals, provided they have not been replaced by a local declaration.
+  if (object && resolveLocal(object, scope) === object)
+    return (object.name === 'DOMPurify' && method === 'sanitize') || (object.name === '_' && method === 'escape');
+  return callee.type === 'Identifier' && ['escapeHtml', 'escapeHTML', '$sanitize'].includes(method) && resolveLocal(callee, scope) === callee;
+}
+
+function sanitizerWasMutated(reference, method, program) {
+  if (!program) return false;
+  if (!SANITIZER_MUTATIONS.has(program)) SANITIZER_MUTATIONS.set(program, new Map());
+  const cache = SANITIZER_MUTATIONS.get(program), key = `${reference.name}:${method || ''}`;
+  if (cache.has(key)) return cache.get(key);
+  const aliases = new Set([reference.name]);
+  for (let depth = 0; depth < 6; depth++) visit(program, node => {
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.init?.type === 'Identifier' && aliases.has(node.init.name)) aliases.add(node.id.name);
+    if (node.type === 'AssignmentExpression' && node.left.type === 'Identifier' && node.right.type === 'Identifier' && aliases.has(node.right.name)) aliases.add(node.left.name);
+    return true;
+  });
+  const targets = node => node?.type === 'Identifier' ? aliases.has(node.name) :
+    isMember(node) && node.object.type === 'Identifier' && aliases.has(node.object.name) && (!method || !memberName(node) || memberName(node) === method);
+  let mutated = false;
+  visit(program, node => {
+    if ((node.type === 'AssignmentExpression' && targets(node.left)) || (node.type === 'UnaryExpression' && node.operator === 'delete' && targets(node.argument))) mutated = true;
+    if (isCall(node) && isMember(node.callee) && node.callee.object.name === 'Object' && ['assign', 'defineProperty', 'defineProperties'].includes(memberName(node.callee)) && targets(node.arguments[0])) mutated = true;
+    return !mutated;
+  });
+  cache.set(key, mutated);
+  return mutated;
+}
+
+// Resolve a helper's local string construction without borrowing the caller's lexical scope.
+function functionValueScope(fn) {
+  const declarations = new Map(), writes = new Map();
+  visit(fn.body, n => {
+    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.init) declarations.set(n.id.name, n);
+    if (n.type === 'FunctionDeclaration' && n.id) declarations.set(n.id.name, n);
+    if (n.type === 'AssignmentExpression' && n.left.type === 'Identifier') {
+      if (!writes.has(n.left.name)) writes.set(n.left.name, []);
+      writes.get(n.left.name).push({ operator: n.operator, right: n.right });
+    }
+    return n === fn.body || !isFunction(n);
+  });
+  return { getVarInScope(name) {
+    const declaration = declarations.get(name);
+    if (!declaration) return null;
+    const node = declaration.type === 'VariableDeclarator' && writes.has(name) ? { ...declaration, init: combineAssignments(declaration.init, writes.get(name)) } : declaration;
+    return { defs: [{ type: node.type === 'FunctionDeclaration' ? 'FunctionName' : 'Variable', node }] };
+  } };
 }

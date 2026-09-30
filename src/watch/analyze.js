@@ -445,6 +445,13 @@ function markerEvidence(records, add, first, api, issues) {
     if (first(`marker-ipc:${r.channel}`))
       add('RUNTIME_MARKER_IPC', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN, `Marker data reached IPC channel '${r.channel}'${r.sender ? ` from ${r.sender}` : ''}. This does not establish sender validation or a cross-account route`, { channel: r.channel, sender: r.sender });
   }
+  for (const r of records.filter(r => r.kind === 'module-load' && r.marker)) {
+    if (!first(`marker-module:${r.resolved || r.request}:${r.ok}`)) continue;
+    add('RUNTIME_MARKER_MODULE', r.parent || r.resolved || 'N/A', r.ok ? severity.MEDIUM : severity.INFORMATIONAL, confidence.FIRM,
+      r.ok ? 'A planted marker reached a CommonJS module path and the module loaded. Path traversal, caller control and exploitability remain unverified.' :
+        'A planted marker reached a CommonJS module path; the load failed. This does not establish that a security policy rejected it.',
+      { request: r.request, resolved: r.resolved, parent: r.parent, loaded: !!r.ok, errorCode: r.errorCode, sink: 'require' }, 'https://owasp.org/www-community/attacks/Path_Traversal');
+  }
   for (const r of records.filter(r => r.kind === 'process' && r.marker)) {
     if (first(`marker-process:${r.program}`))
       add('RUNTIME_MARKER_COMMAND', 'runtime', severity.MEDIUM, confidence.FIRM, `Marker data reached a command invocation (${r.program}, via ${r.method}). Command injection and argument control remain unverified`, { program: r.program, method: r.method }, 'https://owasp.org/www-community/attacks/Command_Injection');
