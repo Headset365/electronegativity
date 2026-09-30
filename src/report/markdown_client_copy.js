@@ -326,4 +326,34 @@ export const CLIENT_COPY = {
     'Credentials or signing material available in an affected environment may be exposed; artefacts produced there may require independent verification. The affected set must be based on execution and access evidence.',
     'Review install scripts, build logs, environment access and release provenance. Rotate credentials that were accessible during execution and rebuild and verify impacted artefacts from a trusted environment.'
   ],
+  'Untrusted module path': [
+    'A module path in the main process or a preload is built from a value that may come from a renderer, a navigation or a deep link, and is passed to require() or import(). Whether a caller outside the application controls that value needs confirmation.',
+    'If a lower-trust caller can choose the path, the application may load and run a different module or file, including one reached through directory traversal, with the privileges of the process that loads it. The scan does not establish that such a caller exists.',
+    'Load modules only from a fixed map of known names to fixed paths, and reject any other value before resolution. Verify that a traversal value and an unlisted module name are rejected in the packaged application.'
+  ],
+  'Injected script reached Node or Electron APIs': [
+    'A configured test payload, delivered through the application’s own save and view workflow, executed in a renderer and reported access to Node.js, the Electron module or the local file system from page script.',
+    'Content that reaches this view as script can use the same access: reading local files, loading modules or calling Electron APIs with the user’s privileges. The recorded signal establishes this access for the tested view; other views and accounts need separate evidence.',
+    'Disable Node integration and enable context isolation and the sandbox for windows that render stored or external content, and render that content as text or sanitised HTML. Repeat the same campaign case and confirm that the payload no longer reports Node, Electron or file access.'
+  ],
+  'Script evaluation permitted': [
+    'A configured test payload executed in a renderer and was able to call eval(). The effective Content Security Policy of the tested view does not block string evaluation.',
+    'Where injected content runs as script, permitted evaluation makes it easier to turn a data value into executable code and weakens a policy’s ability to contain an injection. It does not by itself show how the content was injected.',
+    'Remove unsafe-eval from the policy of the affected view and replace string evaluation in the application code. Repeat the campaign case and confirm the evaluation attempt is blocked and reported as a violation.'
+  ],
+  'No certificate pinning': [
+    'The application relies on the operating system’s trusted certificate authorities for its backend connections and does not pin the certificates or keys of the servers it trusts. This is a hardening observation, not a certificate validation failure.',
+    'An actor who can place a trusted certificate on the device, or who obtains a certificate from a trusted authority for the backend host, could intercept the affected connections. Where a runtime capture shows an intercepting proxy was accepted, that interception is observed for the tested host.',
+    'Decide from the threat model whether pinning is required for the backend hosts. Where it is, verify the server certificate or public key in session.setCertificateVerifyProc against an allowlist with a rotation plan, and confirm an intercepting proxy’s certificate is rejected.'
+  ],
+  'Untrusted URL loaded in an app window': [
+    'An application window loads a URL that is taken from a less trusted input, such as a deep link, an IPC message or navigation data, without an allowlist of destinations being established by the scan.',
+    'If an external party can choose that URL, their page runs inside the application window with that window’s preload, session and permissions. The consequence depends on what the window exposes to page content.',
+    'Parse the incoming URL and allow only known application origins and paths before loading it; open everything else in the system browser after scheme validation. Verify that a crafted link to an unapproved origin is not loaded in the window.'
+  ],
+  'Interception proxy accepted': [
+    'A traffic capture made with an intercepting proxy contains the application’s decrypted HTTPS traffic: the application accepted a certificate issued by the proxy for its backend hosts.',
+    'Anyone who can get a certificate trusted on the device, such as a corporate proxy or malware that installs a root certificate, can read and alter these connections. This was observed on a test device where the proxy’s root certificate had been installed on purpose.',
+    'Where the threat model calls for it, pin the backend certificates or keys and reject connections that do not match. Repeat the capture through the proxy and confirm the application refuses the connection.'
+  ],
 };

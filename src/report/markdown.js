@@ -8,18 +8,18 @@ import { remediationOf } from '../finder/remediation.js';
 import { matchingVariations } from './markdown_variations.js';
 
 const definitions = [
-  ['Renderer Isolation Weakened', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX))/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
+  ['Renderer Isolation Weakened', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|PRELOAD|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX)|RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$)/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
   ['Chromium Security Features Disabled', /^(WEB_SECURITY|INSECURE_CONTENT|EXPERIMENTAL_FEATURES|BLINK_FEATURES|WEBGL|WEBSQL|PLUGINS|NAVIGATE_ON_DRAG_DROP|CUSTOM_ARGUMENTS|SECURITY_WARNINGS_DISABLED|SECUREKEYBOARDENTRY|RUNTIME_WEB_SECURITY)/, 'Disabled browser safeguards expand what page content can do.', 'Restore Chromium defaults and enable only capabilities that are essential.', 'CWE-693: Protection Mechanism Failure'],
   ['Privileged APIs Exposed to Untrusted Content', /^(CONTEXT_BRIDGE_EXPOSURE|RUNTIME_PRELOAD_FOREIGN_ORIGIN|WINDOW_SESSION|RUNTIME_WINDOW_SESSION)/, 'Untrusted pages may reach privileged APIs or share a trusted session.', 'Expose narrow preload APIs and separate sessions by trust level.', 'CWE-749: Exposed Dangerous Method or Function'],
   ['IPC Handlers Trust Renderer Input', /^(IPC_SENDER_VALIDATION|IPC_HANDLER|IPC_FILE_ACCESS|IPC_CHANNEL_MAP|RUNTIME_MARKER_IPC)/, 'Renderer messages can reach main-process operations without adequate checks.', 'Validate the sender, arguments and allowed operations in every handler.', 'CWE-20: Improper Input Validation'],
   ['Unsafe Hand-off of URLs and Files to the Operating System', /^(OPEN_EXTERNAL|OPEN_PATH|SHOWITEMINFOLDER|WRITE_SHORTCUT|DOWNLOAD|RUNTIME_(OPEN_EXTERNAL|OPEN_PATH)|RUNTIME_MARKER_(OPEN_EXTERNAL|OPEN_PATH))/, 'Untrusted URLs or file paths may be opened by the operating system.', 'Allowlist URL schemes and hosts, and constrain file paths before opening them.', 'CWE-73: External Control of File Name or Path'],
-  ['Code or Command Execution from Untrusted Data', /^(COMMAND_INJECTION|DANGEROUS_FUNCTIONS|RUNTIME_MARKER_COMMAND)/, 'Untrusted data may reach command or code execution.', 'Avoid command-line construction and pass validated arguments to safe APIs.', 'CWE-78: Improper Neutralization of Special Elements used in an OS Command'],
+  ['Code or Command Execution from Untrusted Data', /^(COMMAND_INJECTION|DANGEROUS_FUNCTIONS|DYNAMIC_MODULE|RUNTIME_MARKER_(COMMAND|MODULE))/, 'Untrusted data may reach command or code execution.', 'Avoid command-line construction and pass validated arguments to safe APIs.', 'CWE-78: Improper Neutralization of Special Elements used in an OS Command'],
   ['Microsoft Word Integration', /^WORD_LAUNCH/, 'Opening documents in Microsoft Word can expose users to unsafe document content or command construction.', 'Validate document paths and preserve Mark-of-the-Web metadata before opening files.', 'CWE-73: External Control of File Name or Path'],
-  ['Deep Link, Protocol and File Association Handling', /^(FILE_HANDLER|PROTOCOL_HANDLER|PROTOCOL_PRIVILEGES|INSTALLER_FILE_HANDLER|UNTRUSTED_LOAD_URL|FILE_PROTOCOL)/, 'External links and files can enter privileged application flows.', 'Parse deep links and file associations as untrusted input and allow only known actions.', 'CWE-20: Improper Input Validation'],
-  ['Insufficient Navigation and Window Controls', /^(LIMIT_NAVIGATION|WINDOW_OPEN_HANDLER|NAVIGATION_REDIRECT|AUXCLICK|ALLOWPOPUPS|WEBVIEW|IFRAME_SANDBOX|RUNTIME_(NAVIGATION|NEW_WINDOW|REDIRECT|WEBVIEW)|RUNTIME_MARKER_(NAVIGATION|NEW_WINDOW))/, 'Untrusted navigation or new windows may retain application privileges.', 'Deny navigation and new windows by default, then allowlist intended destinations.', 'CWE-601: URL Redirection to Untrusted Site'],
+  ['Deep Link, Protocol and File Association Handling', /^(FILE_HANDLER|PROTOCOL_HANDLER|PROTOCOL_PRIVILEGES|INSTALLER_FILE_HANDLER|FILE_PROTOCOL)/, 'External links and files can enter privileged application flows.', 'Parse deep links and file associations as untrusted input and allow only known actions.', 'CWE-20: Improper Input Validation'],
+  ['Insufficient Navigation and Window Controls', /^(LIMIT_NAVIGATION|UNTRUSTED_LOAD_URL|WINDOW_OPEN_HANDLER|NAVIGATION_REDIRECT|AUXCLICK|ALLOWPOPUPS|WEBVIEW|IFRAME_SANDBOX|RUNTIME_(NAVIGATION|NEW_WINDOW|REDIRECT|WEBVIEW)|RUNTIME_MARKER_(NAVIGATION|NEW_WINDOW))/, 'Untrusted navigation or new windows may retain application privileges.', 'Deny navigation and new windows by default, then allowlist intended destinations.', 'CWE-601: URL Redirection to Untrusted Site'],
   ['Missing Permission Handlers', /^(PERMISSION_REQUEST_HANDLER|RUNTIME_PERMISSION|RUNTIME_PERMISSION_CHECK)/, 'Pages may obtain capabilities without an explicit application decision.', 'Install request and check handlers that deny permissions by default.', 'CWE-862: Missing Authorization'],
   ['Cross-Site Scripting Exposure in Content Rendering', /^(XSS_SINK|RICH_TEXT_EDITOR|SANITIZER_CONFIG|ANGULAR|RUNTIME_DOM_INJECTION|RUNTIME_MARKER|RUNTIME_HTML_ENDPOINT|RUNTIME_(ACTIVE_SCRIPT|CAMPAIGN_SCRIPT)|TRAFFIC_WS_HTML_MESSAGE|TRAFFIC_REFLECTED_INPUT)/, 'Untrusted content may be rendered as executable markup.', 'Render text as text; sanitise allowed HTML before insertion into the page.', 'CWE-79: Improper Neutralization of Input During Web Page Generation'],
-  ['Missing or Weak Content Security Policy', /^(CSP$|CSP_DIRECTIVES|RUNTIME_CSP)/, 'A missing or permissive policy reduces protection against script injection.', 'Ship a restrictive Content Security Policy for every renderer.', 'CWE-693: Protection Mechanism Failure'],
+  ['Missing or Weak Content Security Policy', /^(CSP$|CSP_DIRECTIVES|RUNTIME_CSP|RUNTIME_CAMPAIGN_EVAL$)/, 'A missing or permissive policy reduces protection against script injection.', 'Ship a restrictive Content Security Policy for every renderer.', 'CWE-693: Protection Mechanism Failure'],
   ['Document Parsing Risks', /^DOCUMENT_PIPELINE/, 'Documents enter parsers or renderers that need strict isolation.', 'Validate file types and parse untrusted documents in a restricted context.', 'CWE-20: Improper Input Validation'],
   ['Insecure Electron Fuse Configuration', /^(FUSES|PACKAGED_FUSES)/, 'Packaged Electron fuses leave unnecessary privileges available.', 'Set secure fuses at package time and verify the packaged executable.', 'CWE-693: Protection Mechanism Failure'],
   ['Application Code Not Protected Against Inspection or Tampering', /^(ASAR_INTEGRITY|SOURCE_MAP_SHIPPED)/, 'Packaged application code may be exposed or changed without detection.', 'Remove production source maps and enable asar integrity with the associated fuses.', 'CWE-494: Download of Code Without Integrity Check'],
@@ -28,6 +28,7 @@ const definitions = [
   ['Development and Debugging Features in Production', /^(DEVTOOLS|DEVELOPMENT_CODE|DEBUG_LOGGING|RUNTIME_SECRET_IN_CONSOLE|RUNTIME_UNCAUGHT_EXCEPTION)/, 'Development features can disclose information or expand the attack surface.', 'Remove debug facilities and sensitive logs from production builds.', 'CWE-489: Active Debug Code'],
   ['Hard-coded Secrets in the Application Package', /^HARDCODED_SECRET/, 'Secrets shipped in the application package can be recovered by anyone with the package.', 'Remove and rotate embedded secrets; keep server credentials on the server.', 'CWE-798: Use of Hard-coded Credentials'],
   ['Sensitive Data Stored Insecurely', /^(STORAGE|SECRET_FILE_WRITE|ELECTRON_STORE_ENCRYPTION|PLAINTEXT_SECRETS)/, 'Sensitive data may be recoverable from local storage.', 'Use the operating system credential store or safeStorage for secrets.', 'CWE-312: Cleartext Storage of Sensitive Information'],
+  ['Certificate Pinning Not Implemented (hardening)', /^CERTIFICATE_PINNING/, 'Backend connections trust any certificate the operating system trusts.', 'Pin backend certificates or keys where the threat model requires it.', 'CWE-295: Improper Certificate Validation'],
   ['Insecure Transport and Certificate Validation', /^(HTTP_RESOURCES|RUNTIME_INSECURE_LOAD|TRAFFIC_(CLEARTEXT_HTTP|WS_CLEARTEXT|BASIC_AUTH|INSECURE_COOKIE)|COOKIE_FLAGS|CERTIFICATE|NODE_TLS_REJECT_UNAUTHORIZED|RUNTIME_CERTIFICATE_ERROR)/, 'Traffic or credentials may be exposed in transit.', 'Use HTTPS and WSS, validate certificates and set secure cookie attributes.', 'CWE-319: Cleartext Transmission of Sensitive Information'],
   ['Sensitive Data Exposed in Network Traffic', /^(TRAFFIC_(SECRET_IN_URL|SECRET_IN_RESPONSE|WS_SECRET|AUTH_TO_THIRD_PARTY|USER_INPUT_TO_THIRD_PARTY))/, 'Network requests may expose credentials or user data to unintended recipients.', 'Restrict data sent to each host and remove secrets from URLs and responses.', 'CWE-201: Insertion of Sensitive Information Into Sent Data'],
   ['Outdated Electron Runtime', /^(AVAILABLE_SECURITY_FIXES|UNSUPPORTED_VERSION|CHROMIUM_ADVISORIES)/, 'The Electron runtime may lack security fixes or support.', 'Upgrade to a supported Electron release with the relevant fixes.', 'CWE-1104: Use of Unmaintained Third Party Components'],
@@ -58,6 +59,7 @@ const introductions = {
   'Development and Debugging Features in Production': 'The production package of {app} retains development or debugging behaviour. The listed items can expose information or expand the actions available to someone using the app.',
   'Hard-coded Secrets in the Application Package': '{app} contains material identified as a secret in its distributed files. Anyone with the package can inspect those files; the value and its privileges should be checked before rotation.',
   'Sensitive Data Stored Insecurely': '{app} stores or writes sensitive data through the listed paths. The effective exposure depends on the data involved, its protection at rest and access to the user profile or package.',
+  'Certificate Pinning Not Implemented (hardening)': '{app} validates server certificates against the certificate authorities the operating system trusts, without pinning the certificates or keys of its own backends. Certificates are still validated; pinning is an additional safeguard whose need depends on the threat model.',
   'Insecure Transport and Certificate Validation': '{app} loads or sends data through insecure transport settings or bypasses certificate checks. The affected URL, certificate path or cookie determines which traffic may be exposed.',
   'Sensitive Data Exposed in Network Traffic': 'The captured traffic from {app} contains data or destinations that may disclose credentials or user input. The listed hosts and fields need to be checked against the client’s intended data flows.',
   'Outdated Electron Runtime': 'The Electron release used by {app} may be outside support or missing upstream security fixes. The relevant installed version and advisory evidence determine the upgrade target.',
@@ -65,13 +67,16 @@ const introductions = {
   'Known Malicious Package': 'A package version identified as malicious is present in the dependency inventory for {app}. Its role in the build and any exposure of credentials or developer machines should be investigated promptly.',
   'Other Security Observations': '{app} has a reportable scanner observation outside the named groups. The check description and evidence below identify the affected component and what needs to be assessed.',
 };
-const evidenceOnly = /^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|PRELOAD|IPC_RENDERER_CHANNEL|RUNTIME_IPC$|RUNTIME_MARKER_SENT|CREDENTIAL_ACCESS|DEPENDENCY_INVENTORY|ELECTRON_VERSION)/;
+// (PRELOAD_JS_CHECK is informational with context isolation, reported without: the preload then shares the page's world)
+const evidenceOnly = /^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|IPC_RENDERER_CHANNEL|RUNTIME_IPC$|RUNTIME_MARKER_SENT|CREDENTIAL_ACCESS|DEPENDENCY_INVENTORY|ELECTRON_VERSION)/;
 const observations = new Set(['SOURCE_MAP_SHIPPED', 'STORAGE_CACHED_RESPONSES', 'CERTIFICATE_PINNING', 'WORD_LAUNCH']);
 const normalId = id => String(id || '').replace(/_(JS|HTML|JSON|GLOBAL|LOCK)_CHECK$/, '');
 const nameOf = i => i?.name || i || '';
 // Script execution or a live marker recorded at runtime. A setting observed at runtime is evidence of the setting, not of
 // an exploit, so it does not count.
+// (the campaign's Node, Electron, file and eval findings exist only when the payload's script ran and signalled them)
 const isConfirmed = i => i.validation?.status === 'confirmed' || i.properties?.executed === true || i.properties?.execution === 'observed' ||
+  /^RUNTIME_CAMPAIGN_(FS_READ|NODE|ELECTRON|EVAL)$/.test(normalId(i.id)) ||
   (/^RUNTIME_MARKER/.test(normalId(i.id)) && i.properties?.live === true);
 const victimAction = i => /\b(click|open|install|updat|import|attachment|document)/i.test(interactionOf(i.id) || '');
 const consequenceScale = ['Very Low', 'Low', 'Medium', 'High', 'Critical'];
@@ -92,7 +97,9 @@ const COMMANDS = {
 function reportable(i) {
   const id = normalId(i.id);
   if (/_(DEPRECATION|REMOVAL|CHANGE)$/.test(id) || id === 'IPC_SEND_STRUCTURED_CLONE_ALGORITHM' ||
-      ['TRAFFIC_IDOR_CANDIDATE', 'TRAFFIC_STATE_CHANGE_NO_AUTH'].includes(id) || /COVERAGE/.test(id)) return false;
+      ['TRAFFIC_IDOR_CANDIDATE', 'TRAFFIC_STATE_CHANGE_NO_AUTH'].includes(id) || /COVERAGE/.test(id) ||
+      // the tool's own housekeeping during a campaign (restoring the test record, removing its canaries), not the app's
+      ['RUNTIME_CAMPAIGN_RESTORE', 'RUNTIME_CAMPAIGN_CLEANUP'].includes(id)) return false;
   if (evidenceOnly.test(id) || /^(CSP_(JS|HTML)|NAVIGATION_REDIRECT_JS)_CHECK$/.test(i.id) || (id === 'RUNTIME_MARKER' && !i.properties?.live) ||
       (['IPC_HANDLER', 'IPC_CHANNEL_MAP', 'DOCUMENT_PIPELINE'].includes(id) && nameOf(i.severity) === 'INFORMATIONAL')) return false;
   return nameOf(i.severity) !== 'INFORMATIONAL' || observations.has(id);
@@ -153,6 +160,8 @@ export function groupClientFindings(issues) {
   }
   return [...groups.values()].map(g => {
     g.items = g.issues.map(i => ({ issue: i, rating: ratingOf(i, g.definition[0]) })).sort(byRating);
+    // most severe first everywhere the finding lists its instances, so a cut-off list never drops the one that rates it
+    g.issues = g.items.map(x => x.issue);
     // accepted risks are listed but the rating is that of what is still open; a group of accepted risks only keeps theirs
     const basis = g.items.find(x => !x.issue.suppression) || g.items[0];
     g.rating = basis.rating;

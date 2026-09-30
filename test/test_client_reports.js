@@ -179,8 +179,35 @@ describe('Client report outputs', () => {
     fuseVariants.length.should.equal(3);
   });
 
+  it('groups every finding that can reach the client report under a named problem, never under Other', () => {
+    const titleOf = (id, sev = severity.MEDIUM) => groupClientFindings([issue(id, sev)])[0]?.definition[0];
+    titleOf('DYNAMIC_MODULE_JS_CHECK', severity.HIGH).should.equal('Code or Command Execution from Untrusted Data');
+    titleOf('RUNTIME_MARKER_MODULE').should.equal('Code or Command Execution from Untrusted Data');
+    for (const id of ['RUNTIME_CAMPAIGN_FS_READ', 'RUNTIME_CAMPAIGN_NODE', 'RUNTIME_CAMPAIGN_ELECTRON', 'PRELOAD_JS_CHECK']) titleOf(id).should.equal('Renderer Isolation Weakened', id);
+    titleOf('RUNTIME_CAMPAIGN_EVAL', severity.LOW).should.equal('Missing or Weak Content Security Policy');
+    titleOf('UNTRUSTED_LOAD_URL_JS_CHECK', severity.HIGH).should.equal('Insufficient Navigation and Window Controls');
+    titleOf('CERTIFICATE_PINNING_GLOBAL_CHECK', severity.INFORMATIONAL).should.equal('Certificate Pinning Not Implemented (hardening)');
+    titleOf('CERTIFICATE_VERIFY_PROC_JS_CHECK', severity.HIGH).should.equal('Insecure Transport and Certificate Validation');
+    // the tool's own housekeeping is not a finding about the app
+    groupClientFindings([issue('RUNTIME_CAMPAIGN_RESTORE'), issue('RUNTIME_CAMPAIGN_CLEANUP', severity.INFORMATIONAL)]).should.have.length(0);
+    // a campaign's file read is runtime evidence: the payload's script ran and signalled it
+    ratingOf(issue('RUNTIME_CAMPAIGN_FS_READ', severity.HIGH), 'Renderer Isolation Weakened').likelihood.should.equal('Very Likely');
+    // "no pinning" is described as a hardening gap, not a validation bypass
+    const pinning = renderClientMarkdown([issue('CERTIFICATE_PINNING_GLOBAL_CHECK', severity.INFORMATIONAL)], { app: { name: 'Demo' } });
+    pinning.should.include('No certificate pinning').and.not.include('Certificate validation bypass');
+  });
+
+  it('lists the most severe instances first, so a cut-off list keeps the one that rates the finding', () => {
+    const many = [...Array.from({ length: 13 }, (_, n) => issue('XSS_SINK_JS_CHECK', severity.LOW, confidence.FIRM, { file: `/app/low${n}.js` })),
+      issue('XSS_SINK_JS_CHECK', severity.HIGH, confidence.FIRM, { file: '/app/high.js' })];
+    const [finding] = renderClientFindings(many, { root: '/app', app: { name: 'Demo' } });
+    const evidence = finding.content.split('## Reproduction and Evidence')[1];
+    evidence.should.include('high.js');
+    evidence.indexOf('high.js').should.be.below(evidence.indexOf('low0.js'));
+  });
+
   it('defines several complete variants for every named group and falls back for new checks', () => {
-    Object.keys(VARIATIONS).length.should.equal(25);
+    Object.keys(VARIATIONS).length.should.equal(26);
     for (const entries of Object.values(VARIATIONS)) {
       entries.length.should.be.at.least(2);
       for (const entry of entries) {

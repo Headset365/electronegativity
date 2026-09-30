@@ -24,10 +24,12 @@ export const VARIATIONS = {
   'Renderer Isolation Weakened': [
     ['Node access in a renderer', /^(NODE_INTEGRATION|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_NODE_INTEGRATION)/,
       'Identify the affected window and confirm whether untrusted pages, documents or messages can execute script there.'],
-    ['Isolation or sandbox disabled', /^(CONTEXT_ISOLATION|SANDBOX|RUNTIME_CONTEXT_ISOLATION|RUNTIME_SANDBOX)/,
+    ['Isolation or sandbox disabled', /^(CONTEXT_ISOLATION|SANDBOX|RUNTIME_CONTEXT_ISOLATION|RUNTIME_SANDBOX|PRELOAD)/,
       'Compare the packaged webPreferences with runtime window settings and the origin loaded in each window.'],
     ['Additional privilege sharing', /^(REMOTE_MODULE|AFFINITY)/,
       'Trace remote imports or affinity values to the windows that consume them.'],
+    ['Injected script reached Node or Electron APIs', /^RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$/,
+      'Match the campaign case, saved field and viewed page to the recorded signal, and check the window’s effective settings.'],
   ],
   'Chromium Security Features Disabled': [
     ['Origin or transport protections', /^(WEB_SECURITY|INSECURE_CONTENT|RUNTIME_WEB_SECURITY|CUSTOM_ARGUMENTS)/,
@@ -72,6 +74,8 @@ export const VARIATIONS = {
       'Trace the value to the process API; use a harmless marker to separate data flow from actual command execution.'],
     ['Dynamic code evaluation', /^DANGEROUS_FUNCTIONS/,
       'Identify the evaluated value and its source; test with a benign marker in an isolated environment.'],
+    ['Untrusted module path', /^(DYNAMIC_MODULE|RUNTIME_MARKER_MODULE)/,
+      'Trace the module path to its source; a watch session with the marker in that value shows whether it reaches require() or import().'],
   ],
   'Microsoft Word Integration': [
     ['Word launch command', /^WORD_LAUNCH/,
@@ -82,10 +86,12 @@ export const VARIATIONS = {
   'Deep Link, Protocol and File Association Handling': [
     ['External handler input', /^(FILE_HANDLER|PROTOCOL_HANDLER|INSTALLER_FILE_HANDLER)/,
       'Inspect the registered command and follow a benign crafted link or file through the parser.'],
-    ['Privileged custom scheme or file URL', /^(PROTOCOL_PRIVILEGES|FILE_PROTOCOL|UNTRUSTED_LOAD_URL)/,
+    ['Privileged custom scheme or file URL', /^(PROTOCOL_PRIVILEGES|FILE_PROTOCOL)/,
       'Check scheme privileges, resource resolution and the final URL loaded by each window.'],
   ],
   'Insufficient Navigation and Window Controls': [
+    ['Untrusted URL loaded in an app window', /^UNTRUSTED_LOAD_URL/,
+      'Trace the URL passed to loadURL to its input, and load a benign crafted destination in an authorised test.'],
     ['Top-level navigation or redirect', /^(LIMIT_NAVIGATION|NAVIGATION_REDIRECT|RUNTIME_NAVIGATION|RUNTIME_REDIRECT|RUNTIME_MARKER_NAVIGATION)/,
       'Exercise a benign external link and redirect while recording the final URL and window settings.'],
     ['Popup or middle-click', /^(WINDOW_OPEN_HANDLER|AUXCLICK|ALLOWPOPUPS|RUNTIME_NEW_WINDOW|RUNTIME_MARKER_NEW_WINDOW)/,
@@ -118,6 +124,8 @@ export const VARIATIONS = {
       'Inspect the effective script-src directive, nonces, hashes and report-only status in the affected window.', i => !noPolicy(i)],
     ['Runtime violation or mismatch', /^RUNTIME_CSP/,
       'Record the effective runtime policy and violation details before changing it.'],
+    ['Script evaluation permitted', /^RUNTIME_CAMPAIGN_EVAL$/,
+      'Check the effective script-src of the tested view for unsafe-eval and repeat the campaign case.'],
   ],
   'Document Parsing Risks': [
     ['Untrusted document intake', /^DOCUMENT_PIPELINE/,
@@ -176,10 +184,16 @@ export const VARIATIONS = {
     ['Application settings or cached responses', /^(ELECTRON_STORE_ENCRYPTION|STORAGE_CACHED_RESPONSES|STORAGE_COOKIE_AT_REST)/,
       'Inspect the exact stored value and protection without copying real user secrets into the report.'],
   ],
+  'Certificate Pinning Not Implemented (hardening)': [
+    ['No certificate pinning', /^CERTIFICATE_PINNING/,
+      'Decide whether the threat model requires pinning; an intercepting proxy in a test capture shows whether any trusted certificate is accepted.'],
+    ['Interception proxy accepted', /^CERTIFICATE_PINNING/,
+      'Identify the captured hosts and the proxy certificate the test device trusted when the capture was made.', i => i.validation?.status === 'confirmed'],
+  ],
   'Insecure Transport and Certificate Validation': [
     ['Cleartext HTTP or WebSocket', /^(HTTP_RESOURCES|RUNTIME_INSECURE_LOAD|TRAFFIC_CLEARTEXT_HTTP|TRAFFIC_WS_CLEARTEXT)/,
       'Confirm the final scheme and host in a capture or live load.'],
-    ['Certificate validation bypass', /^(CERTIFICATE|NODE_TLS_REJECT_UNAUTHORIZED|RUNTIME_CERTIFICATE_ERROR)/,
+    ['Certificate validation bypass', /^(CERTIFICATE_(ERROR_EVENT|VERIFY_PROC)|NODE_TLS_REJECT_UNAUTHORIZED|RUNTIME_CERTIFICATE_ERROR)/,
       'Identify the exact session, host and callback result; distinguish a rejected error from an accepted one.'],
     ['Credential transport or cookie flags', /^(TRAFFIC_BASIC_AUTH|TRAFFIC_INSECURE_COOKIE|COOKIE_FLAGS)/,
       'Inspect the captured request and Set-Cookie attributes for the affected host.'],
