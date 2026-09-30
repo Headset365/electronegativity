@@ -47,6 +47,9 @@ if (logFile && process.versions.electron && process.type === 'browser') {
     if (started) return;
     try {
       const loaded = Module._load.call(Module, 'electron', null, false);
+      // that load went through the wrapped loader, which has instrumented electron already: once is enough (twice gave
+      // two traffic observers, the second overwriting the first's findings, and every IPC handler wrapped twice)
+      if (started) return;
       if (loaded && loaded.app) {
         started = true;
         instrument(loaded, true);

@@ -438,8 +438,15 @@ describe('Watch mode', () => {
         running = watchDebug(endpoint, { marker, active: true, campaign: true, duration: 150, traffic: false, log, commands });
         for (let attempt = 0; attempt < 100 && !readWatchLog(log).some(r => r.kind === 'start'); attempt++) await new Promise(resolve => setTimeout(resolve, 50));
         seedClient = await connectDebug(endpoint);
-        const clicked = await seedClient.send('Runtime.evaluate', { expression: 'location.href + " " + !!document.getElementById("save") + " " + (document.getElementById("save").click(), "clicked")', returnByValue: true });
-        process.stderr.write(`[test] seed ${JSON.stringify(clicked.result && clicked.result.value)} after ${JSON.stringify(readWatchLog(log).map(r => r.kind))}\n`);
+        // the page can still be loading (slow machines): click once it has loaded and its Save button exists
+        let clicked;
+        for (let attempt = 0; attempt < 100 && clicked !== 'clicked'; attempt++) {
+          const answer = await seedClient.send('Runtime.evaluate', { returnByValue: true,
+            expression: 'document.readyState === "complete" && document.getElementById("save") ? (document.getElementById("save").click(), "clicked") : "loading"' }).catch(() => undefined);
+          clicked = answer && answer.result && answer.result.value;
+          if (clicked !== 'clicked') await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        clicked.should.equal('clicked', 'the seed save was clicked');
         seedClient.close(); seedClient = undefined;
         await running;
         const records = readWatchLog(log), report = analyzeWatchLog(records);
