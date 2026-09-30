@@ -157,7 +157,7 @@ describe('Client report outputs', () => {
     markdown.should.include('Application-wide');
     markdown.should.include('**CSP_GLOBAL_CHECK** at Application-wide');
     markdown.should.match(/```html\n\s*<iframe/);
-    markdown.should.include('[Embedded content (IFRAME_SANDBOX_HTML_CHECK)](');
+    markdown.should.include('- Embedded content (IFRAME_SANDBOX_HTML_CHECK)\n\n  https://');
     markdown.should.include('requires reachability or configuration review');
   });
 
@@ -333,5 +333,15 @@ describe('Client report outputs', () => {
     // static and runtime evidence of the same problem end up in one finding
     const findings = renderClientFindings(reported, { suppressed });
     findings.find(f => f.title === 'Renderer Isolation Weakened').content.should.include('RUNTIME_NODE_INTEGRATION').and.include('**NODE_INTEGRATION_JS_CHECK**');
+  });
+
+  it('lists each reference as its title with the address on its own line', () => {
+    const markdown = renderClientMarkdown([issue('SOURCE_MAP_SHIPPED', severity.INFORMATIONAL, confidence.CERTAIN, {
+      sample: '', shortenedURL: 'https://developer.mozilla.org/en-US/docs/Glossary/Source_map' })]);
+    markdown.slice(markdown.indexOf('## References')).should.equal([
+      '## References', '',
+      '- CWE-494: Download of Code Without Integrity Check', '', '  https://cwe.mitre.org/data/definitions/494.html', '',
+      '- Source map exposure (SOURCE_MAP_SHIPPED)', '', '  https://developer.mozilla.org/en-US/docs/Glossary/Source_map', '',
+      '- Electron security guidance', '', '  https://www.electronjs.org/docs/latest/tutorial/security', ''].join('\n'));
   });
 });

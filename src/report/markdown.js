@@ -305,21 +305,20 @@ function renderGroup(g, ctx) {
     return `- Review each flagged component, advisory and fixed version in [${text(path.basename(sheet), ctx)}](${linkTarget(relative.split(path.sep).join('/'))}).`;
   })();
 
-  // references: the CWE, then each check's own guidance with the scenarios it supports
+  // references: the CWE, each check's own guidance with the scenarios it supports, then Electron's security guidance.
+  // Each is a list item: its title, then the address on its own line.
+  const reference = (name, url) => `- ${name}\n\n  ${url}`;
   const cweUrl = `https://cwe.mitre.org/data/definitions/${/^CWE-(\d+)/.exec(cwe)?.[1]}.html`;
   const references = new Map();
   for (const v of variations) {
-    const own = unique(v.issues.map(i => i.shortenedURL)).filter(url => /^https:\/\//i.test(url));
-    for (const url of own.length ? own : [cweUrl]) {
+    for (const url of unique(v.issues.map(i => i.shortenedURL)).filter(url => /^https:\/\//i.test(url) && url !== cweUrl)) {
       const entry = references.get(url) || { labels: [], ids: [] };
       entry.labels.push(v.label);
-      if (own.length) entry.ids.push(...v.issues.filter(i => i.shortenedURL === url).map(i => i.id));
+      entry.ids.push(...v.issues.filter(i => i.shortenedURL === url).map(i => i.id));
       references.set(url, entry);
     }
   }
-  const cweLabels = unique(references.get(cweUrl)?.labels || []);
-  const guidance = [...references].filter(([url]) => url !== cweUrl)
-    .map(([url, entry]) => `- [${unique(entry.labels).join(', ')} (${unique(entry.ids).join(', ')})](${url})`);
+  const guidance = [...references].map(([url, entry]) => reference(`${unique(entry.labels).join(', ')} (${unique(entry.ids).join(', ')})`, url));
 
   const lines = [`---\n${front}\n---`, `# ${title}`,
     '## Issue Description', (introductions[title] || about).replaceAll('{app}', () => app),
@@ -348,10 +347,10 @@ function renderGroup(g, ctx) {
     '## Recommendations', recommendation,
     ...variations.map(v => `- **${v.label}:** ${v.recommendation}`), ...notes('recommendation'),
     ...examples, ...(sheetLink ? [sheetLink] : []),
-    '## References', `- [${cwe}](${cweUrl})${cweLabels.length ? ` — ${cweLabels.join(', ')}` : ''}`, ...guidance];
+    '## References', reference(cwe, cweUrl), ...guidance];
   if (!references.has('https://www.electronjs.org/docs/latest/tutorial/security'))
-    lines.push('- [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security)');
-  if (title === 'Microsoft Word Integration') lines.push('- [Microsoft guidance on Protected View](https://learn.microsoft.com/en-us/office/troubleshoot/word/office-file-opens-in-protected-view)');
+    lines.push(reference('Electron security guidance', 'https://www.electronjs.org/docs/latest/tutorial/security'));
+  if (title === 'Microsoft Word Integration') lines.push(reference('Microsoft guidance on Protected View', 'https://learn.microsoft.com/en-us/office/troubleshoot/word/office-file-opens-in-protected-view'));
   // consecutive list items stay one list; everything else is a paragraph of its own
   return lines.reduce((out, line) => out + (out && out.split('\n').at(-1).startsWith('- ') && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();
 }
