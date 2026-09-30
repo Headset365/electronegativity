@@ -18,6 +18,7 @@ import { createAssistant, writeMarkerFiles } from './watch/assistant.js';
 import { loadCampaign, hostsOutsideScope } from './watch/campaign.js';
 import { isPackage, unpackTarget } from './unpack/index.js';
 import { splitOutputs, unwritableOutput } from './util/file.js';
+import { combineRuns, writeClientMarkdown, MARKDOWN_FOLDER } from './report/markdown.js';
 import { createReportFolder, reportFiles } from './util/reportdir.js';
 
 async function main() {
@@ -362,11 +363,15 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
   console.log(chalk.green(__('appFound', { name: located.name, executable: located.executable || '-', code: located.code })));
   console.log(chalk.gray(__('appResults', { dir: outDir })));
   const written = [];
-  // -o names the reports each step writes, prefixed with the step: static-findings.md, session-1-components.xlsx...
-  // (without -o, an HTML report per step)
+  // -o names the reports each step writes, prefixed with the step: static-report.html, session-1-components.xlsx...
+  // (without -o, an HTML report per step). The client Markdown is written once, from every step: see the end.
   const requested = options.output ? splitOutputs(options.output) : [];
+  const perStep = requested.filter(file => !/\.md$/i.test(file));
+  const markdown = requested.length > perStep.length;
+  const results = [];
+  let lastOutputs = [];
   const step = async (name, extra) => {
-    const outputs = requested.length ? requested.map(file => path.join(outDir, `${name}-${path.basename(file)}`)) : [path.join(outDir, `${name}.html`)];
+    const outputs = perStep.length ? perStep.map(file => path.join(outDir, `${name}-${path.basename(file)}`)) : [path.join(outDir, `${name}.html`)];
     const output = outputs.find(file => /\.html?$/i.test(file)) || outputs[0];
     const diagnostics = path.join(outDir, `${name}-diag.json`);
     // --share: a redacted findings report per step, next to the others
@@ -375,6 +380,8 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
     const shares = shareTypes.map(type => path.join(outDir, `${name}-share${type}`));
     const result = await run({ ...common, input: located.code, output: outputs, diagnostics, share: shares.length ? shares : undefined, ...extra }, false);
     written.push(...outputs, diagnostics, ...shares);
+    results.push(result);
+    lastOutputs = outputs;
     for (const error of result.errors.filter(e => !e.tolerable).slice(0, 5)) console.error(chalk.yellow(`${error.file}: ${error.message}`));
     console.log(chalk.green(__('appStepDone', { file: output, ...countBySeverity(result.reported) })));
     return result;
@@ -414,6 +421,12 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
       extraInputs: captured.extraInputs, remoteDiagnostics: captured.remoteDiagnostics });
   }
   assistant.printSummary('Validation across all sessions');
+  // the client findings of the whole run: the static scan and every session, each finding once, in one file per finding
+  if (markdown) {
+    const { reported, suppressed } = combineRuns(results);
+    const files = writeClientMarkdown(outDir, reported, { app: results[0].app, root: located.code, suppressed, outputs: lastOutputs });
+    written.push(`${path.join(outDir, MARKDOWN_FOLDER)} (${files.length} finding${files.length === 1 ? '' : 's'}, from ${results.length} step${results.length === 1 ? '' : 's'})`);
+  }
   console.log(chalk.green(__('appDone', { dir: outDir })));
   for (const file of written) console.log(`  ${file}`);
 }

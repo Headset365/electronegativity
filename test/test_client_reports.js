@@ -5,7 +5,7 @@ import zlib from 'node:zlib';
 import { should as chaiShould } from 'chai';
 import YAML from 'yaml';
 import { severity, confidence } from '../src/finder/attributes.js';
-import { groupClientFindings, ratingOf, renderClientMarkdown } from '../src/report/markdown.js';
+import { groupClientFindings, ratingOf, renderClientMarkdown, renderClientFindings, writeClientMarkdown, combineRuns, findingFileName } from '../src/report/markdown.js';
 import { VARIATIONS, matchingVariations } from '../src/report/markdown_variations.js';
 import { CLIENT_COPY } from '../src/report/markdown_client_copy.js';
 import { componentTable, renderComponentsXlsx } from '../src/report/xlsx.js';
@@ -223,7 +223,8 @@ describe('Client report outputs', () => {
       outputFormat(xlsx).should.equal('xlsx');
       for (const output of [md, xlsx]) writeIssues(dir, false, output, [issue('NODE_INTEGRATION_JS_CHECK')], false,
         { app: { name: 'Example' }, outputs: [md, xlsx], dependencies: { rows: [] } });
-      fs.readFileSync(md, 'utf8').should.include('Renderer Isolation Weakened');
+      fs.existsSync(md).should.equal(false);
+      fs.readFileSync(path.join(dir, 'markdown', 'Renderer Isolation Weakened.md'), 'utf8').should.include('# Renderer Isolation Weakened');
       zipEntry(fs.readFileSync(xlsx), 'xl/worksheets/sheet1.xml').should.include('Component');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
@@ -292,5 +293,45 @@ describe('Client report outputs', () => {
 
   it('says so when nothing is reportable', () => {
     renderClientMarkdown([], { app: { name: 'Example' } }).should.equal('No reportable findings were identified in Example.\n');
+  });
+
+  it('writes one file per finding, named after its title, into a markdown folder', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-md-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'markdown'));
+      fs.writeFileSync(path.join(dir, 'markdown', 'Fixed Since.md'), '---\nTitle: Fixed Since\n---\n');
+      fs.writeFileSync(path.join(dir, 'markdown', 'my notes.md'), 'kept');
+      const files = writeClientMarkdown(dir, [issue('NODE_INTEGRATION_JS_CHECK', severity.HIGH), issue('CSP_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { file: 'N/A' }),
+        issue('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { properties: { advisories: ['OSV-1'] } })],
+      { app: { name: 'Example' }, outputs: [path.join(dir, 'components.xlsx')] });
+      files.map(f => path.basename(f)).sort().should.deep.equal(['Missing or Weak Content Security Policy.md', 'Outdated Third-Party Components.md', 'Renderer Isolation Weakened.md']);
+      fs.readdirSync(path.join(dir, 'markdown')).should.include('my notes.md').and.not.include('Fixed Since.md');
+      for (const file of files) {
+        const text = fs.readFileSync(file, 'utf8');
+        (text.match(/^---$/gm) || []).length.should.equal(2);
+        YAML.parse(text.split(/^---$/m)[1]).Title.should.equal(path.basename(file, '.md'));
+      }
+      fs.readFileSync(path.join(dir, 'markdown', 'Outdated Third-Party Components.md'), 'utf8').should.include('[components.xlsx](../components.xlsx)');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    findingFileName('A/B: C?').should.equal('A-B- C-.md');
+    renderClientFindings([]).should.deep.equal([]);
+  });
+
+  it('combines the static scan and the watch sessions, each finding once', () => {
+    const staticIssue = issue('NODE_INTEGRATION_JS_CHECK', severity.HIGH);
+    const withRuntime = { ...staticIssue, validation: { status: 'confirmed', text: 'the window ran with nodeIntegration' } };
+    const runtime = issue('RUNTIME_NODE_INTEGRATION', severity.HIGH, confidence.CERTAIN, { file: 'app://index.html', sample: '' });
+    const accepted = { ...issue('DEVTOOLS_JS_CHECK'), suppression: { reason: 'debug build' } };
+    const { reported, suppressed } = combineRuns([
+      { reported: [staticIssue, issue('DEVTOOLS_JS_CHECK')], suppressed: [] },
+      { reported: [withRuntime, runtime], suppressed: [accepted] },
+      { reported: [staticIssue, runtime], suppressed: [accepted] },
+    ]);
+    reported.map(i => i.id).should.deep.equal(['NODE_INTEGRATION_JS_CHECK', 'RUNTIME_NODE_INTEGRATION']);
+    reported[0].validation.status.should.equal('confirmed');
+    suppressed.map(i => i.id).should.deep.equal(['DEVTOOLS_JS_CHECK']);
+    // static and runtime evidence of the same problem end up in one finding
+    const findings = renderClientFindings(reported, { suppressed });
+    findings.find(f => f.title === 'Renderer Isolation Weakened').content.should.include('RUNTIME_NODE_INTEGRATION').and.include('**NODE_INTEGRATION_JS_CHECK**');
   });
 });

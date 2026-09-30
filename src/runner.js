@@ -500,6 +500,7 @@ async function scan(options, forCli) {
   }
 
   return {
+    app: { name: manifest.productName || manifest.name, version: manifest.version },
     electronVersion: electronVersion || null,
     electronVersionSource,
     globalChecks: globalChecker._enabled_checks.length,

@@ -1,4 +1,5 @@
 // Client-facing findings, grouped by the security problem rather than by scanner check.
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -355,9 +356,75 @@ function renderGroup(g, ctx) {
   return lines.reduce((out, line) => out + (out && out.split('\n').at(-1).startsWith('- ') && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();
 }
 
+// characters Windows refuses in a file name, and control characters
+const UNSAFE_NAME = /[<>:"/\\|?*\x00-\x1f]/g; // eslint-disable-line no-control-regex
+
+/** A finding's file name: its title, without the characters Windows refuses in a name. */
+export function findingFileName(title) {
+  const name = String(title).replace(UNSAFE_NAME, '-').replace(/[. ]+$/, '').trim();
+  return `${name || 'Finding'}.md`;
+}
+
 /**
- * Complete unredacted Markdown report: one YAML header and six sections per finding. Suppressed findings stay visible as
- * accepted risks. meta.root is the scanned folder, which paths are shown relative to.
+ * One Markdown document per finding, each with its YAML header and six sections: [{ title, file, content }]. meta.dir is
+ * the folder the files go in (links to other reports are relative to it); meta.root the scanned folder.
+ */
+export function renderClientFindings(issues, meta = {}) {
+  return groupClientFindings([...issues, ...(meta.suppressed || [])]).map(g => {
+    const file = findingFileName(g.definition[0]);
+    const ctx = context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile });
+    return { title: g.definition[0], file, content: `${renderGroup(g, ctx)}\n` };
+  });
+}
+
+export const MARKDOWN_FOLDER = 'markdown';
+// a finding file this report wrote: an earlier run's, replaced by this one's (other files in the folder are left alone)
+const isFindingFile = (file) => {
+  try {
+    return /^---\r?\nTitle: /.test(fs.readFileSync(file, 'utf8').slice(0, 200));
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Writes the client findings into <folder>/markdown, one file per finding named after its title, replacing the finding
+ * files an earlier run left there. Returns the files written.
+ */
+export function writeClientMarkdown(folder, issues, meta = {}) {
+  const dir = path.join(folder, MARKDOWN_FOLDER);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const name of fs.readdirSync(dir)) if (/\.md$/i.test(name) && isFindingFile(path.join(dir, name))) fs.rmSync(path.join(dir, name));
+  return renderClientFindings(issues, { ...meta, dir }).map(finding => {
+    const file = path.join(dir, finding.file);
+    fs.writeFileSync(file, finding.content);
+    return file;
+  });
+}
+
+/**
+ * The findings of several runs of one app (the static scan, then each watch session, which scans the code again), each
+ * once: a finding a later run repeats takes that run's copy, which can carry runtime evidence, unless only the earlier
+ * copy has it. Returns { reported, suppressed }.
+ */
+export function combineRuns(runs) {
+  const key = (i) => [i.id, i.file, i.location?.line, i.location?.column, i.description, i.sample].join('\u0000');
+  const merge = (lists) => {
+    const byKey = new Map();
+    for (const list of lists) for (const issue of list || []) {
+      const earlier = byKey.get(key(issue));
+      if (!earlier || !earlier.validation || issue.validation) byKey.set(key(issue), issue);
+    }
+    return byKey;
+  };
+  const suppressed = merge(runs.map(r => r.suppressed));
+  const reported = [...merge(runs.map(r => r.reported))].filter(([k]) => !suppressed.has(k)).map(([, issue]) => issue);
+  return { reported, suppressed: [...suppressed.values()] };
+}
+
+/**
+ * The client findings as one document (several YAML headers in a row). Suppressed findings stay visible as accepted
+ * risks. meta.root is the scanned folder, which paths are shown relative to.
  */
 export function renderClientMarkdown(issues, meta = {}) {
   const ctx = context(meta);

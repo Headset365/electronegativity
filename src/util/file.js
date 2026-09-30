@@ -10,7 +10,7 @@ import { consequenceOf, validationHint, interactionOf } from '../finder/conseque
 import { remediationOf } from '../finder/remediation.js';
 import { cycloneDx } from '../report/cyclonedx.js';
 import { renderDocx } from '../report/docx.js';
-import { renderClientMarkdown } from '../report/markdown.js';
+import { writeClientMarkdown } from '../report/markdown.js';
 import { renderComponentsXlsx } from '../report/xlsx.js';
 import { scores } from '../report/scores.js';
 import { fingerprints } from './baseline.js';
@@ -306,8 +306,9 @@ export function writeIssues(root, isRelative, filename, result, isSarif, meta = 
     fs.writeFileSync(filename, renderDocx(result, meta));
     return;
   }
+  // client findings: one file per finding, in a markdown folder where the .md file was asked for
   if (format === 'md') {
-    fs.writeFileSync(filename, renderClientMarkdown(result, { ...meta, root, outputFile: filename }));
+    writeClientMarkdown(path.dirname(path.resolve(filename)), result, { ...meta, root });
     return;
   }
   if (format === 'xlsx') {

@@ -356,7 +356,7 @@ module.exports = { unzip, unzipSafe };` });
       splitOutputs('my report.html').should.deep.equal(['my report.html']);
     });
 
-    it('writes every -o format for each step of a guided run (--app)', function () {
+    it('writes the -o reports for each step of a guided run (--app), and the client findings once', function () {
       this.timeout(120000);
       const out = tmp('eng-guided-');
       const app = path.join(import.meta.dirname, 'apps', 'vulnerable-app');
@@ -364,9 +364,11 @@ module.exports = { unzip, unzipSafe };` });
         '-o', 'report.html,findings.md,components.xlsx', '--share', 'shareable-report.md'];
       const result = spawnSync(process.execPath, cli, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
       result.status.should.equal(0, result.stderr);
-      for (const file of ['static-report.html', 'static-findings.md', 'static-components.xlsx', 'static-share.md', 'static-diag.json'])
+      for (const file of ['static-report.html', 'static-components.xlsx', 'static-share.md', 'static-diag.json'])
         fs.existsSync(path.join(out, file)).should.equal(true, file);
-      fs.readFileSync(path.join(out, 'static-findings.md'), 'utf8').should.include('# Renderer Isolation Weakened');
+      // the client findings are written once for the whole run, one file per finding
+      fs.existsSync(path.join(out, 'static-findings.md')).should.equal(false);
+      fs.readFileSync(path.join(out, 'markdown', 'Renderer Isolation Weakened.md'), 'utf8').should.include('# Renderer Isolation Weakened');
       fs.rmSync(out, { recursive: true, force: true });
     });
 
