@@ -390,7 +390,7 @@ describe('Watch mode', () => {
       const env = { ...process.env, DEBUG_APP_PROFILE: path.join(root, 'profile') };
       try {
         const command = runCli(cli, env);
-        command.status.should.equal(0, why(command));
+        (command.status === 0).should.equal(true, why(command));
         const watch = JSON.parse(fs.readFileSync(diagnostics, 'utf8')).watch;
         watch.mode.should.equal('debug-launched'); watch.hookStarted.should.equal(false);
         watch.injection.should.include({ method: 'renderer-cdp', launched: true, mainProcess: false, loaded: true });
@@ -441,7 +441,9 @@ describe('Watch mode', () => {
         seedClient.close(); seedClient = undefined;
         await running;
         const records = readWatchLog(log), report = analyzeWatchLog(records);
-        profiles.should.have.length(1);
+        const kinds = {};
+        for (const r of records) kinds[r.kind] = (kinds[r.kind] || 0) + 1;
+        profiles.should.have.length(1, `records: ${JSON.stringify(kinds)}; api: ${JSON.stringify(records.filter(r => r.kind === 'api').slice(0, 5))}; errors: ${JSON.stringify(records.filter(r => /error/.test(r.kind)).slice(0, 5))}`);
         profiles[0].fields.should.deep.equal(['body']);
         profiles[0].cases.should.have.length(28);
         records.filter(r => r.kind === 'campaign-done').should.have.length(1);
@@ -477,7 +479,7 @@ describe('Watch mode', () => {
       const diagnostics = path.join(root, 'diag.json');
       const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', executable, '--watch-args', '--no-sandbox', '--offline', '--no-report-dir', '-r', '-o', output, '--diagnostics', diagnostics];
       const command = runCli(cli);
-      command.status.should.equal(0, why(command));
+      (command.status === 0).should.equal(true, why(command));
       const watch = JSON.parse(fs.readFileSync(diagnostics, 'utf8')).watch;
       watch.injection.should.include({ method: 'inspector', loaded: true });
       watch.hookStarted.should.equal(true, JSON.stringify(watch));
@@ -499,7 +501,7 @@ describe('Watch mode', () => {
       const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '--no-report-dir', '-r', '--canary', 'Zq7-test-Pw!2026', '--watch-screenshots', shots, '-o', output];
       const env = { ...process.env, TRAFFIC_APP_PROFILE: profile };
       const command = runCli(cli, env);
-      command.status.should.equal(0, why(command));
+      (command.status === 0).should.equal(true, why(command));
       const report = JSON.parse(fs.readFileSync(output, 'utf8'));
       const ids = report.issues.map(i => i.id);
       // the profile Chromium wrote (Local Storage LevelDB, the cookie store) and where the password went
@@ -525,7 +527,7 @@ describe('Watch mode', () => {
       fs.readdirSync(shots).some(f => /dom-injection\.png$/.test(f)).should.equal(true, 'a screenshot was saved');
       report.issues.some(i => i.properties && i.properties.screenshot).should.equal(true, 'the screenshot is attached to its finding');
       // the API response kept in the HTTP cache, with the token in it
-      ids.should.include('STORAGE_CACHED_RESPONSES');
+      ids.should.include('STORAGE_CACHED_RESPONSES', JSON.stringify(report.atRest && report.atRest.profile));
       report.issues.some(i => i.id === 'STORAGE_SECRET_AT_REST' && i.properties.store === 'HTTP cache' && /api\/profile/.test(i.properties.url)).should.equal(true, 'the cached token is found');
       JSON.stringify(report).should.not.include('Cz9Lm2Vt9Rk4Zp8Wn3Yb6Hs7Tx');
       // every finding says what the victim has to do
@@ -539,7 +541,7 @@ describe('Watch mode', () => {
       const output = path.join(dir, 'report.json');
       const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--watch-marker', 'ENGCANARY', '--offline', '--no-report-dir', '-r', '-o', output];
       const command = runCli(cli);
-      command.status.should.equal(0, why(command));
+      (command.status === 0).should.equal(true, why(command));
       const report = JSON.parse(fs.readFileSync(output, 'utf8'));
       const ids = report.issues.map(i => i.id);
       ids.should.include.members(['RUNTIME_NODE_INTEGRATION', 'RUNTIME_CONTEXT_ISOLATION', 'RUNTIME_CSP', 'RUNTIME_PERMISSION', 'RUNTIME_COVERAGE']);
@@ -594,7 +596,7 @@ describe('Watch mode', () => {
       const out = path.join(dir, 'results');
       const guided = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--app', dir, '--sessions', '1', '--watch-args', '--no-sandbox', '--offline', '--out', out];
       const guidedRun = runCli(guided);
-      guidedRun.status.should.equal(0, why(guidedRun));
+      (guidedRun.status === 0).should.equal(true, why(guidedRun));
       const files = fs.readdirSync(out).sort();
       files.filter(f => !/^ENG[A-Z0-9]{6}/.test(f)).should.deep.equal(['session-1-diag.json', 'session-1-share.json', 'session-1-share.md', 'session-1.html',
         'static-diag.json', 'static-share.json', 'static-share.md', 'static.html']);
