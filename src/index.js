@@ -443,7 +443,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
   // 1. the app's code, including what's behind the login, and --remote URLs if given
   console.log(chalk.cyan(__('appStatic')));
   if (afterSessions && remote.seeds.length > 0) console.log(chalk.gray(`--remote ${remote.hosts.join(', ')}: downloaded after each session, with the ${headerNames.join(', ')} the app sends there`));
-  const fetched = await collectRemote({ remote: afterSessions ? [] : remote.seeds, guessed: remote.guessed, headers, scope, allowHosts: remote.hosts, offline: options.offline });
+  const fetched = await collectRemote({ remote: afterSessions ? [] : remote.seeds, guessed: remote.guessed, headers, scope, allowHosts: afterSessions || remote.seeds.length === 0 ? [] : remote.hosts, offline: options.offline });
   // the profile review and the password trace belong to the sessions, after the app has been used
   const staticResult = await step('static', { extraInputs: fetched.extraInputs, remoteDiagnostics: fetched.remoteDiagnostics, canaries: [], userData: undefined });
   if (options.campaignPlan) writeCampaignPlan(options.campaignPlan, staticResult.issues);

@@ -195,7 +195,17 @@ export async function collectRemote({ watchLog, capture = true, remote = [], gue
   const extraInputs = [];
   const captureDir = capture && watchLog ? path.join(path.dirname(watchLog), 'capture') : undefined;
   const hasCapture = !!captureDir && fs.existsSync(captureDir);
-  if (remote.length === 0 && !hasCapture) return { extraInputs };
+  // the hosts the app sent the copied headers to are start pages too: a *.example.com pattern names none of its own
+  const named = new Set(remote.map(url => new URL(url).hostname.toLowerCase()));
+  const used = Object.keys(headersByHost).filter(host => !named.has(host)).map(host => `https://${host}/`);
+  remote = [...remote, ...used];
+  guessed = [...guessed, ...used];
+  // --remote was given: always say what came of it
+  const told = allowHosts.length > 0;
+  if (remote.length === 0 && !hasCapture) {
+    if (told) console.log(chalk.yellow(`Nothing to download from the --remote hosts (${allowHosts.join(', ')}): a *. pattern names no start page, and no page or script from them was captured. Add a host name or URL, e.g. --remote app.example.com`));
+    return { extraInputs, remoteDiagnostics: told ? { seeds: 0, fromWatch: false, hosts: allowHosts.length, nothingToDownload: true } : undefined };
+  }
   const dir = hasCapture ? captureDir : fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-remote-'));
   const remoteDiagnostics = { seeds: remote.length, fromWatch: hasCapture, headers: Object.keys(headers), hosts: allowHosts.length || undefined,
     copiedHeaders: Object.keys(headersByHost).length ? [...new Set(Object.values(headersByHost).flatMap(Object.keys))] : undefined };
@@ -206,6 +216,7 @@ export async function collectRemote({ watchLog, capture = true, remote = [], gue
       const stats = await crawl(dir, remote.filter(url => !guessed.includes(url)), { headers, headerSites, headerScope: scope, allowHosts, headersByHost,
         guessedSeeds: remote.filter(url => guessed.includes(url)) });
       remoteDiagnostics.fetch = { fetched: stats.fetched, notFound: stats.notFound, skipped: stats.skipped, outOfScope: stats.outOfScope, failed: stats.failed.slice(0, 20) };
+      if (told) console.log(chalk.gray(`Downloaded ${stats.fetched} file${stats.fetched === 1 ? '' : 's'} from the --remote hosts${stats.notFound ? ` (${stats.notFound} not found)` : ''}${stats.failed.length ? `, ${stats.failed.length} failed` : ''}`));
       if (stats.outOfScope) console.log(chalk.gray(`Left alone ${stats.outOfScope} URL${stats.outOfScope === 1 ? '' : 's'} outside the --remote hosts`));
       for (const failure of stats.failed.slice(0, 10)) console.error(chalk.yellow(__('remoteFetchFailed', { url: failure.url, message: failure.message })));
     }
@@ -220,6 +231,6 @@ export async function collectRemote({ watchLog, capture = true, remote = [], gue
     extraInputs.push(prepared);
     remoteDiagnostics.scanned = prepared.counts;
     console.log(chalk.gray(__('remoteScanning', { count: prepared.labels.size, dir })));
-  }
+  } else if (told && !offline) console.log(chalk.yellow('Nothing to scan from the --remote hosts: they served no pages, scripts or source maps (an API-only host has none; the screens may be inside the app)'));
   return { extraInputs, remoteDiagnostics, scanDir: prepared && prepared.dir };
 }

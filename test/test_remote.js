@@ -7,6 +7,7 @@ import _i18n from '../src/locales/i18n.js';
 import run from '../src/runner.js';
 import { crawl } from '../src/remote/fetch.js';
 import remoteHosts from '../src/remote/hosts.cjs';
+import { collectRemote } from '../src/watch/session.js';
 import { prepareScanFolder, referencedUrls, sourceMapUrl, originalSources } from '../src/remote/sources.js';
 
 chaiShould();
@@ -182,6 +183,16 @@ describe('Remote front end', () => {
       site.close();
       other.close();
     }
+  });
+
+  it('with only a *. pattern, starts from the hosts the app sent the copied headers to, and never ends silently', async () => {
+    const quiet = await collectRemote({ remote: [], allowHosts: ['*.example.com'] });
+    quiet.remoteDiagnostics.should.include({ nothingToDownload: true, hosts: 1 });
+    // the app called 127.0.0.1 with the named headers: its start page is tried (nothing answers there: not an error)
+    const used = await collectRemote({ remote: [], allowHosts: ['127.0.0.1'], headersByHost: { '127.0.0.1': { Authorization: 'Bearer t' } } });
+    used.remoteDiagnostics.seeds.should.equal(1);
+    used.remoteDiagnostics.fetch.should.include({ fetched: 0, notFound: 1 });
+    used.remoteDiagnostics.fetch.failed.should.deep.equal([]);
   });
 
   it('sends --remote-header only to the named site: not to captured third parties, nor across a redirect', async () => {
