@@ -38,8 +38,8 @@ const kindOf = (url, contentType) => {
  * `headerScope` domains (--scope): never to another site a watch session happened to capture (a sign-in provider, an
  * embedded frame), nor across a redirect to one. `headersByHost` (host name -> headers) are the values the app itself
  * sent to that host during the session (--remote-header names), sent to that host only; `headers` win over them.
- * `guessedSeeds` (https://host/ for a --remote host name) are tried quietly, and not at all for a host the capture
- * already has pages or scripts from (the app used that host, perhaps over another scheme or port).
+ * `guessedSeeds` (https://host/ for a --remote host name) are tried quietly, together with the start page of every other
+ * origin the capture has for that host (the app reached it over another scheme or port).
  * Returns { fetched, failed, skipped, notFound, outOfScope } (notFound: guessed references the server doesn't have).
  */
 export async function crawl(captureDir, seeds = [], { headers = {}, headerSites = [], headerScope = [], allowHosts = [], headersByHost = {}, guessedSeeds = [], maxFiles = 300, log = () => {} } = {}) {
@@ -142,10 +142,14 @@ export async function crawl(captureDir, seeds = [], { headers = {}, headerSites 
     }
   };
   for (const seed of seeds) enqueue(seed);
-  const capturedHosts = new Set(entries.map(entry => { try { return new URL(entry.url).hostname.toLowerCase(); } catch { return undefined; } }));
-  for (const seed of guessedSeeds) if (!capturedHosts.has(new URL(seed).hostname.toLowerCase())) {
-    addPage(seed);
-    enqueue(seed, 'guess');
+  const capturedOrigins = new Set(entries.map(entry => { try { return new URL(entry.url).origin; } catch { return undefined; } }).filter(Boolean));
+  for (const seed of guessedSeeds) {
+    const host = new URL(seed).hostname.toLowerCase();
+    const starts = [seed, ...[...capturedOrigins].filter(origin => new URL(origin).hostname.toLowerCase() === host).map(origin => `${origin}/`)];
+    for (const start of starts) {
+      addPage(start);
+      enqueue(start, 'guess');
+    }
   }
   // what watch mode captured: follow the references and source maps it didn't get to
   const mapped = new Set(entries.filter(e => e.kind === 'map').map(e => e.of));

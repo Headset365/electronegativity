@@ -169,6 +169,15 @@ describe('Remote front end', () => {
       mineSeen.map(r => r.url).should.include.members(['/', '/app.js', '/go.js']);
       // the values copied for this host, and a header set by hand wins over a copied one
       mineSeen.every(r => r.cookie === 'session=copied' && r.auth === 'Bearer copied' && r.client === 'fixed').should.equal(true, JSON.stringify(mineSeen));
+      // and its start page is fetched even when the session captured other files from it, over the scheme and port the app used
+      mineSeen.length = 0;
+      const started = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-remote-guess-'));
+      fs.mkdirSync(path.join(started, 'files'));
+      fs.writeFileSync(path.join(started, 'files', 'w1.js'), 'var app = 1;');
+      fs.writeFileSync(path.join(started, 'manifest.jsonl'), JSON.stringify({ kind: 'script', url: `${mine}/app.js`, file: 'files/w1.js' }) + '\n');
+      const stats2 = await crawl(started, [], { allowHosts: ['127.0.0.1'], guessedSeeds: ['https://127.0.0.1/'] });
+      mineSeen.map(r => r.url).should.include('/');
+      stats2.failed.should.deep.equal([]);
     } finally {
       site.close();
       other.close();
