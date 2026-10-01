@@ -140,6 +140,9 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
     }
     if (running || !active || !campaign || command.kind !== 'run-campaign') return;
     running = true;
+    const campaignMarker = `${marker.slice(0, 50)}_${crypto.randomBytes(8).toString('hex')}`;
+    campaignMarkers.add(campaignMarker);
+    const campaignWrite = (kind, data) => write(kind, { campaignId: campaignMarker, ...data });
     let receiver, canaryDir;
     const seeded = [];
     try {
@@ -148,7 +151,7 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
       if (!entry) throw new Error('The captured request is no longer available');
       const profile = normalizeCampaign({ version: 1, capture: { method: entry.method, route: command.profile?.route?.replace(/^[A-Z]+ /, '') },
         fields: command.profile?.fields, view: command.profile?.view, cases: command.profile?.cases, waitMs: command.profile?.waitMs,
-        closeOnDone: false, restoreOnDone: command.profile?.restoreOnDone !== false });
+        verify: command.profile?.verify, closeOnDone: false, restoreOnDone: command.profile?.restoreOnDone !== false });
       if (hostsOutsideScope(profile, scope).length) throw new Error('Campaign endpoint is outside --scope');
       if (profile.docxImport || profile.cases.some(name => name.startsWith('api-') || name.startsWith('nav-')))
         throw new Error('Debug attachment currently supports the standard text/HTML campaign cases');
@@ -179,7 +182,7 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
       };
       const seed = async (name, slot) => {
         if (!await view()) throw new Error('Could not open the saved view');
-        const data = { name: `eng_campaign_${marker}_${name}_${slot ?? 0}`, value: crypto.randomBytes(16).toString('hex') };
+        const data = { name: `eng_campaign_${campaignMarker}_${name}_${slot ?? 0}`, value: crypto.randomBytes(16).toString('hex') };
         const code = name === 'cookie-canary' ? `document.cookie = ${JSON.stringify(`${data.name}=${data.value}; Path=/; SameSite=Lax`)}; return document.cookie.includes(${JSON.stringify(`${data.name}=${data.value}`)});` :
           name === 'localstorage-canary' ? `localStorage.setItem(${JSON.stringify(data.name)}, ${JSON.stringify(data.value)}); return localStorage.getItem(${JSON.stringify(data.name)}) === ${JSON.stringify(data.value)};` :
             `return await new Promise(resolve => { const r = indexedDB.open(${JSON.stringify(data.name)}, 1); r.onupgradeneeded = () => r.result.createObjectStore('canary'); r.onerror = () => resolve(false); r.onsuccess = () => { const db = r.result, tx = db.transaction('canary', 'readwrite'); tx.objectStore('canary').put(${JSON.stringify(data.value)}, 'nonce'); tx.oncomplete = () => { db.close(); resolve(true); }; tx.onerror = () => { db.close(); resolve(false); }; }; });`;
@@ -187,19 +190,19 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
         seeded.push({ ...data, nameOfCase: name });
         return data;
       };
-      if (profile.cases.some(name => RESOURCES.has(name))) receiver = await startResourceReceiver(marker, write);
+      if (profile.cases.some(name => RESOURCES.has(name))) receiver = await startResourceReceiver(campaignMarker, campaignWrite);
       const canary = () => {
         canaryDir ||= fs.mkdtempSync(path.join(os.tmpdir(), 'eng-debug-canary-'));
         const value = crypto.randomBytes(16).toString('hex'), file = path.join(canaryDir, 'probe.txt');
         fs.writeFileSync(file, value); return { path: file, value };
       };
       const sendRequest = async (url, options) => {
-        const result = await evaluate(`(async () => { const r = await fetch(${JSON.stringify(url)}, ${JSON.stringify({ ...options, credentials: 'include' })}); return { ok: r.ok, status: r.status }; })()`);
+        const result = await evaluate(`(async () => { const r = await fetch(${JSON.stringify(url)}, ${JSON.stringify({ ...options, credentials: 'include' })}); return { ok: r.ok, status: r.status, body: ${options.method === 'GET' ? '(await r.text()).slice(0,100001)' : 'undefined'} }; })()`);
         if (!result) throw new Error('No renderer fetch response was observed');
-        return result;
+        return { ...result, text: async () => result.body };
       };
       await runCampaign({ profile: { ...profile, request: { method: entry.method, url: entry.url, body: entry.body, headers: entry.headers }, resourceBase: receiver?.url },
-        marker, fetch: sendRequest, fill: fillMarkerBody, view, write, canary, seed, signal: controller.signal,
+        marker: campaignMarker, campaignId: campaignMarker, fetch: sendRequest, fill: fillMarkerBody, view, write: campaignWrite, canary, seed, signal: controller.signal,
         delay: ms => new Promise(resolve => {
           if (controller.signal.aborted) return resolve();
           const done = () => { clearTimeout(timer); controller.signal.removeEventListener('abort', done); resolve(); };
@@ -218,6 +221,7 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
       receiver?.server.close(); if (canaryDir) fs.rmSync(canaryDir, { recursive: true, force: true }); running = false;
     }
   };
+  const campaignMarkers = new Set([marker]);
   const onProtocol = (method, params) => {
     dbg.emit('message', {}, method, params);
     if (method === 'Runtime.executionContextCreated' && params.context.auxData?.isDefault) contexts.add(params.context.id);
@@ -231,9 +235,9 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
     else if (method === 'Runtime.consoleAPICalled') {
       const message = params.args?.map(arg => typeof arg.value === 'string' ? arg.value : '').join(' ');
       if (active && message === `ENG_ACTIVE_EXEC:${marker}`) write('active-payload-executed', { id, url: redact(currentURL) });
-      if (campaign && message?.startsWith(`ENG_CAMPAIGN:${marker}:`)) {
+      if (campaign && campaignMarkers.has(message?.split(':')[1])) {
         const match = /^ENG_CAMPAIGN:[A-Za-z0-9_-]+:([a-z-]+)(?::([0-7]))?:([a-z-]+)$/.exec(message);
-        if (match && CASES.includes(match[1])) write('campaign-result', { case: match[1], slot: match[2] === undefined ? undefined : Number(match[2]), signal: match[3], id, url: redact(currentURL) });
+        if (match && CASES.includes(match[1])) write('campaign-result', { campaignId: message.split(':')[1] === marker ? undefined : message.split(':')[1], case: match[1], slot: match[2] === undefined ? undefined : Number(match[2]), signal: match[3], id, url: redact(currentURL) });
       }
     } else if (method === 'Runtime.exceptionThrown') write('page-exception', { url: redact(currentURL), message: params.exceptionDetails.text || 'Renderer exception' });
     else if (method === 'Network.requestWillBeSentExtraInfo') {

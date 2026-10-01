@@ -47,6 +47,7 @@ import NodeTlsRejectUnauthorizedJSCheck from './NodeTlsRejectUnauthorizedJSCheck
 import NodeTlsRejectUnauthorizedJSONCheck from './NodeTlsRejectUnauthorizedJSONCheck.js';
 import { OpenPathJSCheck, ShowItemInFolderJSCheck, WriteShortcutJSCheck } from './ShellApiJSChecks.js';
 import FileHandlerJSCheck from './FileHandlerJSCheck.js';
+import EntryPointFlowsJSCheck from './EntryPointFlowsJSCheck.js';
 import DependencyInventoryLockCheck from './DependencyInventoryLockCheck.js';
 import FileHandlerJSONCheck from './FileHandlerJSONCheck.js';
 import { SecureKeyboardEntryJSCheck, SecureKeyboardEntryHTMLCheck } from './SecureKeyboardEntryChecks.js';
@@ -122,6 +123,7 @@ const CHECKS = [
   ShowItemInFolderJSCheck,
   WriteShortcutJSCheck,
   FileHandlerJSCheck,
+  EntryPointFlowsJSCheck,
   DependencyInventoryLockCheck,
   FileHandlerJSONCheck,
   SecureKeyboardEntryJSCheck,

@@ -16,6 +16,8 @@ ipcMain.on('by-url', (e, value) => {
   if (e.sender.getURL() !== 'app://local/index.html') return;
   console.log(value);
 });
+function assertTrusted(event) { return event.senderFrame && event.senderFrame.origin === 'app://local'; }
+
 ipcMain.handle('helper', (event, value) => assertTrusted(event) && value);
 ipcRenderer.on('from-main', (e) => console.log(e));
 emitter.on('unrelated', () => {});

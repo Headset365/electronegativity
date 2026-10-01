@@ -323,7 +323,8 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
         say.note(`Campaign selected app view ${r.webContents} (${r.type}): ${r.url}.`);
         break;
       case 'campaign-restore':
-        if (r.ok) say.good('Original request body restored.');
+        if (r.ok && r.verification === 'matched') say.good('Original saved fields verified after restoration.');
+        else if (r.ok) say.note(`Restore request accepted; saved fields ${r.verification || 'not verified'}.`);
         else say.note(`Original request body could not be restored${r.status ? ` (HTTP ${r.status})` : ''}; inspect the disposable record.`);
         break;
       case 'campaign-error':

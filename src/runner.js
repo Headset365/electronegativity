@@ -27,6 +27,7 @@ import { reviewDataAtRest, appNames } from './storage/index.js';
 import { secretSources, scanSecrets } from './secrets/scan.js';
 import { linkCredentialStores } from './finder/checks/AtomicChecks/StorageChecks.js';
 import { analyzeBinary } from './binary/index.js';
+import { recoverPackagedSources } from './production/recover_sources.js';
 import { sourceMapIssues } from './production/sourcemaps.js';
 import { writeShare } from './report/share.js';
 import { installerIssues } from './unpack/findings.js';
@@ -148,6 +149,10 @@ async function scan(options, forCli) {
     options.parserPlugins.forEach(plugin => parser.addPlugin(plugin));
   }
 
+  const recovered = (packagedInput || /\.asar$/i.test(options.input)) && options.sourceMaps !== false
+    ? recoverPackagedSources(loader, parser, path.resolve(options.input)) : { loader, origins: new Map(), errors: [] };
+  loader = recovered.loader;
+
   // Global Checker initialization
   const globalChecker = new GlobalChecks(options.customScan, options.excludeFromScan, options.electronUpgrade);
 
@@ -166,7 +171,7 @@ async function scan(options, forCli) {
 
   // Results' table initialization
   let issues = [];
-  let errors = [];
+  let errors = [...recovered.errors];
   let table = new Table({
     head: [__('tableCheckId'), __('tableAffectedFile'), __('tableLocation'), __('tableDescription')],
     colWidths:[undefined, undefined, undefined, 50], // necessary for wordWrap
@@ -277,6 +282,7 @@ async function scan(options, forCli) {
   errors.push(...globalChecker.checkErrors);
   if (forCli) for (const error of globalChecker.checkErrors) console.error(chalk.red(error.message));
 
+  for (const issue of issues) if (recovered.origins.has(issue.file)) issue.properties = { ...issue.properties, sourceMap: recovered.origins.get(issue.file) };
   for (const issue of issues) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
 
   // the dependency table of HTML and JSON reports (online lookups of release dates, support and advisories)

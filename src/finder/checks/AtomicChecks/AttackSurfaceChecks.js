@@ -2,7 +2,7 @@ import { gte, coerce } from 'semver';
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, keyName, isProperty, isWindowConstructor, webPreferencesOf, findProperty, resolveIdentifier, finding } from '../helpers.js';
-import { constantValue, isCall, resolveLocal, handlerFunction } from '../analysis.js';
+import { constantValue, isCall, resolveLocal, handlerFunction, visit, currentAnalysisContext } from '../analysis.js';
 import { capabilities } from './IpcHandlerChecks.js';
 import { ipcContext, ipcDefinition } from '../ipc_context.js';
 
@@ -20,7 +20,7 @@ export class WindowSummaryJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/api/structures/web-preferences";
   }
 
-  match(astNode, astHelper, scope, defaults, electronVersion) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (!isWindowConstructor(astNode)) return null;
     // options passed from elsewhere (a parameter, a computed value) can't be read
     const options = astNode.arguments.length > 0 ? scope.resolveVarValue(astNode) : undefined;
@@ -42,6 +42,16 @@ export class WindowSummaryJSCheck {
     // renderers without nodeIntegration are sandboxed by default since Electron 20
     if (settings.sandbox.source === 'default' && settings.sandbox.value !== 'unknown')
       settings.sandbox.value = gte(coerce(electronVersion) || '0.1.0', '20.0.0') && settings.nodeIntegration.value !== true;
+    const parent = context.ancestors.at(-1);
+    const variable = parent?.type === 'VariableDeclarator' ? parent.id.name : undefined;
+    const urls = [];
+    if (variable) visit(currentAnalysisContext().program, node => {
+      if (isCall(node) && node.callee.object?.name === variable && ['loadURL', 'loadFile'].includes(memberName(node.callee))) {
+        const value = constantValue(node.arguments[0], scope);
+        urls.push({ kind: memberName(node.callee), value: typeof value === 'string' ? value : 'dynamic' });
+      }
+      return urls.length < 20;
+    });
     const preloadProperty = findProperty(prefs, 'preload');
     const preload = preloadProperty ? (constantValue(preloadProperty[1], scope) ?? preloadFileName(preloadProperty[1], scope) ?? 'dynamic path') : undefined;
 
@@ -58,7 +68,7 @@ export class WindowSummaryJSCheck {
     const summary = ['nodeIntegration', 'contextIsolation', 'sandbox', 'webSecurity'].map(describe).join(', ') + (preload ? `, preload ${preload}` : '') +
       (partition !== 'default' && partition !== 'unknown' ? `, session ${partition}` : '');
     return [finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
-      description: `${this.description}: ${kind} (${summary})`, properties: { window: kind, settings, preload, partition } })];
+      description: `${this.description}: ${kind} (${summary})`, properties: { window: kind, settings, preload, partition, urls } })];
   }
 }
 

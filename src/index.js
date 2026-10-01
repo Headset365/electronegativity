@@ -16,6 +16,7 @@ import { locateApp } from './watch/locate.js';
 import { observeSession, collectRemote } from './watch/session.js';
 import remoteHosts from './remote/hosts.cjs';
 import { createAssistant, writeMarkerFiles } from './watch/assistant.js';
+import { campaignPlan } from './watch/campaign_plan.js';
 import { loadCampaign, hostsOutsideScope } from './watch/campaign.js';
 import { isPackage, unpackTarget } from './unpack/index.js';
 import { splitOutputs, unwritableOutput } from './util/file.js';
@@ -56,6 +57,8 @@ async function main() {
     .option('--watch-marker <token>', __('watchMarkerOptionDescription'))
     .option('--active-tests', 'Opt in to a benign HTML execution probe in watch mode; logs a nonce if the renderer executes it')
     .option('--campaign <file>', 'Run a bounded, profile-driven benign payload campaign without per-case prompts')
+    .option('--no-source-maps', 'Keep packaged bundle analysis instead of recovering embedded original sources')
+    .option('--campaign-plan <file>', 'Export finding-linked campaign drafts to review and complete before execution')
     .option('--auto-campaign', 'Capture a content save, suggest fields and a view, then ask before running a bounded campaign')
     .option('--debug-url <url>', 'Attach to an already running app through its local renderer DevTools endpoint, e.g. http://127.0.0.1:9222')
     .option('--debug-launch', 'Launch the app with an automatically selected local renderer debug port and attach; closes this launched app when observation ends')
@@ -223,6 +226,7 @@ async function main() {
     parserPlugins: options.parserPlugins ? options.parserPlugins.split(",").map(p => p.trim()) : [],
     offline: options.offline,
     allFiles: options.allFiles,
+    sourceMaps: options.sourceMaps,
     baseline: options.baseline,
     writeBaseline: options.writeBaseline,
     redact,
@@ -299,6 +303,7 @@ async function main() {
       runtimeElectronVersion: session && session.watchDiagnostics.electron,
       runtime: session && session.runtime,
       credentials: session && session.credentials,
+      sourceMaps: options.sourceMaps,
       extraInputs: fetched.extraInputs,
       remoteDiagnostics: fetched.remoteDiagnostics,
       diagnostics: options.diagnostics,
@@ -306,6 +311,7 @@ async function main() {
       watchDiagnostics: session && session.watchDiagnostics,
     }, forCli);
     for (const file of [].concat(options.share || [])) if (!forCli) console.log(chalk.gray(__('shareWritten', { file })));
+    if (options.campaignPlan) writeCampaignPlan(options.campaignPlan, result.issues);
     // CI gate: fail when a reported finding reaches the given severity
     if (failOn) {
       const failing = result.reported.filter(issue => issue.severity.value >= failOn.value);
@@ -440,6 +446,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
   const fetched = await collectRemote({ remote: afterSessions ? [] : remote.seeds, guessed: remote.guessed, headers, scope, allowHosts: remote.hosts, offline: options.offline });
   // the profile review and the password trace belong to the sessions, after the app has been used
   const staticResult = await step('static', { extraInputs: fetched.extraInputs, remoteDiagnostics: fetched.remoteDiagnostics, canaries: [], userData: undefined });
+  if (options.campaignPlan) writeCampaignPlan(options.campaignPlan, staticResult.issues);
 
   // 2. watch sessions, until the user stops
   if (!observable && sessions > 0) console.error(chalk.yellow(__('appNoExecutable')));
@@ -486,3 +493,10 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
 }
 
 main();
+
+function writeCampaignPlan(file, issues) {
+  fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+  const plan = campaignPlan(issues);
+  fs.writeFileSync(file, JSON.stringify(plan, null, 2));
+  console.log(`Campaign plan: ${file} (${plan.items.length} draft(s), workflow details required before execution)`);
+}

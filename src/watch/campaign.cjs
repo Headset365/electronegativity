@@ -57,7 +57,7 @@ function valueFor(name, marker, canary) {
     const api = canary?.api;
     if (!api || !/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*){0,4}$/.test(api.path || '') || !Array.isArray(api.args) ||
       !Number.isInteger(api.mutationIndex) || api.mutationIndex < 0 || api.mutationIndex >= api.args.length) throw new Error('An explicit API contract is required');
-    const args = [...api.args];
+    const args = JSON.parse(JSON.stringify(api.args));
     const replacements = { 'api-null': null, 'api-number': 0, 'api-array': [marker], 'api-object': { probe: marker },
       'api-traversal': `../${marker}.txt`, 'api-unc': `\\\\127.0.0.1\\eng-probe\\${marker}.txt`,
       'api-https-url': `https://example.invalid/${marker}` };
@@ -67,7 +67,16 @@ function valueFor(name, marker, canary) {
       replacements['api-file-url'] = `file:///${canary.path.replace(/\\/g, '/').replace(/^\//, '')}`;
     }
     if (name === 'api-loopback-url') replacements[name] = url('api');
-    if (name !== 'api-normal') args[api.mutationIndex] = replacements[name];
+    if (name !== 'api-normal') {
+      if (api.mutationPath) {
+        if (!Array.isArray(api.mutationPath) || !api.mutationPath.length || api.mutationPath.length > 6 || api.mutationPath.some(key => !/^[\w$-]{1,80}$/.test(key) || ['__proto__', 'prototype', 'constructor'].includes(key))) throw new Error('Invalid API mutation path');
+        let target = args[api.mutationIndex];
+        for (const key of api.mutationPath.slice(0, -1)) target = target?.[key];
+        const key = api.mutationPath.at(-1);
+        if (!target || typeof target !== 'object' || !Object.hasOwn(target, key)) throw new Error('API mutation field is absent');
+        target[key] = replacements[name];
+      } else args[api.mutationIndex] = replacements[name];
+    }
     const code = `try { ${log('executed')}; var target = window, owner = window; for (var k of ${JSON.stringify(api.path.split('.'))}) { owner = target; target = target && target[k]; } if (typeof target !== "function") ${log('api-unavailable')}; else { ${log('api-invoked')}; Promise.resolve(target.apply(owner, ${JSON.stringify(args)})).then(() => ${log('api-resolved')}, () => ${log('api-rejected')}); } } catch(e) { ${log('api-rejected')}; }`;
     return img(code);
   }
@@ -119,48 +128,56 @@ function valueFor(name, marker, canary) {
   }
 }
 
-async function runCampaign({ profile, marker, fetch, fill, view, write, canary, seed, signal, delay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+async function runCampaign({ profile, marker, campaignId, fetch, fill, view, write, canary, seed, signal, delay = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+  const { verifySaved } = require('./campaign_verify.cjs');
+  const output = write;
+  write = (kind, data) => output(kind, { ...(campaignId ? { campaignId } : {}), ...data });
   const { request, cases, waitMs } = profile;
   const fields = profile.fields === 'auto' ? discoverFields(request.body) : (profile.fields || [profile.field]);
   if (!fields.length) throw new Error('No mutable string fields were discovered in the configured request');
   write('campaign-fields', { count: fields.length, automatic: profile.fields === 'auto' });
   let sent = 0;
   let contentType;
-  for (const [slot, field] of fields.entries()) for (const name of cases) {
-    if (signal?.aborted) throw new Error('Campaign cancelled before completion; restoration may be incomplete');
-    let fixture;
-    try {
-      fixture = name === 'fs-read' || name === 'api-absolute' || name === 'api-file-url' ? canary() : undefined;
-      const fieldSlot = fields.length > 1 ? slot : undefined;
-      const data = DATA.has(name) ? await seed(name, fieldSlot) : undefined;
-      if (DATA.has(name)) write('campaign-seed', { case: name, slot: fieldSlot, ok: !!data });
-      const value = valueFor(name, marker, { ...(fixture || {}), resourceBase: profile.resourceBase, api: profile.api, slot: fieldSlot, data });
-      const built = fill(request.body, marker, [{ name: field, html: true }], false, value);
-      if (!built) throw new Error('field is absent, not a string, or body cannot be rebuilt');
-      if (TYPED.has(name) && built.contentType !== 'application/json') throw new Error('Typed mutation requires a JSON request body');
-      contentType = built.contentType;
-      const headers = { ...request.headers, 'content-type': built.contentType };
-      sent++;
-      const response = await fetch(request.url, { method: request.method, headers, body: built.body });
-      write('campaign-send', { case: name, route: profile.route, status: response.status, ok: !!response.ok, field, slot: fieldSlot });
-      if (response.ok && view) {
-        const opened = await view(name, fieldSlot);
-        write('campaign-view', { case: name, slot: fieldSlot, opened: !!opened });
+  try {
+    for (const [slot, field] of fields.entries()) for (const name of cases) {
+      if (signal?.aborted) throw new Error('Campaign cancelled before completion; restoration may be incomplete');
+      let fixture;
+      try {
+        fixture = name === 'fs-read' || name === 'api-absolute' || name === 'api-file-url' ? canary() : undefined;
+        const fieldSlot = fields.length > 1 ? slot : undefined;
+        const data = DATA.has(name) ? await seed(name, fieldSlot) : undefined;
+        if (DATA.has(name)) write('campaign-seed', { case: name, slot: fieldSlot, ok: !!data });
+        const value = valueFor(name, marker, { ...(fixture || {}), resourceBase: profile.resourceBase, api: profile.api, slot: fieldSlot, data });
+        const built = fill(request.body, marker, [{ name: field, html: true }], false, value);
+        if (!built) throw new Error('field is absent, not a string, or body cannot be rebuilt');
+        if (TYPED.has(name) && built.contentType !== 'application/json') throw new Error('Typed mutation requires a JSON request body');
+        contentType = built.contentType;
+        const headers = { ...request.headers, 'content-type': built.contentType };
+        sent++;
+        const response = await fetch(request.url, { method: request.method, headers, body: built.body });
+        write('campaign-send', { case: name, route: profile.route, status: response.status, ok: !!response.ok, field, slot: fieldSlot });
+        if (response.ok && profile.verify) write('campaign-verification', { case: name, slot: fieldSlot,
+          ...await verifySaved({ verify: profile.verify, expected: built.body, fields: [field], fetch, headers: request.headers }) });
+        if (response.ok && view) {
+          const opened = await view(name, fieldSlot);
+          write('campaign-view', { case: name, slot: fieldSlot, opened: !!opened });
+        }
+      } catch (error) {
+        write('campaign-send', { case: name, route: profile.route, field, slot: fields.length > 1 ? slot : undefined,
+          ok: false, error: String(error && error.message || error).slice(0, 160) });
       }
-    } catch (error) {
-      write('campaign-send', { case: name, route: profile.route, field, slot: fields.length > 1 ? slot : undefined,
-        ok: false, error: String(error && error.message || error).slice(0, 160) });
+      await delay(waitMs);
     }
-    await delay(waitMs);
-  }
-  if (signal?.aborted) throw new Error('Campaign cancelled before restoration');
-  if (profile.restoreOnDone !== false && sent) {
-    try {
-      const response = await fetch(request.url, { method: request.method,
-        headers: { ...request.headers, 'content-type': contentType }, body: request.body });
-      write('campaign-restore', { ok: !!response.ok, status: response.status });
-    } catch (error) {
-      write('campaign-restore', { ok: false, error: String(error && error.message || error).slice(0, 160) });
+  } finally {
+    if (profile.restoreOnDone !== false && sent) {
+      try {
+        const response = await fetch(request.url, { method: request.method,
+          headers: { ...request.headers, 'content-type': contentType }, body: request.body });
+        write('campaign-restore', { ok: !!response.ok, status: response.status,
+          ...await verifySaved({ verify: response.ok && profile.verify, expected: request.body, fields, fetch, headers: request.headers }) });
+      } catch (error) {
+        write('campaign-restore', { ok: false, error: String(error && error.message || error).slice(0, 160) });
+      }
     }
   }
   write('campaign-done', { cases: cases.length * fields.length, fields: fields.length });

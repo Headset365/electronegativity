@@ -64,7 +64,8 @@ export function analyzeWatchLog(records) {
       { sent: activeSent.length, execution: 'not observed' });
   const campaignCases = [];
   for (const sent of records.filter(r => r.kind === 'campaign-send')) {
-    const same = r => r.case === sent.case && r.slot === sent.slot;
+    const ambiguous = !sent.campaignId && records.filter(r => r.kind === 'campaign-send' && r.case === sent.case && r.slot === sent.slot && !r.campaignId).length > 1;
+    const same = r => !ambiguous && r.case === sent.case && r.slot === sent.slot && r.campaignId === sent.campaignId;
     const views = records.filter(r => r.kind === 'campaign-view' && same(r));
     const signals = records.filter(r => r.kind === 'campaign-result' && same(r));
     const resources = records.filter(r => r.kind === 'campaign-resource' && same(r));
@@ -72,7 +73,8 @@ export function analyzeWatchLog(records) {
     const execution = signals.some(r => r.signal === 'executed');
     const delivery = sent.ok ? 'accepted' : sent.status ? 'rejected' : 'failed';
     const view = views.some(r => r.opened) ? 'opened' : 'not observed';
-    const caseState = { case: sent.case, field: sent.field, slot: sent.slot, delivery, view,
+    const verification = records.find(r => r.kind === 'campaign-verification' && same(r));
+    const caseState = { campaignId: sent.campaignId, correlation: ambiguous ? 'ambiguous' : 'matched-case', savedValue: verification?.verification || 'not verified', case: sent.case, field: sent.field, slot: sent.slot, delivery, view,
       action: action ? { clicked: action.clicked, navigated: action.navigated, url: action.url } : undefined,
       execution: EXECUTION.has(sent.case) ? (execution ? 'observed' : 'not observed') : 'not applicable',
       resources: resources.map(r => r.resource),
@@ -118,10 +120,13 @@ export function analyzeWatchLog(records) {
   for (const error of records.filter(r => r.kind === 'campaign-error'))
     add('RUNTIME_CAMPAIGN_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
       `Campaign incomplete: ${error.message}`, { error: error.message });
-  for (const restore of records.filter(r => r.kind === 'campaign-restore' && !r.ok))
+  for (const restore of records.filter(r => r.kind === 'campaign-restore' && (!r.ok || r.verification === 'mismatch')))
     add('RUNTIME_CAMPAIGN_RESTORE', 'runtime', severity.MEDIUM, confidence.CERTAIN,
       `The campaign could not restore the original test field${restore.status ? ` (HTTP ${restore.status})` : ''}; inspect the disposable record`,
-      { status: restore.status, error: restore.error });
+      { status: restore.status, error: restore.error, verification: restore.verification });
+  for (const restore of records.filter(r => r.kind === 'campaign-restore' && r.ok && r.verification !== 'matched'))
+    add('RUNTIME_CAMPAIGN_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
+      `Restore request was accepted; original saved values ${restore.verification || 'not verified'}. Configure verify.url for read-back evidence`, { verification: restore.verification || 'not configured' });
   for (const cleanup of records.filter(r => r.kind === 'campaign-cleanup' && !r.ok))
     add('RUNTIME_CAMPAIGN_CLEANUP', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
       'The campaign could not verify removal of all tool-owned browser data canaries from the configured view', { count: cleanup.count });

@@ -11,7 +11,7 @@ const inNodeModules = (rel) => rel.split(/[\\/]/).includes('node_modules');
 const INLINE = /[#@]\s*sourceMappingURL=data:application\/json[^,]*;base64,([A-Za-z0-9+/=]+)/;
 const LINKED = /[#@]\s*sourceMappingURL=([^\s'"]+\.map)\b/;
 
-function listFiles(input) {
+export function listFiles(input) {
   const resolved = path.resolve(input);
   try {
     if (fs.statSync(resolved).isDirectory()) return walk(resolved, { skip: rel => inNodeModules(rel) }).map(file => ({ rel: path.relative(resolved, file), read: () => fs.readFileSync(file) }));

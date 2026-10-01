@@ -47,7 +47,13 @@ export default class IpcChannelMapGlobalCheck {
       if (!sendersOf.has(channel)) sendersOf.set(channel, new Set());
       sendersOf.get(channel).add(api.file);
     }
-    const windowsLoading = (files) => windows.filter(w => [...files].some(f => base(f) === base(w.properties.preload)));
+    const matchWindow = (w, f) => {
+      const preload = w.properties.preload;
+      if (preload === 'dynamic path') return undefined;
+      if (path.resolve(path.dirname(w.file), preload) === path.resolve(f)) return 'resolved-path';
+      if (base(f) === base(preload)) return 'preload-basename-candidate';
+    };
+    const windowsLoading = files => windows.filter(w => [...files].some(f => matchWindow(w, f)));
     const results = [];
     for (const [channel, handler] of handlers) {
       const senders = new Set([...(sendersOf.get(channel) || []), ...passThrough]);
@@ -56,7 +62,10 @@ export default class IpcChannelMapGlobalCheck {
         .filter(([, channels]) => channels.includes(channel) || channels.includes('*'))
         .map(([member]) => ({ api: `window.${api.properties.world}.${member}`, file: api.file, line: api.location?.line })));
       const properties = { channel, handler: where(handler), senders: [...senders], windows: reach.map(where), passThrough: [...passThrough],
-        exposedAPIs: exposed, windowMatch: 'preload-basename-heuristic', context: handler.properties?.context,
+        exposedAPIs: exposed, windowMatch: 'resolved-path-or-explicit-candidate',
+        windowAccess: reach.map(w => ({ file: w.file, line: w.location?.line, preload: w.properties.preload, partition: w.properties.partition,
+          urls: w.properties.urls || [], match: [...senders].map(f => matchWindow(w, f)).filter(Boolean).sort()[0],
+          frameAccess: 'subframe-and-navigation-access-unverified' })), context: handler.properties?.context,
         handlers: [...(registrations.get(channel)?.values() || [])].map(item => ({ file: item.file, line: item.location?.line, capabilities: item.properties?.capabilities,
           analysis: item.properties?.context?.status })),
         authorization: 'application-policy-and-server-controls-unverified' };

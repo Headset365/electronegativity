@@ -1,19 +1,11 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, finding } from '../helpers.js';
-import { handlerFunction, callsIn, dependsOnParams, constantPrefix, visit } from '../analysis.js';
-import { CONTAINMENT } from './IpcHandlerChecks.js';
+import { entryContext } from '../entry_context.js';
 
 const REGISTRATIONS = ['registerStandardSchemes', 'registerServiceWorkerSchemes', 'registerFileProtocol', 'registerHttpProtocol',
   'registerStringProtocol', 'registerBufferProtocol', 'registerStreamProtocol'];
 const INTERCEPTIONS = ['interceptFileProtocol', 'interceptHttpProtocol', 'interceptStringProtocol', 'interceptBufferProtocol', 'interceptStreamProtocol'];
-// calls that turn a request into a file access
-const FILE_SINKS = /^(join|resolve|readFile|readFileSync|createReadStream|fetch|pathToFileURL|sendFile|stat|statSync|access)$/;
-// ways to keep a path inside a directory: those of the IPC file checks, or a sanitizer. Not normalize or isAbsolute (a
-// normalized path keeps its ../), and not includes, indexOf or test on their own: url.includes('?') checks nothing; a
-// search for '..' (in a string or a regular expression) is found by mentionsDotDot
-const contains = (name) => CONTAINMENT.test(name) || /sanitiz/i.test(name);
-
 // Custom protocols (checklist #18) replace file://, but their handlers must not serve files outside the app
 export default class ProtocolHandlerJSCheck {
   constructor() {
@@ -30,8 +22,9 @@ export default class ProtocolHandlerJSCheck {
     const objectName = object && (object.name || (object.property && object.property.name)) || '';
     // protocol.handle() (Electron 25+), only on the protocol module since `handle` is a common method name (e.g. ipcMain.handle)
     const isHandle = method === 'handle' && /protocol$/i.test(objectName);
+    let flow;
     const report = (sev, conf, reason, manualReview = true) =>
-      [finding(this, astNode, { severity: sev, confidence: conf, manualReview, description: `${this.description} (${reason})` })];
+      [finding(this, astNode, { severity: sev, confidence: conf, manualReview, properties: flow ? { context: flow, entryPoint: 'custom-protocol' } : undefined, description: `${this.description} (${reason})` })];
 
     if (method === 'setAsDefaultProtocolClient')
       return report(severity.LOW, confidence.CERTAIN, 'the app registers itself as a deep link handler; every URL of this scheme reaches it');
@@ -39,30 +32,13 @@ export default class ProtocolHandlerJSCheck {
       return report(severity.LOW, confidence.FIRM, `${method} replaces the handling of a standard scheme; review the handler`);
     if (!isHandle && !REGISTRATIONS.includes(method)) return null;
 
-    const fn = astNode.arguments.length > 1 ? handlerFunction(astNode.arguments[1], scope, context.ancestors) : undefined;
-    if (!fn) return report(severity.LOW, confidence.FIRM, 'custom protocol registered; review what its handler serves');
-
-    // fetch() only serves files for file: URLs; fetching http(s) is a proxy, not a file server
-    const isFileUrl = (arg) => /^file:/i.test(constantPrefix(arg, scope) || '') || callsIn({ body: arg }, (c, name) => /^(pathToFileURL|join|resolve)$/.test(name || '')).length > 0;
-    const servesFiles = callsIn(fn, (call, name) => FILE_SINKS.test(name || '') &&
-      call.arguments.some(a => (name === 'fetch' ? isFileUrl(a) : true) && (dependsOnParams(a, fn) || /^file:/i.test(constantPrefix(a, scope) || '')))).length > 0 ||
-      method === 'registerFileProtocol';
-    if (!servesFiles) return report(severity.LOW, confidence.FIRM, 'custom protocol handler; review what it serves');
-
-    const contained = callsIn(fn, (call, name) => contains(name || '')).length > 0 || mentionsDotDot(fn);
+    flow = entryContext(astNode.arguments[1], scope, context.ancestors, ['request', null]);
+    const effects = flow.effects.filter(effect => effect.capability === 'files' && effect.pathArguments.length);
+    const servesFiles = effects.length || method === 'registerFileProtocol';
+    if (!servesFiles) return report(severity.LOW, confidence.FIRM, `custom protocol handler; review what it serves (${flow.status})`);
+    const contained = effects.length && effects.every(effect => effect.pathControl === 'recognized-unverified');
     if (!contained)
-      return report(severity.HIGH, confidence.FIRM, 'the handler maps request URLs to files without keeping paths inside a directory (path traversal)', false);
-    return report(severity.LOW, confidence.FIRM, 'the handler serves files and checks paths; review the containment check');
+      return report(severity.HIGH, confidence.FIRM, 'request-derived file paths have no relevant pre-operation containment guard; validate traversal and caller access', true);
+    return report(severity.LOW, confidence.FIRM, 'the relevant file paths have recognized guards; review their implementation and runtime behavior');
   }
-}
-
-// a '..' in a string, or a regular expression that matches one (/\.\./, /\.{2}/)
-function mentionsDotDot(fn) {
-  let found = false;
-  visit(fn.body, (n) => {
-    const pattern = n.type === 'RegExpLiteral' ? n.pattern : n.regex && n.regex.pattern;
-    if ((typeof n.value === 'string' && n.value.includes('..')) || (typeof pattern === 'string' && /\\\.\\\.|\\\.\{2/.test(pattern))) found = true;
-    return !found;
-  });
-  return found;
 }

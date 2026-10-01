@@ -234,6 +234,7 @@ function instrument(electron, late) {
   // confirmed at runtime (content reaching openExternal, a navigation, IPC, a command line), without logging the values
   const MARKER = process.env.ELECTRONEGATIVITY_WATCH_MARKER || '';
   const ACTIVE = process.env.ELECTRONEGATIVITY_WATCH_ACTIVE === '1' && /^[A-Za-z0-9_-]{8,80}$/.test(MARKER);
+  const campaignMarkers = new Set([MARKER]);
   const CAMPAIGN = process.env.ELECTRONEGATIVITY_WATCH_CAMPAIGN === '1' && ACTIVE;
   const hasMarker = (value) => {
     if (!MARKER || value === undefined || value === null) return false;
@@ -386,11 +387,11 @@ function instrument(electron, late) {
       const url = redact(detail.sourceId || '');
       if (ACTIVE && message.trim() === `ENG_ACTIVE_EXEC:${MARKER}`)
         write('active-payload-executed', { id, url: redact((electron.webContents.fromId(id) || {}).getURL?.() || detail.sourceId || '') });
-      if (CAMPAIGN && message.startsWith(`ENG_CAMPAIGN:${MARKER}:`)) {
+      if (CAMPAIGN && campaignMarkers.has(message.trim().split(':')[1])) {
         const match = /^ENG_CAMPAIGN:[A-Za-z0-9_-]+:([a-z-]+)(?::([0-7]))?:([a-z-]+)$/.exec(message.trim());
         if (match) {
           const { CASES } = require(path.join(__dirname, 'campaign.cjs'));
-          if (CASES.includes(match[1])) write('campaign-result', { case: match[1], slot: match[2] === undefined ? undefined : Number(match[2]), signal: match[3], id,
+          if (CASES.includes(match[1])) write('campaign-result', { campaignId: message.trim().split(':')[1] === MARKER ? undefined : message.trim().split(':')[1], case: match[1], slot: match[2] === undefined ? undefined : Number(match[2]), signal: match[3], id,
             url: redact((electron.webContents.fromId(id) || {}).getURL?.() || detail.sourceId || '') });
         }
       }
@@ -903,6 +904,9 @@ function instrument(electron, late) {
           write('campaign-error', { message: 'No matching replayable request or valid profile request' });
           return;
         }
+        const campaignMarker = `${MARKER.slice(0, 50)}_${require('crypto').randomBytes(8).toString('hex')}`;
+        campaignMarkers.add(campaignMarker);
+        const campaignWrite = (kind, data) => write(kind, { campaignId: campaignMarker, ...data });
         let canaryDir;
         const canary = () => {
           if (!canaryDir) canaryDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'electronegativity-canary-'));
@@ -930,10 +934,10 @@ function instrument(electron, late) {
             if (name === 'javascript-url' || name.startsWith('nav-')) {
               await new Promise(resolve => setTimeout(resolve, 600));
               const before = redact(target.getURL());
-              const clicked = await target.executeJavaScript(`(() => { const a = [...document.querySelectorAll('a[data-eng-campaign]')].find(x => x.getAttribute('data-eng-campaign') === ${JSON.stringify(MARKER)}); if (!a) return false; a.click(); return true; })()`, false);
+              const clicked = await target.executeJavaScript(`(() => { const a = [...document.querySelectorAll('a[data-eng-campaign]')].find(x => x.getAttribute('data-eng-campaign') === ${JSON.stringify(campaignMarker)}); if (!a) return false; a.click(); return true; })()`, false);
               await new Promise(resolve => setTimeout(resolve, 500));
               const after = redact(target.getURL());
-              write('campaign-action', { case: name, slot, clicked: !!clicked, navigated: before !== after, url: after });
+              campaignWrite('campaign-action', { case: name, slot, clicked: !!clicked, navigated: before !== after, url: after });
             }
             return true;
           } catch { return false; }
@@ -943,7 +947,7 @@ function instrument(electron, late) {
           if (!await view('seed')) throw new Error('Could not open the configured view to seed controlled data');
           const target = windowsForCampaign()[0];
           const value = require('crypto').randomBytes(16).toString('hex');
-          const key = `eng_campaign_${MARKER}_${name}_${slot === undefined ? '0' : slot}`;
+          const key = `eng_campaign_${campaignMarker}_${name}_${slot === undefined ? '0' : slot}`;
           const script = name === 'cookie-canary' ? `(() => { document.cookie = ${JSON.stringify(`${key}=${value}; Path=/; SameSite=Lax`)}; return document.cookie.includes(${JSON.stringify(`${key}=${value}`)}); })()` :
             name === 'localstorage-canary' ? `(() => { localStorage.setItem(${JSON.stringify(key)}, ${JSON.stringify(value)}); return localStorage.getItem(${JSON.stringify(key)}) === ${JSON.stringify(value)}; })()` :
               `(async () => new Promise(resolve => { try { const r = indexedDB.open(${JSON.stringify(key)}, 1); r.onupgradeneeded = () => r.result.createObjectStore('canary'); r.onerror = () => resolve(false); r.onsuccess = () => { const db = r.result; const tx = db.transaction('canary', 'readwrite'); tx.objectStore('canary').put(${JSON.stringify(value)}, 'nonce'); tx.oncomplete = () => { db.close(); resolve(true); }; tx.onerror = () => { db.close(); resolve(false); }; }; } catch(e) { resolve(false); } }))()`;
@@ -962,7 +966,7 @@ function instrument(electron, late) {
         let resourceServer;
         const resourceReceiver = async () => {
           if (!profile.docxImport && !profile.cases.some(name => RESOURCES.has(name))) return undefined;
-          const receiver = await startResourceReceiver(MARKER, write);
+          const receiver = await startResourceReceiver(campaignMarker, campaignWrite);
           resourceServer = receiver.server;
           return receiver.url;
         };
@@ -975,13 +979,13 @@ function instrument(electron, late) {
           if (profile.view === 'captured' && !entry?.viewURL) throw new Error('The save has no captured view URL; capture a new save from the intended view');
           write('campaign-window', { webContents: target.id, type: target.getType(), url: redact(target.getURL()) });
           const resourceBase = await resourceReceiver();
-          if (request) await runCampaign({ profile: { ...profile, request, resourceBase }, marker: MARKER, fetch: (url, options) => ses.fetch(url, options),
-            fill: fillMarkerBody, view, write, canary, seed });
-          if (profile.docxImport) await runDocxCampaign({ profile, marker: MARKER, fetch: (url, options) => ses.fetch(url, options),
-            view, write, resourceBase });
+          if (request) await runCampaign({ profile: { ...profile, request, resourceBase }, marker: campaignMarker, campaignId: campaignMarker, fetch: (url, options) => ses.fetch(url, options),
+            fill: fillMarkerBody, view, write: campaignWrite, canary, seed });
+          if (profile.docxImport) await runDocxCampaign({ profile, marker: campaignMarker, campaignId: campaignMarker, fetch: (url, options) => ses.fetch(url, options),
+            view, write: campaignWrite, resourceBase });
         })
           .catch(error => {
-            write('campaign-error', { message: String(error.message).slice(0, 160) });
+            campaignWrite('campaign-error', { message: String(error.message).slice(0, 160) });
           })
           .finally(async () => {
             await cleanupSeeded();

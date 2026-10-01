@@ -2,7 +2,7 @@ import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, visit, finding, isFunction } from '../helpers.js';
 import { handlerFunction } from '../analysis.js';
-import { ipcListener, ipcDefinition } from '../ipc_context.js';
+import { ipcListener, ipcDefinition, inspectPredicate } from '../ipc_context.js';
 
 // Properties of the IPC event (event.senderFrame.url, event.sender.getURL(), ...) that identify the sender
 const SENDER_PROPERTIES = ['senderFrame', 'origin', 'url', 'getURL'];
@@ -37,22 +37,23 @@ export default class IpcSenderValidationJSCheck {
     // wrappers like ipcValidate(handler, schema) or withSenderCheck(handler)
     if ((handlerArg.type === 'CallExpression' || handlerArg.type === 'OptionalCallExpression') && memberName(handlerArg.callee) !== 'bind' && handlerArg.arguments.length > 0) {
       const wrapper = handlerArg.callee.type === 'Identifier' ? handlerArg.callee.name : memberName(handlerArg.callee);
-      if (/sender|origin|trusted|secure|guard|auth/i.test(wrapper || ''))
+      if (/sender|origin|trusted|secure|guard|auth/i.test(wrapper || '') && !ipcDefinition(handlerArg, scope, context.ancestors))
         return [finding(this, astNode, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true, properties,
-          description: `${this.description} (wrapped by ${wrapper}(); verify that it validates the sender)` })];
-      handlerArg = handlerArg.arguments[0];
+          description: `${this.description} (wrapped by ${wrapper}(); wrapper authorization is unverified)` })];
+      if (!ipcDefinition(handlerArg, scope, context.ancestors)) handlerArg = handlerArg.arguments[0];
     }
-    const handler = ipcDefinition(handlerArg, scope, context.ancestors)?.node || handlerFunction(handlerArg, scope, context.ancestors);
+    const definition = ipcDefinition(handlerArg, scope, context.ancestors);
+    const handler = definition?.node || handlerFunction(handlerArg, scope, context.ancestors);
     if (!handler || !isFunction(handler)) {
       // handler defined elsewhere, can't tell whether it validates the sender
       return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true, properties })];
     }
 
-    if (this.validatesSender(handler)) return null;
+    if (this.validatesSender(handler, definition)) return null;
     return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true, properties })];
   }
 
-  validatesSender(handler) {
+  validatesSender(handler, definition) {
     const eventParam = handler.params && handler.params[0];
     if (!eventParam) return false; // the event object isn't even received
 
@@ -66,7 +67,8 @@ export default class IpcSenderValidationJSCheck {
       const name = gate && gate.callee && (gate.callee.name || memberName(gate.callee));
       if (gate && (gate.type === 'CallExpression' || gate.type === 'OptionalCallExpression') &&
         /^(?:assert|validate|verify|is)(?:Trusted|Authorized|Allowed|Secure)(?:Sender|Origin)?$/i.test(name || '') &&
-        gate.arguments.some(arg => arg.type === 'Identifier' && eventNames.includes(arg.name))) return true;
+        gate.arguments.some(arg => arg.type === 'Identifier' && eventNames.includes(arg.name)) &&
+        (!definition || inspectPredicate(gate, definition).arguments.includes('$sender'))) return true;
     }
     const referencesSender = (root) => {
       let found = false;
@@ -101,7 +103,8 @@ export default class IpcSenderValidationJSCheck {
         }
         return true;
       });
-      if (!priorWork && (rejects(node.consequent) || rejects(node.alternate))) guarded = true;
+      if (!priorWork && (rejects(node.consequent) || rejects(node.alternate)) &&
+        (!definition || inspectPredicate(node.test, definition, !rejects(node.consequent)).arguments.includes('$sender'))) guarded = true;
     });
     return guarded;
   }

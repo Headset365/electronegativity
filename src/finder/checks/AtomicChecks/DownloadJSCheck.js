@@ -2,6 +2,7 @@ import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, literalValue, finding } from '../helpers.js';
 import { handlerFunction, callsIn, paramNames, identifiersIn, visit, isCall } from '../analysis.js';
+import { entryContext } from '../entry_context.js';
 
 // session.on('will-download', (event, item) => ...): downloads are chosen by web content
 export default class DownloadJSCheck {
@@ -38,6 +39,12 @@ export default class DownloadJSCheck {
         issues.push(finding(this, call, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
           description: `${this.description} (the save path is built from the server-provided file name; strip directories with path.basename and check the extension)` }));
     }
+    const flow = entryContext(astNode.arguments[1], scope, context.ancestors, [null, 'download', null]);
+    for (const issue of issues) issue.properties = { ...issue.properties, event: 'will-download', context: flow };
+    if (!issues.length && flow.effects.some(effect => effect.arguments.length && ['shell-openPath', 'shell-openExternal', 'process', 'file-write'].includes(effect.kind))) issues.push(finding(this, astNode, {
+      severity: severity.LOW, confidence: confidence.FIRM, manualReview: true,
+      description: `${this.description} (download input reaches helper operations; review the attached trace)`, properties: { event: 'will-download', context: flow },
+    }));
     return issues;
   }
 }

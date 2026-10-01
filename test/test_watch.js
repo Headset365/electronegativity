@@ -402,7 +402,7 @@ describe('Watch mode', () => {
         const report = JSON.parse(fs.readFileSync(output, 'utf8'));
         report.runtime.campaign.cases.should.have.length(2);
         report.runtime.campaign.cases.some(c => c.case === 'event-handler' && c.execution === 'observed').should.equal(true);
-        command.stdout.should.include('Original request body restored');
+        command.stdout.should.include('Restore request accepted');
       } finally { fs.rmSync(root, { recursive: true, force: true }); }
     });
 

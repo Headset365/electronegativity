@@ -1,6 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, calleeObjectName, literalValue, finding } from '../helpers.js';
+import { entryContext, flowDescription } from '../entry_context.js';
 
 // Events delivering attacker-controllable files, URLs or command lines to the main process
 const EVENTS = {
@@ -17,12 +18,13 @@ export default class FileHandlerJSCheck {
     this.shortenedURL = "https://www.electronjs.org/docs/latest/tutorial/launch-app-from-url-in-another-app";
   }
 
-  match(astNode) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (astNode.type !== 'CallExpression' && astNode.type !== 'OptionalCallExpression') return null;
     if (!['on', 'once', 'addListener'].includes(memberName(astNode.callee)) || calleeObjectName(astNode.callee) !== 'app') return null;
     const event = literalValue(astNode.arguments[0]);
     if (!EVENTS[event]) return null;
+    const flow = entryContext(astNode.arguments[1], scope, context.ancestors, event === 'second-instance' ? [null, 'commandLine', 'workingDirectory', 'additionalData'] : [null, event === 'open-url' ? 'url' : 'filePath']);
     return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
-      description: `${this.description}: ${EVENTS[event]}`, properties: { event } })];
+      description: `${this.description}: ${EVENTS[event]}; ${flowDescription(flow)}`, properties: { event, context: flow } })];
   }
 }

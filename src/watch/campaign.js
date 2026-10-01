@@ -25,6 +25,9 @@ export function normalizeCampaign(input) {
     throw new Error(`Campaign cases must be unique selections from: ${CASES.join(', ')}`);
   if (cases.some(c => c.startsWith('api-'))) {
     const api = input.api;
+    if (api?.mutationPath !== undefined && (!Array.isArray(api.mutationPath) || !api.mutationPath.length || api.mutationPath.length > 6 ||
+      api.mutationPath.some(key => typeof key !== 'string' || !/^[\w$-]{1,80}$/.test(key) || ['__proto__', 'prototype', 'constructor'].includes(key))))
+      throw new Error('API mutationPath must contain safe object field names');
     if (!api || typeof api.path !== 'string' || !/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*){0,4}$/.test(api.path) ||
       !Array.isArray(api.args) || api.args.length < 1 || api.args.length > 4 ||
       !Number.isInteger(api.mutationIndex) || api.mutationIndex < 0 || api.mutationIndex >= api.args.length ||
@@ -46,6 +49,12 @@ export function normalizeCampaign(input) {
     if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('Campaign request URL must be HTTP(S) without embedded credentials');
     return parsed;
   };
+  let verify;
+  if (input.verify) {
+    const bodyPath = input.verify.bodyPath || [];
+    if (!Array.isArray(bodyPath) || bodyPath.length > 6 || bodyPath.some(key => typeof key !== 'string' || !/^[\w$-]{1,80}$/.test(key) || ['__proto__', 'constructor', 'prototype'].includes(key))) throw new Error('Invalid read-back bodyPath');
+    verify = { url: parseUrl(input.verify.url).href, bodyPath };
+  }
   let docxImport;
   if (input.docxImport) {
     const contract = input.docxImport;
@@ -62,7 +71,7 @@ export function normalizeCampaign(input) {
     docxImport = { method: String(contract.method).toUpperCase(), url: url.href, field: contract.field, headers, cases: docxCases };
   }
   const docxRoute = docxImport && `${docxImport.method} ${apiRoute(docxImport.url)}`;
-  const common = { version: 1, field: fields === 'auto' ? undefined : fields[0], fields, cases, waitMs, view, api: input.api,
+  const common = { version: 1, field: fields === 'auto' ? undefined : fields[0], fields, cases, waitMs, view, api: input.api, verify,
     closeOnDone: input.closeOnDone !== false, restoreOnDone: input.restoreOnDone !== false, windowUrl: input.windowUrl, docxImport, docxRoute };
   if (!source) return { ...common, mode: 'docx', route: docxRoute };
   if (input.request) {
@@ -118,7 +127,7 @@ export function campaignMatch(profile, record) {
 /** The hosts a campaign profile writes to: its request, its DOCX import endpoint and its capture route. */
 export function campaignHosts(profile) {
   const route = profile?.mode === 'capture' ? String(profile.route).split(' ')[1] : undefined;
-  const urls = [profile?.request?.url, profile?.docxImport?.url, route && route.replaceAll('{id}', '1')].filter(Boolean);
+  const urls = [profile?.verify?.url, profile?.request?.url, profile?.docxImport?.url, route && route.replaceAll('{id}', '1')].filter(Boolean);
   return [...new Set(urls.map(url => new URL(url).hostname.toLowerCase()))];
 }
 

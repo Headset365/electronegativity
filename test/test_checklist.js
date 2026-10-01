@@ -487,7 +487,7 @@ const CASES = [
   expect: [{ id: 'LIMIT_NAVIGATION_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' }] },
   { practice: 'cross-file: tsconfig baseUrl and paths aliases', secure: { 'tsconfig.json': `{\n  // comments are allowed\n  "compilerOptions": { "baseUrl": "./src", "paths": { "@lib/*": ["lib/*"] }, },\n}`,
     'src/main/index.ts': `import { getVersion } from 'main/handlers';\nimport { HELP } from '@lib/urls';\nipcMain.handle('version', getVersion);\nshell.openExternal(HELP);`,
-    'src/main/handlers.ts': `export function getVersion(event) { if (!trusted(event.senderFrame)) return; return '1.0'; }`,
+    'src/main/handlers.ts': `function trusted(frame) { return frame && frame.origin === 'https://example.com'; } export function getVersion(event) { if (!trusted(event.senderFrame)) return; return '1.0'; }`,
     'src/lib/urls.ts': `export const HELP = 'https://example.com/help';` },
   absent: ['IPC_SENDER_VALIDATION_JS_CHECK', 'OPEN_EXTERNAL_JS_CHECK'] },
   { practice: 'TypeScript: local handler variables and factories', insecure: { 'main.ts': `class Popups {\n  attach(contents: WebContents) {\n    const willNavigate = this.makeNavigate(contents.id);\n    contents.setWindowOpenHandler(() => ({ action: 'deny' }));\n    contents.on('will-navigate', willNavigate);\n  }\n  private makeNavigate = (id: number) => (event: Event, url: string) => { log(id, url); };\n}` },

@@ -35,6 +35,13 @@ export function ipcDefinition(node, scope, ancestors = [], depth = 0) {
   const context = currentAnalysisContext();
   if (isFunction(node)) return { node, file: context.file, program: context.program, ancestors };
   if (isCall(node) && memberName(node.callee) === 'bind' && node.arguments.length <= 1) return ipcDefinition(node.callee.object, scope, ancestors, depth + 1);
+  if (isCall(node)) {
+    const product = handlerFunction(node, scope, ancestors);
+    if (product && isFunction(product)) {
+      const factory = ipcDefinition(node.callee, scope, ancestors, depth + 1);
+      return { node: product, file: factory?.file || context.file, program: factory?.program || context.program, ancestors };
+    }
+  }
   if (node.type === 'SequenceExpression') return ipcDefinition(node.expressions.at(-1), scope, ancestors, depth + 1);
   if (['TSAsExpression', 'TSNonNullExpression', 'TypeCastExpression'].includes(node.type)) return ipcDefinition(node.expression, scope, ancestors, depth + 1);
   if (node.type === 'Identifier') {
@@ -116,7 +123,7 @@ function environment(fn, supplied, constants = []) {
   fn.params.forEach((param, i) => {
     const simple = param.type === 'AssignmentPattern' ? param.left : param;
     if (simple.type === 'Identifier' && constants[i] !== undefined) env.constants.set(simple.name, constants[i]);
-    if (supplied) bind(param, supplied[i] || new Set(), env);
+    if (supplied) bind(param, supplied[i] || new Set(), env, supplied[i]?.size === 1 ? [...supplied[i]][0] : undefined);
     else if (i === 0) bind(param, new Set(['$sender']), env);
     else if (param.type === 'ObjectPattern' || param.type === 'ArrayPattern') bind(param, new Set(), env, `argument${i}`);
     else bind(param, new Set(paramNames({ params: [param] })), env);
@@ -207,7 +214,13 @@ const literalReply = node => !node || ['Literal', 'StringLiteral', 'NumericLiter
 function rejects(node) {
   if (!node) return false;
   if (node.type === 'ThrowStatement') return true;
-  if (node.type === 'ReturnStatement') return literalReply(node.argument);
+  if (node.type === 'ReturnStatement') {
+    if (node.argument?.type === 'NewExpression' && node.argument.callee.name === 'Response') {
+      const status = node.argument.arguments[1]?.properties?.find(p => keyName(p.key) === 'status');
+      return Number(literalValue(status?.value)) >= 400;
+    }
+    return literalReply(node.argument);
+  }
   return node.type === 'BlockStatement' && rejects(node.body.at(-1));
 }
 
@@ -229,23 +242,87 @@ function guardKind(test) {
 function guardsBefore(target, ancestors, env, file) {
   const result = [];
   const add = (statement) => {
-    const args = [...references(statement.test, env)];
+    const evidence = predicateEvidence(statement.test, env, 0, !rejects(statement.consequent));
+    const args = evidence.arguments;
     const sender = args.includes('$sender');
-    const kind = sender ? 'sender' : guardKind(statement.test);
-    if (kind && args.length) result.push({ ...at(file, statement), kind, arguments: args, status: 'recognized-unverified' });
+    const kind = sender ? 'sender' : evidence.kind;
+    if (kind && args.length) result.push({ ...at(file, statement), kind, arguments: args, helpers: evidence.helpers, status: 'recognized-unverified' });
   };
   for (let i = 0; i < ancestors.length; i++) {
     const parent = ancestors[i];
     const child = ancestors[i + 1] || target;
     if (parent.type === 'BlockStatement') {
       const position = parent.body.indexOf(child);
-      for (const statement of parent.body.slice(0, Math.max(position, 0)))
-        if (statement.type === 'IfStatement' && (rejects(statement.consequent) || rejects(statement.alternate))) add(statement);
+      for (const [index, statement] of parent.body.slice(0, Math.max(position, 0)).entries()) {
+        let reassigned = false;
+        const protectedInputs = references(statement.test, env);
+        for (const later of parent.body.slice(index + 1, position)) withoutFunctions(later, node => {
+          if (node.type === 'AssignmentExpression' && [...references(node.left, env)].some(input => protectedInputs.has(input))) reassigned = true;
+          return true;
+        });
+        if (!reassigned && statement.type === 'IfStatement' && (rejects(statement.consequent) || rejects(statement.alternate))) add(statement);
+      }
     }
     if (parent.type === 'IfStatement' && ((child === parent.consequent && rejects(parent.alternate)) ||
       (child === parent.alternate && rejects(parent.consequent)))) add(parent);
   }
   return result;
+}
+
+/** Inspect predicates through project helpers; a reassuring name or constant return is not validation. */
+export function predicateEvidence(test, env, depth = 0, accepted = true) {
+  if (test?.type === 'UnaryExpression' && test.operator === '!') return predicateEvidence(test.argument, env, depth, !accepted);
+  if (test?.type === 'Identifier' && depth < MAX_DEPTH) {
+    const resolved = resolveLocal(test, null);
+    if (resolved && resolved !== test) return predicateEvidence(resolved, env, depth + 1, accepted);
+  }
+  const result = { kind: undefined, arguments: [], helpers: [], status: 'no-relevant-predicate' };
+  if (!test || depth > MAX_DEPTH) { result.status = 'incomplete'; return result; }
+  const args = new Set();
+  const add = (kind, values) => { if (kind && values.size) { result.kind ||= kind; values.forEach(v => args.add(v)); } };
+  withoutFunctions(test, node => {
+    if (isCall(node)) {
+      const definition = ipcDefinition(node.callee, null, currentAnalysisContext().ancestors || []);
+      if (isFunction(definition?.node)) {
+        const nested = environment(definition.node, node.arguments.map(arg => references(arg, env)));
+        inFile(definition.file, definition.program, () => {
+          assignments(definition.node, nested);
+          const predicates = returnedValues(definition.node).map(item => ({ test: item.value, accepted }));
+          withoutFunctions(definition.node.body, n => { if (accepted && n.type === 'IfStatement' && (rejects(n.consequent) || rejects(n.alternate))) predicates.push({ test: n.test, accepted: !rejects(n.consequent) }); return true; });
+          for (const predicate of predicates) {
+            const evidence = predicateEvidence(predicate.test, nested, depth + 1, predicate.accepted);
+            add(evidence.kind, new Set(evidence.arguments));
+            result.helpers.push(...evidence.helpers);
+          }
+        }, [definition.program, definition.node]);
+        result.helpers.push({ ...at(definition.file, definition.node), call: nameOf(node.callee), status: args.size ? 'predicate-resolved-unverified' : 'no-relevant-predicate' });
+        return false;
+      }
+      const name = nameOf(node.callee);
+      const prefix = literalValue(node.arguments[0]);
+      const positive = !['startsWith', 'endsWith'].includes(name) || (prefix === '..' ? !accepted : accepted);
+      const pattern = node.callee.object?.pattern || node.callee.object?.regex?.pattern;
+      const traversal = name === 'test' && !accepted && typeof pattern === 'string' && /\\\.\\\.|\\\.\{2/.test(pattern);
+      if (positive || traversal) add(traversal ? 'path' : guardKind(node), references(node, env));
+      return false;
+    }
+    if (node.type === 'BinaryExpression' && ['===', '!==', '==', '!=', '<', '>', '<=', '>=', 'instanceof'].includes(node.operator))
+      if (!['===', '==', '!==', '!='].includes(node.operator) || accepted === ['===', '=='].includes(node.operator)) add(guardKind(node) || 'policy', references(node, env));
+    if (node.type === 'UnaryExpression' && node.operator === 'typeof') add('type', references(node, env));
+    return true;
+  });
+  result.arguments = [...args];
+  if (args.size) result.status = 'recognized-unverified';
+  return result;
+}
+
+export function inspectPredicate(test, definition, accepted = true) {
+  if (!definition?.node) return { status: 'incomplete', arguments: [], helpers: [] };
+  return inFile(definition.file, definition.program, () => {
+    const env = environment(definition.node);
+    assignments(definition.node, env);
+    return predicateEvidence(test, env, 0, accepted);
+  }, [definition.program, definition.node]);
 }
 
 const FS = /^(node:)?(fs|fs\/promises|original-fs|graceful-fs|fs-extra|fs-jetpack)$/;
@@ -264,8 +341,15 @@ function operation(call, program) {
       /^(unlink|rm|remove|emptyDir)/.test(method) ? 'file-delete' : /^(rename|copy|cp|move|link|symlink)/.test(method) ? 'file-copy' : 'file-write';
     return { kind, capability: 'files', pathIndexes: kind === 'file-copy' ? [0, 1] : [0] };
   }
+  if (name === 'pathToFileURL') return { kind: 'file-url', capability: 'files', pathIndexes: [0] };
   if (['openPath', 'openItem', 'openExternal', 'trashItem', 'showItemInFolder', 'writeShortcutLink'].includes(name)) return { kind: `shell-${name}`, capability: 'shell', pathIndexes: ['openExternal'].includes(name) ? [] : [0] };
   if (module === 'child_process' || module === 'node:child_process') return { kind: 'process', capability: 'processes', pathIndexes: [] };
+  if (name === 'fetch') {
+    let fileUrl = false;
+    visit(call.arguments[0], n => { if (typeof literalValue(n) === 'string' && /^file:/i.test(literalValue(n)) || isCall(n) && nameOf(n.callee) === 'pathToFileURL') fileUrl = true; return true; });
+    if (fileUrl) return { kind: 'file-read', capability: 'files', pathIndexes: [0] };
+  }
+  if (['insertAdjacentHTML', 'html'].includes(name)) return { kind: 'html-insertion', capability: 'html', pathIndexes: [] };
   if (name === 'fetch' || /^(axios|got|https?|net|request|undici|superagent)$/.test(module || root?.name || '') && /^(get|post|put|patch|delete|request)$/.test(name || '')) return { kind: 'network', capability: 'network', pathIndexes: [] };
   if (['decryptString', 'getPassword', 'findPassword', 'findCredentials', 'unprotectData'].includes(name)) return { kind: 'credential-read', capability: 'credentials', pathIndexes: [] };
   if (['get', 'getItem', 'getSync'].includes(name) && typeof literalValue(call.arguments[0]) === 'string' && SECRET.test(literalValue(call.arguments[0]))) return { kind: 'credential-read', capability: 'credentials', pathIndexes: [] };
@@ -274,11 +358,11 @@ function operation(call, program) {
   return undefined;
 }
 
-export function ipcContext(definition) {
+export function ipcContext(definition, { sources } = {}) {
   if (!definition || !isFunction(definition.node)) return { status: 'incomplete', unresolved: [{ reason: 'handler-unresolved' }], effects: [], helpers: [], arguments: [] };
   const result = { status: 'analyzed', arguments: [], effects: [], helpers: [], unresolved: [], credentials: [], channels: [] };
   result.state = [];
-  const rootEnv = environment(definition.node);
+  const rootEnv = environment(definition.node, sources?.map(source => new Set(source ? [source] : [])));
   const labels = union([...rootEnv.values()]);
   labels.delete('$sender');
   const active = new Set();
@@ -376,6 +460,11 @@ export function ipcContext(definition) {
         if (returned.has(node) && isMember(node) && SECRET.test(memberName(node) || '')) {
           result.credentials.push({ ...at(ref.file, node), reference: memberName(node), trace });
           if (node.object.type === 'Identifier') traceState(ref, node.object.name);
+        }
+        if (node.type === 'AssignmentExpression' && ['innerHTML', 'outerHTML'].includes(memberName(node.left))) {
+          const inputs = [...references(node.right, env)].filter(arg => arg !== '$sender');
+          if (inputs.length) result.effects.push({ ...at(ref.file, node), kind: 'html-insertion', capability: 'html', call: memberName(node.left),
+            arguments: inputs, pathArguments: [], guards: [...inherited, ...guardsBefore(node, ancestors, env, ref.file)], trace });
         }
         if (!isCall(node)) return true;
         if (--remaining < 0) { if (remaining === -1) unresolved(node, ref.file, 'call-budget'); return false; }

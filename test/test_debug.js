@@ -80,13 +80,15 @@ describe('Local renderer debug connection', () => {
     assert.equal(Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML').set, original.set);
     assert.equal(Object.getOwnPropertyDescriptor(Element.prototype, 'outerHTML').set, replacement);
   });
-  it('stops further writes after cancellation and does not claim restoration', async () => {
+  it('stops case writes after cancellation, attempts cleanup and does not claim verified restoration', async () => {
     const controller = new AbortController(), records = [], writes = [];
     await assert.rejects(runCampaign({ profile: { fields: ['body'], cases: ['text', 'event-handler'], request: { method: 'PUT', url: 'https://app.test/save', body: '{"body":"Hello"}' } },
       marker: 'ENG_DEBUG_TEST', signal: controller.signal, write: (kind, data) => records.push({ kind, ...data }),
       fetch: async (url, options) => { writes.push(options); return { ok: true, status: 200 }; },
       fill: () => ({ body: '{"body":"probe"}', contentType: 'application/json' }), delay: async () => controller.abort() }), /cancelled/);
-    assert.equal(writes.length, 1); assert.ok(!records.some(r => r.kind === 'campaign-done' || r.kind === 'campaign-restore'));
+    assert.equal(writes.length, 2); assert.equal(writes[1].body, '{"body":"Hello"}');
+    assert.ok(!records.some(r => r.kind === 'campaign-done'));
+    assert.equal(records.find(r => r.kind === 'campaign-restore').verification, 'not-configured');
   });
 
   it('captures a real body in memory, replays approved fields and reports partial coverage', async function () {
