@@ -1,9 +1,9 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
-import { calleeObjectName, memberName, visit, finding } from '../helpers.js';
+import { memberName, visit, finding, isFunction } from '../helpers.js';
 import { handlerFunction } from '../analysis.js';
+import { ipcListener, ipcDefinition } from '../ipc_context.js';
 
-const LISTENER_METHODS = ['handle', 'handleOnce', 'on', 'once', 'addListener'];
 // Properties of the IPC event (event.senderFrame.url, event.sender.getURL(), ...) that identify the sender
 const SENDER_PROPERTIES = ['senderFrame', 'origin', 'url', 'getURL'];
 
@@ -27,8 +27,7 @@ export default class IpcSenderValidationJSCheck {
 
   match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (astNode.type !== 'CallExpression' && astNode.type !== 'OptionalCallExpression') return null;
-    if (!LISTENER_METHODS.includes(memberName(astNode.callee))) return null;
-    if (!/^ipcMain$/.test(calleeObjectName(astNode.callee) || '')) return null;
+    if (!ipcListener(astNode, scope)) return null;
     if (astNode.arguments.length < 2) return null;
 
     // the channel name, so a watch session can tie content seen on that channel to this handler
@@ -43,8 +42,8 @@ export default class IpcSenderValidationJSCheck {
           description: `${this.description} (wrapped by ${wrapper}(); verify that it validates the sender)` })];
       handlerArg = handlerArg.arguments[0];
     }
-    const handler = handlerFunction(handlerArg, scope, context.ancestors);
-    if (!handler) {
+    const handler = ipcDefinition(handlerArg, scope, context.ancestors)?.node || handlerFunction(handlerArg, scope, context.ancestors);
+    if (!handler || !isFunction(handler)) {
       // handler defined elsewhere, can't tell whether it validates the sender
       return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.TENTATIVE, manualReview: true, properties })];
     }
@@ -80,15 +79,29 @@ export default class IpcSenderValidationJSCheck {
       return found;
     };
     let guarded = false;
-    visit(handler.body, node => {
+    visit(handler.body, (node, ancestors) => {
+      if (isFunction(node)) return false;
       if (node.type !== 'IfStatement' || !referencesSender(node.test)) return;
       // Reading or logging senderFrame is not validation. Require a rejecting branch before the handler's work.
       const rejects = branch => {
         let found = false;
-        if (branch) visit(branch, child => { if (child.type === 'ReturnStatement' || child.type === 'ThrowStatement') found = true; });
+        if (branch?.type === 'BlockStatement') branch = branch.body.at(-1);
+        if (branch?.type === 'ThrowStatement' || branch?.type === 'ReturnStatement' && (!branch.argument || /^(Literal|\w*Literal)$/.test(branch.argument.type))) found = true;
         return found;
       };
-      if (rejects(node.consequent) || rejects(node.alternate)) guarded = true;
+      // A guard buried in a conditional or appearing after work does not protect the whole handler.
+      if (ancestors.length !== 1 || ancestors[0] !== handler.body) return;
+      let priorWork = false;
+      for (const statement of handler.body.body.slice(0, handler.body.body.indexOf(node))) visit(statement, child => {
+        if (isFunction(child)) return false;
+        if (child.type === 'AssignmentExpression' && memberName(child.left) === 'returnValue') priorWork = true;
+        if (/^(CallExpression|OptionalCallExpression|NewExpression)$/.test(child.type)) {
+          const name = child.callee.name || memberName(child.callee);
+          if (!(/^(URL|getURL)$/.test(name || '') && referencesSender(child))) priorWork = true;
+        }
+        return true;
+      });
+      if (!priorWork && (rejects(node.consequent) || rejects(node.alternate))) guarded = true;
     });
     return guarded;
   }

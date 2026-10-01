@@ -84,6 +84,12 @@ The black-box side of [Electron-Dynamic](https://github.com/Headset365/Electron-
 
 Checks run on JavaScript/TypeScript, HTML, `package.json`/`electron-builder.json` and lockfiles. Global checks combine the findings of several files, e.g. to report a protection that is missing from the whole application.
 
+IPC context analysis runs automatically with the normal static checks. `IPC_HANDLER_JS_CHECK` follows local and imported helpers (ES modules, reexports, CommonJS and TypeScript import wrappers), including inline callbacks, and records the file/line of file, shell, process, network, window and credential operations. It distinguishes individual arguments and object fields, checks for rejecting guards before each operation, and reports extension checks separately from path containment. Reading metadata with `stat()` is listed separately from reading file contents.
+
+`IPC_CHANNEL_MAP_GLOBAL_CHECK` links channels to exposed preload members such as `window.electronAPI.auth`, sending files and candidate windows. It retains multiple handler registrations. Window matching uses preload filenames and is explicitly marked as a heuristic; it does not establish which origins may navigate into those windows. Credential-like returns include candidate module-state writes and callers of named setter functions when those can be resolved. Structured context is included in JSON and redacted share JSON; finding descriptions summarize the operations and argument checks for other reports.
+
+A recognized guard is **unverified**, not proof that an operation is authorized. An extension check does not establish path containment, and a sender check does not validate payload fields. Server-side controls, intended caller permissions and an attacker's ability to supply input require server code or runtime evidence. Traversal is bounded to six helper levels and 160 calls per handler; recursive calls, unresolved/dynamic handlers and opaque external helpers are reported as incomplete. State-setter searches examine up to 20 candidate files and retain up to 20 callers. Code that was not supplied to the scan cannot be analyzed.
+
 | Area | Checks |
 |---|---|
 | Renderer isolation | `NODE_INTEGRATION_*`, `CONTEXT_ISOLATION_JS_CHECK`, `SANDBOX_*` (incl. `app.enableSandbox()`), `PRELOAD_JS_CHECK`, `REMOTE_MODULE_JS_CHECK` (incl. `@electron/remote`), `AFFINITY_*` |

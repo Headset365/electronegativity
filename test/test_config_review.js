@@ -123,7 +123,7 @@ protocol.handle('d', (request) => { const p = path.resolve(__dirname, new URL(re
       const byChannel = (channel) => of('IPC_HANDLER_JS_CHECK').filter(i => i.properties.channel === channel);
       byChannel('read-doc')[0].properties.should.include({ issue: 'unvalidated', validatesArguments: false });
       byChannel('read-doc')[0].properties.capabilities.should.include('files');
-      byChannel('save-export')[0].severity.name.should.equal('INFORMATIONAL'); // path.basename counts as a check
+      byChannel('save-export')[0].severity.name.should.equal('MEDIUM'); // basename is not validation of the data argument
       byChannel('get-token').map(i => i.properties.issue).should.deep.equal(['credential']);
       byChannel('get-theme')[0].severity.name.should.equal('INFORMATIONAL');
       byChannel('focus-window').map(i => i.properties.issue).should.deep.equal(['window-target']);

@@ -4,6 +4,7 @@ import { severity, confidence } from '../../attributes.js';
 import { memberName, keyName, isProperty, isWindowConstructor, webPreferencesOf, findProperty, resolveIdentifier, finding } from '../helpers.js';
 import { constantValue, isCall, resolveLocal, handlerFunction } from '../analysis.js';
 import { capabilities } from './IpcHandlerChecks.js';
+import { ipcContext, ipcDefinition } from '../ipc_context.js';
 
 const SETTINGS = ['nodeIntegration', 'contextIsolation', 'sandbox', 'webSecurity', 'nodeIntegrationInSubFrames', 'webviewTag', 'allowRunningInsecureContent'];
 
@@ -120,19 +121,24 @@ export class ExposedApiJSCheck {
     const members = entries.map(([name]) => name);
     // what each member can do: files, processes, shell, network, windows, clipboard, credentials, and the IPC channels it uses
     const uses = {};
+    const memberChannels = {};
     const channels = new Set();
     for (const [name, value] of entries) {
       const fn = handlerFunction(value, scope, context.ancestors);
       if (!fn) continue;
       const found = capabilities(fn, [...context.ancestors, astNode]);
+      const traced = ipcContext(ipcDefinition(value, scope, context.ancestors));
+      found.channels = [...new Set([...found.channels, ...(traced.channels || [])])];
+      if (found.channels.length && !found.list.includes('ipc')) found.list.push('ipc');
       if (found.list.length) uses[name] = found.list;
+      if (traced.channels?.length) memberChannels[name] = traced.channels;
       found.channels.forEach(c => channels.add(c));
     }
     const kinds = [...new Set(Object.values(uses).flat())];
     const shown = members.length > 0 ? members.join(', ') : (resolveIdentifier(api, scope).type === 'ObjectExpression' ? '(empty)' : 'value that can\'t be listed statically');
     const usage = kinds.length ? `; uses ${kinds.map(k => k === 'ipc' && channels.size ? `ipc (${[...channels].map(c => c === '*' ? 'any channel' : c).join(', ')})` : k).join(', ')}` : '';
     return [finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: members.length > 0 ? confidence.CERTAIN : confidence.FIRM,
-      description: `${this.description}: window.${key} (${shown})${usage}`, properties: { world: key, members, capabilities: uses, channels: [...channels] } })];
+      description: `${this.description}: window.${key} (${shown})${usage}`, properties: { world: key, members, capabilities: uses, channels: [...channels], memberChannels } })];
   }
 }
 

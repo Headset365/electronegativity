@@ -28,7 +28,7 @@ const SAFE_PROPERTIES = ['channel', 'capabilities', 'issue', 'validatesArguments
   'library', 'purpose', 'process', 'launcher', 'locate', 'shell', 'flags', 'directives', 'partition', 'event', 'blocks', 'store', 'kind', 'settings', 'preload',
   'window', 'world', 'members', 'channels', 'senders', 'windows', 'passThrough', 'live', 'sink', 'marker', 'permission', 'default', 'fields', 'method', 'maps',
   'inline', 'withSources', 'total', 'counts', 'kev', 'backported', 'name', 'version', 'advisory', 'advisories', 'package', 'chromium',
-  'basis', 'unmatched', 'entryPoints', 'blocked', 'status', 'validationStatus'];
+  'basis', 'unmatched', 'entryPoints', 'blocked', 'status', 'validationStatus', 'context', 'memberChannels', 'exposedAPIs', 'handlers', 'windowMatch', 'authorization'];
 
 // Replaces what a sanitizer from the diagnostics report doesn't: user folders, query strings, e-mail and IP addresses, secrets
 function extraRedaction(text) {
@@ -110,8 +110,6 @@ export function buildShare(scan) {
     value = extraRedaction(sanitize(value));
     return value.replace(BARE_DOMAIN, (all, dot, domain) => NOT_DOMAINS.test(domain) || PUBLIC_HOSTS.test(domain) ? all : dot + hostAlias(domain));
   };
-  const cleanValue = value => typeof value === 'string' ? clean(value) : Array.isArray(value) ? value.map(cleanValue) :
-    value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cleanValue(item)])) : value;
   const root = scan.input ? path.resolve(scan.input) : undefined;
   const place = (file) => {
     if (!file || file === 'N/A') return 'application-wide';
@@ -119,6 +117,9 @@ export function buildShare(scan) {
     if (root && path.isAbsolute(shown) && (shown === root || shown.startsWith(root + path.sep))) shown = path.relative(root, shown) || path.basename(root);
     return clean(shown.split(path.sep).join('/'));
   };
+  const cleanValue = (value, key = '') => typeof value === 'string' ? (key === 'file' ? place(value) : clean(value)) :
+    Array.isArray(value) ? value.map(item => cleanValue(item, key)) :
+      value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cleanValue(item, key)])) : value;
   const properties = (props) => {
     if (!props || typeof props !== 'object') return undefined;
     const out = {};

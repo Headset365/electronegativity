@@ -1,12 +1,14 @@
 // What IPC handlers do with the data a renderer sends them: files read, written or deleted at paths the page chose, the
 // capabilities each handler uses and whether it checks its arguments, credentials handed back to the page, and which
 // channels each preload (and so each window) can reach.
+import path from 'node:path';
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, finding, literalValue, isFunction } from '../helpers.js';
 import { constantValue, enclosingFunction, untrustedSource, dependsOnParams, taintedNames, moduleBindings, programOf, callsIn, returnedValues,
   handlerFunction, paramNames, identifiersIn, hasUrlValidation, visit, isCall, isMember } from '../analysis.js';
 import { secretReference } from './StorageChecks.js';
+import { ipcDefinition, ipcContext, ipcListener, ipcObject } from '../ipc_context.js';
 
 const FS_MODULE = /^(node:)?(fs|fs\/promises|original-fs|graceful-fs|fs-extra|fs-jetpack)$/;
 const FS_OPS = {
@@ -32,7 +34,6 @@ const WINDOW_ACTIONS = ['loadURL', 'loadFile', 'executeJavaScript', 'close', 'de
 const CREDENTIAL_READS = { decryptString: 'safeStorage', getPassword: 'keytar', findPassword: 'keytar', findCredentials: 'keytar', unprotectData: 'dpapi' };
 const SENSITIVE_PARAM = /pass|pwd|secret|token|api.?key|auth|credential|session|cookie|private.?key/i;
 const RENDERER_METHODS = ['invoke', 'send', 'sendSync', 'sendTo', 'sendToHost', 'on', 'once', 'addListener', 'postMessage'];
-const LISTENER_METHODS = ['handle', 'handleOnce', 'on', 'once', 'addListener'];
 
 const calleeName = (callee) => callee.type === 'Identifier' ? callee.name : memberName(callee);
 
@@ -241,22 +242,33 @@ export class IpcHandlerJSCheck {
 
   match(astNode, astHelper, scope, defaults, electronVersion, context = { ancestors: [] }) {
     if (!isCall(astNode) || astNode.type === 'NewExpression' || astNode.arguments.length < 2) return null;
-    if (!LISTENER_METHODS.includes(memberName(astNode.callee))) return null;
-    const object = astNode.callee.object;
-    if (!object || !/^ipcMain$/.test(object.name || memberName(object) || '')) return null;
+    if (!ipcListener(astNode, scope)) return null;
     const channel = constantValue(astNode.arguments[0], scope);
-    const fn = handlerFunction(astNode.arguments[astNode.arguments.length - 1], scope, context.ancestors);
-    if (!fn || !isFunction(fn)) return null;
+    const handler = astNode.arguments[astNode.arguments.length - 1];
+    const definition = ipcDefinition(handler, scope, context.ancestors);
+    const fn = definition?.node || handlerFunction(handler, scope, context.ancestors);
+    if (!fn || !isFunction(fn)) return [finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.TENTATIVE,
+      manualReview: true, properties: { channel: typeof channel === 'string' ? channel : '*', context: ipcContext(undefined) },
+      description: `${this.description}: handler body could not be resolved; behavior and validation are unknown` })];
+    const details = ipcContext(definition?.node && isFunction(definition.node) ? definition : undefined);
     const args = paramNames(fn).slice(1);
     const used = [...identifiersIn(fn.body)].filter(name => args.includes(name));
     // a path held to a folder or a URL checked against an allowlist counts as checking the argument
-    const validated = validatesArguments(fn) || containment(fn).any || hasUrlValidation(fn);
+    const checked = details.arguments.filter(arg => arg.operations.length);
+    const validated = details.status === 'incomplete' ? false : checked.length ? checked.every(arg => arg.validation === 'recognized-unverified') :
+      validatesArguments(fn) || containment(fn).any || hasUrlValidation(fn);
     const { list, targetsWindow } = capabilities(fn, [...context.ancestors, astNode]);
-    const secret = repliedValues(fn).map(credentialIn).find(Boolean);
-    if (secret) list.push('credentials');
+    const secret = repliedValues(fn).map(value => isCall(value) && isFunction(ipcDefinition(value.callee, scope, context.ancestors)?.node) ? undefined : credentialIn(value)).find(Boolean);
+    if (!details.effects.some(effect => effect.capability === 'shell') && details.helpers.some(helper => SHELL_METHODS.includes(helper.call))) {
+      const index = list.indexOf('shell');
+      if (index !== -1) list.splice(index, 1);
+    }
+    list.push(...details.effects.map(effect => effect.capability));
+    if (secret || details.credentials.length) list.push('credentials');
     const caps = [...new Set(list)];
     const label = typeof channel === 'string' ? `'${channel}'` : 'a dynamic channel';
-    const properties = { channel: typeof channel === 'string' ? channel : undefined, capabilities: caps, argumentsUsed: used.length > 0, validatesArguments: validated };
+    const properties = { channel: typeof channel === 'string' ? channel : '*', capabilities: caps, argumentsUsed: used.length > 0,
+      validatesArguments: validated, context: details };
     const results = [];
     // picking a window by id is reported on its own
     const sensitive = caps.filter(c => ['files', 'processes', 'shell'].includes(c) || (c === 'windows' && !targetsWindow));
@@ -266,12 +278,20 @@ export class IpcHandlerJSCheck {
     if (targetsWindow)
       results.push(finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true, properties: { ...properties, issue: 'window-target' },
         description: `${this.description}: ${label} acts on a window the page chooses by id, so one window can drive another` }));
-    if (secret)
+    if (secret || details.credentials.length)
       results.push(finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true, properties: { ...properties, issue: 'credential', credential: secret },
-        description: `${this.description}: ${label} sends a credential (${secret}) back to the page, where any script injected into it can read it` }));
+        description: `${this.description}: ${label} returns a credential-like value (${secret || details.credentials[0].reference}) to the page; inspect the returned fields and intended callers` }));
     if (results.length === 0)
       results.push(finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, properties,
-        description: `${this.description}: ${label}${caps.length ? ` (${caps.join(', ')})` : ''}${used.length ? (validated ? ', contains a validation-like guard (effectiveness unverified)' : ', uses page arguments (validation unverified)') : ''}` }));
+        description: `${this.description}: ${label}${caps.length ? ` (${caps.join(', ')})` : ''}${used.length ? (validated ? ', contains a validation-like guard (effectiveness unverified)' : ', uses page arguments (validation unverified)') : ''}${details.status === 'incomplete' ? '; helper analysis is incomplete' : ''}` }));
+    for (const result of results) {
+      if (details.helpers.length) result.description += `; follows ${details.helpers.length} helper call(s)`;
+      if (details.effects.length) result.description += `; operations: ${details.effects.slice(0, 5).map(effect => `${effect.kind} at ${path.basename(effect.file || '')}:${effect.line}`).join(', ')}${details.effects.length > 5 ? ', …' : ''}`;
+      if (details.arguments.length) result.description += `; argument checks: ${details.arguments.slice(0, 6).map(arg => `${arg.name} ${arg.validation}`).join(', ')}${details.arguments.length > 6 ? ', …' : ''}`;
+      if (details.status === 'incomplete') result.description += `; incomplete analysis: ${[...new Set(details.unresolved.map(item => item.reason))].join(', ')}`;
+      const paths = details.effects.filter(effect => effect.pathControl === 'not-recognized');
+      if (paths.length) result.description += `; path containment not recognized for ${[...new Set(paths.flatMap(effect => effect.pathArguments))].join(', ')}`;
+    }
     return results;
   }
 }
@@ -290,10 +310,11 @@ export class IpcRendererChannelJSCheck {
     const method = memberName(astNode.callee);
     if (!RENDERER_METHODS.includes(method)) return null;
     const object = astNode.callee.object;
-    if (!object || !/^ipcRenderer$/.test(object.name || memberName(object) || '')) return null;
+    if (!ipcObject(object, 'ipcRenderer', scope)) return null;
     const channel = constantValue(astNode.arguments[0], scope);
     return [finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
-      properties: { channel: typeof channel === 'string' ? channel : '*', method },
+      properties: { channel: typeof channel === 'string' ? channel : '*', method,
+        direction: ['on', 'once', 'addListener'].includes(method) ? 'receive' : 'send' },
       description: `${this.description}: ${typeof channel === 'string' ? `'${channel}'` : 'any channel the caller names'} (${method})` })];
   }
 }

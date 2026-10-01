@@ -20,27 +20,46 @@ export default class IpcChannelMapGlobalCheck {
 
   async perform(rendererIssues, output, allIssues = []) {
     const handlers = new Map();
+    const registrations = new Map();
     for (const issue of allIssues) {
       const channel = issue.properties && issue.properties.channel;
       if (!channel || !['IPC_HANDLER_JS_CHECK', 'IPC_SENDER_VALIDATION_JS_CHECK'].includes(issue.id)) continue;
-      if (!handlers.has(channel)) handlers.set(channel, issue);
+      if (issue.id === 'IPC_HANDLER_JS_CHECK') {
+        if (!registrations.has(channel)) registrations.set(channel, new Map());
+        registrations.get(channel).set(`${issue.file}:${issue.location?.line}:${issue.location?.column}`, issue);
+      }
+      if (!handlers.has(channel) || issue.id === 'IPC_HANDLER_JS_CHECK') handlers.set(channel, issue);
     }
     if (handlers.size === 0) return [];
     const windows = allIssues.filter(i => i.id === 'WINDOW_SUMMARY_JS_CHECK' && i.properties && i.properties.preload);
+    const apis = allIssues.filter(i => i.id === 'EXPOSED_API_JS_CHECK' && i.properties?.memberChannels);
     const sendersOf = new Map();
     const passThrough = new Set();
     for (const issue of rendererIssues) {
+      if (issue.properties.direction === 'receive') continue;
       const channel = issue.properties.channel;
       if (channel === '*') { passThrough.add(issue.file); continue; }
       if (!sendersOf.has(channel)) sendersOf.set(channel, new Set());
       sendersOf.get(channel).add(issue.file);
+    }
+    for (const api of apis) for (const channels of Object.values(api.properties.memberChannels)) for (const channel of channels) {
+      if (channel === '*') { passThrough.add(api.file); continue; }
+      if (!sendersOf.has(channel)) sendersOf.set(channel, new Set());
+      sendersOf.get(channel).add(api.file);
     }
     const windowsLoading = (files) => windows.filter(w => [...files].some(f => base(f) === base(w.properties.preload)));
     const results = [];
     for (const [channel, handler] of handlers) {
       const senders = new Set([...(sendersOf.get(channel) || []), ...passThrough]);
       const reach = windowsLoading(senders);
-      const properties = { channel, handler: where(handler), senders: [...senders], windows: reach.map(where), passThrough: [...passThrough] };
+      const exposed = apis.flatMap(api => Object.entries(api.properties.memberChannels)
+        .filter(([, channels]) => channels.includes(channel) || channels.includes('*'))
+        .map(([member]) => ({ api: `window.${api.properties.world}.${member}`, file: api.file, line: api.location?.line })));
+      const properties = { channel, handler: where(handler), senders: [...senders], windows: reach.map(where), passThrough: [...passThrough],
+        exposedAPIs: exposed, windowMatch: 'preload-basename-heuristic', context: handler.properties?.context,
+        handlers: [...(registrations.get(channel)?.values() || [])].map(item => ({ file: item.file, line: item.location?.line, capabilities: item.properties?.capabilities,
+          analysis: item.properties?.context?.status })),
+        authorization: 'application-policy-and-server-controls-unverified' };
       if (!sendersOf.has(channel)) {
         if (rendererIssues.length === 0) continue; // no renderer code in the scan: nothing to compare with
         results.push({ file: handler.file, location: handler.location, id: this.id, shortenedURL: this.shortenedURL, properties,
@@ -50,7 +69,7 @@ export default class IpcChannelMapGlobalCheck {
       }
       results.push({ file: handler.file, location: handler.location, id: this.id, shortenedURL: this.shortenedURL, properties,
         severity: severity.INFORMATIONAL, confidence: confidence.FIRM, manualReview: false,
-        description: `${this.description}: '${channel}' handled at ${where(handler)}, sent from ${[...senders].map(base).join(', ')}${reach.length ? `, reachable from ${reach.length} window(s): ${reach.map(where).join(', ')}` : ''}` });
+        description: `${this.description}: '${channel}' handled at ${where(handler)}, sent from ${[...senders].map(base).join(', ')}${reach.length ? `, ${reach.length} candidate window(s) matched by preload filename: ${reach.map(where).join(', ')}` : ''}${exposed.length ? `; exposed as ${exposed.map(e => e.api).join(', ')}` : ''}` });
     }
     return results;
   }
