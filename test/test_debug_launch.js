@@ -19,7 +19,7 @@ describe('Managed renderer debug launch', () => {
     client = { close: () => { closes++; } };
   });
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
-  const options = () => ({ log, selectPort: async () => 49152,
+  const options = () => ({ log, exitGraceMs: 0, selectPort: async () => 49152,
     spawnApp: (...args) => { launches.push(args); return child; }, connect: async () => client,
     observe: async () => log });
 
@@ -47,6 +47,20 @@ describe('Managed renderer debug launch', () => {
     fs.writeFileSync(path.join(electron, 'index.cjs'), `module.exports = ${JSON.stringify(process.execPath)};`);
     await watchDebugApp(root, options());
     assert.equal(launches[0][0], process.execPath); assert.equal(launches[0][1][0], root);
+  });
+  it('lets the app finish its quit handlers after the renderer disconnects', async () => {
+    let flushed = false;
+    await watchDebugApp(target, { ...options(), exitGraceMs: 100,
+      observe: async () => {
+        setTimeout(() => { flushed = true; child.emit('exit', 0); }, 20);
+        return log;
+      } });
+    assert.equal(flushed, true); assert.equal(kills, 0);
+    assert.ok(fs.readFileSync(log, 'utf8').includes('"closed":true'));
+  });
+  it('bounds the grace period and closes an app that stays open', async () => {
+    await watchDebugApp(target, { ...options(), exitGraceMs: 10 });
+    assert.equal(kills, 1);
   });
   it('waits for the renderer endpoint instead of requiring a manually started app', async () => {
     let attempts = 0;

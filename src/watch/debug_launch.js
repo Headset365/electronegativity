@@ -5,9 +5,10 @@ import { resolveApp, freePort } from './launch.js';
 import { connectDebug, watchDebug } from './debug.js';
 
 export async function watchDebugApp(target, { args = [], target: debugTarget, duration = 0, log, stdio = 'inherit', onNote = () => {},
-  spawnApp = spawn, connect = connectDebug, observe = watchDebug, selectPort = freePort, startupTimeout = 30000, ...options } = {}) {
+  spawnApp = spawn, connect = connectDebug, observe = watchDebug, selectPort = freePort, startupTimeout = 30000, exitGraceMs = 2000, ...options } = {}) {
   if (!log) throw new Error('Managed debug launch requires a session log');
   if (!Number.isInteger(startupTimeout) || startupTimeout < 1) throw new Error('Debug startup timeout must be positive');
+  if (!Number.isInteger(exitGraceMs) || exitGraceMs < 0 || exitGraceMs > 10000) throw new Error('Debug exit grace must be 0–10000 milliseconds');
   if (!Number.isInteger(duration) || duration < 0 || duration > 86400) throw new Error('Debug duration must be 0–86400 seconds');
   if (args.some(arg => /^--remote-debugging-(port|address|pipe)(?:=|$)/.test(arg)))
     throw new Error('--debug-launch manages its own debug port; remove remote-debugging flags from --watch-args');
@@ -56,6 +57,13 @@ export async function watchDebugApp(target, { args = [], target: debugTarget, du
     clearTimeout(startupTimer);
     process.removeListener('SIGINT', stop);
     client?.close();
+    // The renderer socket can disappear before Electron's main process finishes its quit handlers.
+    // Give a successfully attached app time to flush saved data before terminating the owned process.
+    if (client && !exited && exitGraceMs) {
+      let timer;
+      await Promise.race([ended, new Promise(resolve => { timer = setTimeout(resolve, exitGraceMs); })]);
+      clearTimeout(timer);
+    }
     if (!exited) {
       child.kill();
       let timer;

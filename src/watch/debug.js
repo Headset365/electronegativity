@@ -169,8 +169,8 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
             try {
               if ((!navigation.loaderId || loaded) && await evaluate('document.readyState === "complete"')) {
                 if (name === 'javascript-url') {
-                  const clicked = await evaluate(`(() => { const link = [...document.querySelectorAll('a[data-eng-campaign]')].find(a => a.getAttribute('data-eng-campaign') === ${JSON.stringify(marker)}); if (!link) return false; link.click(); return true; })()`);
-                  write('campaign-action', { case: name, clicked: !!clicked, navigated: false, url: redact(currentURL) });
+                  const clicked = await evaluate(`(() => { const link = [...document.querySelectorAll('a[data-eng-campaign]')].find(a => a.getAttribute('data-eng-campaign') === ${JSON.stringify(campaignMarker)}); if (!link) return false; link.click(); return true; })()`);
+                  campaignWrite('campaign-action', { case: name, clicked: !!clicked, navigated: false, url: redact(currentURL) });
                 }
                 return true;
               }

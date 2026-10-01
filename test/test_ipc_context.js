@@ -39,7 +39,7 @@ export function upload(p, id) { const data = fs.readFileSync(p); return fetch('h
     item.properties.capabilities.should.include.members(['files', 'network']);
     const context = item.properties.context;
     context.status.should.equal('analyzed');
-    context.helpers.some(helper => /backend\/upload.js$/.test(helper.file)).should.equal(true);
+    context.helpers.some(helper => /backend[\\/]upload\.js$/.test(helper.file)).should.equal(true);
     context.arguments.find(arg => arg.name === 'argument1.filePath').validation.should.equal('not-recognized');
     context.arguments.find(arg => arg.name === 'argument1.matterId').validation.should.equal('recognized-unverified');
     context.effects.find(effect => effect.kind === 'file-read').pathControl.should.equal('not-recognized');

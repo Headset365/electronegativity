@@ -108,6 +108,12 @@ describe('Local renderer debug connection', () => {
           const value = await vm.runInNewContext(code, { fetch: async (url, options) => { sends.push({ url, options }); return { ok: true, status: 200 }; } });
           return { result: { value } };
         }
+        if (code.includes("querySelectorAll('a[data-eng-campaign]')")) {
+          const body = JSON.parse(sends.at(-1).options.body).body;
+          const nonce = body.match(/data-eng-campaign="([^"]+)"/)[1];
+          const link = { getAttribute: () => nonce, click: () => {} };
+          return { result: { value: vm.runInNewContext(code, { document: { querySelectorAll: () => [link] } }) } };
+        }
         if (code.includes('.drain()')) return { result: { value: [] } };
         return { result: { value: true } };
       }
@@ -125,14 +131,17 @@ describe('Local renderer debug connection', () => {
       for (let attempt = 0; attempt < 100 && !readWatchLog(log).some(r => r.kind === 'api'); attempt++) await new Promise(resolve => setTimeout(resolve, 10));
       const api = readWatchLog(log).find(r => r.kind === 'api'); assert.ok(api);
       assert.equal(api.fields.find(f => f.name === 'password').candidate, false);
-      fs.appendFileSync(commands, JSON.stringify({ kind: 'run-campaign', replay: api.replay, profile: { route: 'PUT https://app.test/notes/{id}', fields: ['body'], view: 'captured', cases: ['text', 'event-handler'] } }) + '\n');
+      fs.appendFileSync(commands, JSON.stringify({ kind: 'run-campaign', replay: api.replay, profile: { route: 'PUT https://app.test/notes/{id}', fields: ['body'], view: 'captured', cases: ['text', 'event-handler', 'javascript-url'] } }) + '\n');
       await running;
-      assert.equal(sends.length, 3, 'two tests and restoration');
+      assert.equal(sends.length, 4, 'three tests and restoration');
       assert.ok(sends[0].options.body.includes('1234567890123456789'));
       assert.ok(sends[0].options.body.includes('"password":"private"'));
       assert.equal(sends[0].options.headers.Authorization, 'Bearer PRIVATE');
       assert.equal(sends[0].options.headers.Cookie, undefined);
-      assert.equal(sends[2].options.body, '{"id":1234567890123456789,"body":"Hello","password":"private"}');
+      assert.equal(sends[3].options.body, '{"id":1234567890123456789,"body":"Hello","password":"private"}');
+      const action = readWatchLog(log).find(r => r.kind === 'campaign-action' && r.case === 'javascript-url');
+      assert.equal(action.clicked, true, 'the link selector must use the per-campaign nonce');
+      assert.ok(action.campaignId.startsWith(`${marker}_`));
       assert.ok(calls.some(c => c.method === 'Page.navigate' && c.params.url === page.url));
       assert.ok(calls.some(c => c.method === 'Page.removeScriptToEvaluateOnNewDocument'));
       assert.deepEqual(calls.filter(c => c.method === 'Runtime.evaluate' && c.params.expression.includes('.cleanup()') && c.params.contextId).map(c => c.params.contextId).sort(), [1, 2], 'every live default frame context is cleaned up');
@@ -142,7 +151,7 @@ describe('Local renderer debug connection', () => {
       assert.ok(report.issues.some(issue => issue.id === 'RUNTIME_DEBUG_COVERAGE'));
       assert.ok(!report.issues.some(issue => issue.id === 'RUNTIME_CSP'), 'initial CSP response headers are unknown');
       assert.equal(report.issues.find(issue => issue.id === 'RUNTIME_WINDOW_SUMMARY').properties.settings.contextIsolation.source, 'unavailable');
-      assert.equal(report.summary.campaign.cases.length, 2);
+      assert.equal(report.summary.campaign.cases.length, 3);
       assert.ok(report.summary.campaign.cases.every(c => c.execution !== 'observed'), 'acceptance never establishes execution');
     } finally { clearTimeout(emitTimer); fs.rmSync(root, { recursive: true, force: true }); }
   });

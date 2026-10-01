@@ -75,9 +75,15 @@ describe('Baselines and CI gating', () => {
   });
 
   it('--fail-on passes once the findings are baselined', () => {
-    const baseline = path.join(dir, 'baseline.json');
-    const args = [CLI, '-i', dir, '--offline', '--no-report-dir', '-x', NETWORK_CHECKS.join(','), '-o', path.join(dir, 'out.json')];
-    execFileSync(process.execPath, [...args, '--write-baseline', baseline]);
-    spawnSync(process.execPath, [...args, '--baseline', baseline, '--fail-on', 'low']).status.should.equal(0);
+    // Keep scan artifacts outside the app: scanning a generated report can add new secret candidates
+    // from its metadata (including the random macOS temporary path), changing the input between scans.
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-baseline-output-'));
+    try {
+      const baseline = path.join(outputDir, 'baseline.json');
+      const args = [CLI, '-i', dir, '--offline', '--no-report-dir', '-x', NETWORK_CHECKS.join(','), '-o', path.join(outputDir, 'out.json')];
+      execFileSync(process.execPath, [...args, '--write-baseline', baseline]);
+      const result = spawnSync(process.execPath, [...args, '--baseline', baseline, '--fail-on', 'low'], { encoding: 'utf8' });
+      result.status.should.equal(0, `${result.stderr}\n${result.stdout}`);
+    } finally { fs.rmSync(outputDir, { recursive: true, force: true }); }
   });
 });
