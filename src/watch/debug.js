@@ -9,6 +9,7 @@ import { normalizeCampaign, hostsOutsideScope } from './campaign.js';
 import { followLog } from './assistant.js';
 const require = createRequire(import.meta.url);
 const { inspectBody, replayHeaders } = require('./capture.cjs');
+const { hostAllowed, pickHeaders } = require('../remote/hosts.cjs');
 const { fillMarkerBody } = require('./hook.cjs');
 const { rendererObserver } = require('./renderer.cjs');
 const { runCampaign, CASES, RESOURCES, startResourceReceiver } = require('./campaign.cjs');
@@ -73,7 +74,7 @@ export async function connectDebug(endpoint, { target, fetchImpl = fetch, Socket
 }
 
 export async function watchDebug(endpoint, { target, duration = 0, marker, active = false, campaign = false, scope = [], traffic = true,
-  reveal = false, screenshots, log, commands, connect = connectDebug } = {}) {
+  reveal = false, screenshots, log, commands, remoteHosts = [], headerNames = [], headersFile, connect = connectDebug } = {}) {
   if (!Number.isInteger(duration) || duration < 0 || duration > 86400) throw new Error('Debug duration must be 0–86400 seconds');
   const client = await connect(endpoint, { target });
   const id = client.target.id, key = `__eng_debug_${crypto.randomBytes(8).toString('hex')}`;
@@ -82,6 +83,15 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
   const contexts = new Set();
   const controller = new AbortController();
   const write = (kind, data = {}) => fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind, ...data }) + '\n');
+  // --remote-header names: the values the page sends to the --remote hosts, the latest per host, handed to the CLI in
+  // `headersFile` (never the log). The ExtraInfo event carries the headers actually sent, cookies included.
+  const copying = !!headersFile && remoteHosts.length > 0 && headerNames.length > 0;
+  const copiedHeaders = {}, requestUrls = new Map(), sentHeaders = new Map();
+  const copyHeaders = (url, headers) => {
+    if (!/^https?:/i.test(url) || !hostAllowed(url, remoteHosts)) return;
+    const host = new URL(url).hostname.toLowerCase();
+    copiedHeaders[host] = { ...copiedHeaders[host], ...pickHeaders(headers, headerNames) };
+  };
   // what the attachment sees of write requests, on stderr with ELECTRONEGATIVITY_TRACE=1 (no bodies or headers)
   const trace = (text) => { if (process.env.ELECTRONEGATIVITY_TRACE === '1') process.stderr.write(`[debug] ${text}\n`); };
   const task = promise => { tasks.add(promise); promise.catch(error => { if (!stopped) write('hook-error', { message: error.message }); }).finally(() => tasks.delete(promise)); };
@@ -227,11 +237,21 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
       }
     } else if (method === 'Runtime.exceptionThrown') write('page-exception', { url: redact(currentURL), message: params.exceptionDetails.text || 'Renderer exception' });
     else if (method === 'Network.requestWillBeSentExtraInfo') {
+      if (copying) {
+        if (requestUrls.has(params.requestId)) copyHeaders(requestUrls.get(params.requestId), params.headers);
+        else { sentHeaders.set(params.requestId, params.headers); if (sentHeaders.size > 200) sentHeaders.delete(sentHeaders.keys().next().value); }
+      }
       if (requests.has(params.requestId)) requests.get(params.requestId).headers = replayHeaders(params.headers);
       else { extraHeaders.set(params.requestId, replayHeaders(params.headers)); if (extraHeaders.size > 200) extraHeaders.delete(extraHeaders.keys().next().value); }
     } else if (method === 'Network.requestWillBeSent') {
       const r = params.request;
       trace(`request ${r.method} ${redact(r.url)} type=${params.type}`);
+      if (copying) {
+        copyHeaders(r.url, sentHeaders.get(params.requestId) || r.headers);
+        sentHeaders.delete(params.requestId);
+        requestUrls.set(params.requestId, r.url);
+        if (requestUrls.size > 200) requestUrls.delete(requestUrls.keys().next().value);
+      }
       if (r.method !== 'GET') trace(`write request ${r.method} ${redact(r.url)} type=${params.type} postData=${r.postData === undefined ? (r.hasPostData ? 'separate' : 'none') : r.postData.length}${running ? ' (campaign running)' : ''}${commands ? '' : ' (no command channel)'}`);
       if (params.redirectResponse) { requests.delete(params.requestId); return; }
       if (running || !commands || !['XHR', 'Fetch'].includes(params.type) || !['POST', 'PUT', 'PATCH'].includes(r.method) || !/^https?:/.test(r.url)) return;
@@ -308,7 +328,8 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
     await Promise.allSettled([evaluate(cleanup), ...[...contexts].map(contextId => client.send('Runtime.evaluate', { expression: cleanup, contextId, returnByValue: true }))]);
     contents.emit('destroyed'); observer?.flush();
     client.events.removeListener('protocol', onProtocol); client.close();
-    replays.clear(); requests.clear(); extraHeaders.clear();
+    replays.clear(); requests.clear(); extraHeaders.clear(); requestUrls.clear(); sentHeaders.clear();
+    if (copying && Object.keys(copiedHeaders).length) try { fs.writeFileSync(headersFile, JSON.stringify(copiedHeaders), { mode: 0o600 }); } catch { /* best effort */ }
     await Promise.allSettled([...tasks]);
     write('quit', { observer: 'renderer-cdp', appClosed: false });
   }

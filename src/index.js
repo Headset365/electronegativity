@@ -13,7 +13,8 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import readline from 'node:readline/promises';
 import { locateApp } from './watch/locate.js';
-import { observeSession, collectRemote, parseHeaders } from './watch/session.js';
+import { observeSession, collectRemote } from './watch/session.js';
+import remoteHosts from './remote/hosts.cjs';
 import { createAssistant, writeMarkerFiles } from './watch/assistant.js';
 import { loadCampaign, hostsOutsideScope } from './watch/campaign.js';
 import { isPackage, unpackTarget } from './unpack/index.js';
@@ -66,8 +67,9 @@ async function main() {
     .option('--no-report-dir', __('noReportDirOptionDescription'))
     .option('--sessions <count>', __('sessionsOptionDescription'))
     .option('--no-watch-capture', __('watchCaptureOptionDescription'))
-    .option('--remote <url>', __('remoteOptionDescription'), (value, previous) => [...(previous || []), value])
-    .option('--remote-header <header>', __('remoteHeaderOptionDescription'), (value, previous) => [...(previous || []), value])
+    // several values, comma- or space-separated: --remote a.example.com, b.example.com --remote-header Authorization, Cookie
+    .option('--remote <hosts...>', __('remoteOptionDescription'), (value, previous) => [...(previous || []), value])
+    .option('--remote-header <names...>', __('remoteHeaderOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--ingest <file>', __('ingestOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--scope <domain>', __('scopeOptionDescription'), (value, previous) => [...(previous || []), value])
     .option('--no-watch-traffic', __('watchTrafficOptionDescription'))
@@ -146,7 +148,22 @@ async function main() {
   }
 
   const watchArgs = options.watchArgs ? options.watchArgs.split(/\s+/).filter(Boolean) : [];
-  const headers = parseHeaders(options.remoteHeader);
+  // --remote: the only hosts the tool fetches from itself; --remote-header: names to copy from the app's requests to
+  // them, or 'Name: value' headers set by hand
+  const remote = remoteHosts.parseRemote(options.remote);
+  const remoteHeaders = remoteHosts.parseRemoteHeaders(options.remoteHeader);
+  if (remote.invalid.length > 0 || remoteHeaders.invalid.length > 0) {
+    if (remote.invalid.length > 0) console.error(chalk.red(`--remote takes host names (app.example.com, *.example.com) or URLs: ${remote.invalid.join(', ')}`));
+    if (remoteHeaders.invalid.length > 0) console.error(chalk.red(`--remote-header takes header names (Authorization, Cookie) or 'Name: value': ${remoteHeaders.invalid.join(', ')}`));
+    process.exit(2);
+  }
+  if (remoteHeaders.names.length > 0 && remote.hosts.length === 0) {
+    console.error(chalk.red(`--remote-header ${remoteHeaders.names.join(', ')}: the values are copied from what the app sends to the --remote hosts; name them, e.g. --remote app.example.com`));
+    process.exit(2);
+  }
+  if (remoteHeaders.names.length > 0 && !options.watch && !options.app && !options.debugUrl)
+    console.error(chalk.yellow(`--remote-header ${remoteHeaders.names.join(', ')}: values are only copied while the app runs (--app or --watch); the download goes without them`));
+  const headers = remoteHeaders.fixed;
   const redact = options.redact ? options.redact.split(',').map(term => term.trim()).filter(Boolean) : [];
   const capture = options.watchCapture !== false;
   const traffic = options.watchTraffic !== false;
@@ -224,7 +241,7 @@ async function main() {
 
   try {
     if (options.app) {
-      await guided(options, common, { reportFolder, watchArgs, headers, capture, traffic, scope, screenshots, campaign, debug });
+      await guided(options, common, { reportFolder, watchArgs, headers, remote, headerNames: remoteHeaders.names, capture, traffic, scope, screenshots, campaign, debug });
       return;
     }
 
@@ -233,7 +250,8 @@ async function main() {
     if (options.watch || options.watchLog || options.debugUrl) {
       try {
         session = await observeSession({ watch: options.debugUrl ? options.input : options.watch, watchLog: options.watchLog, args: watchArgs, ...debug, marker: options.watchMarker || ((options.activeTests || campaign || options.autoCampaign) ? generateMarker() : undefined), active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, capture, traffic, scope, screenshots,
-          reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm() });
+          reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm(),
+          remoteHosts: remote.hosts, headerNames: remoteHeaders.names });
       } catch (error) {
         console.error(chalk.red(error.message));
         process.exit(2);
@@ -241,9 +259,10 @@ async function main() {
       if (!options.input && session.staticInput) options.input = session.staticInput;
     }
     // Front-end code served over the network: what watch mode captured, and --remote URLs. It is scanned with the app.
-    const remote = await collectRemote({ runtime: session && session.runtime, watchLog: session && session.watchLog, capture, remote: options.remote || [], headers, scope, offline: options.offline });
+    const fetched = await collectRemote({ runtime: session && session.runtime, watchLog: session && session.watchLog, capture, remote: remote.seeds, guessed: remote.guessed, headers, scope,
+      allowHosts: remote.hosts, headersByHost: (session && session.copiedHeaders) || {}, offline: options.offline });
     // --remote on its own: the downloaded front end is the input
-    if (!options.input && remote.scanDir) options.input = remote.scanDir;
+    if (!options.input && fetched.scanDir) options.input = fetched.scanDir;
 
     // captures of the app's traffic, or a profile folder, on their own: nothing to scan statically
     if (!options.input && (options.ingest || options.userData || options.canary)) options.input = fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-no-code-'));
@@ -280,8 +299,8 @@ async function main() {
       runtimeElectronVersion: session && session.watchDiagnostics.electron,
       runtime: session && session.runtime,
       credentials: session && session.credentials,
-      extraInputs: remote.extraInputs,
-      remoteDiagnostics: remote.remoteDiagnostics,
+      extraInputs: fetched.extraInputs,
+      remoteDiagnostics: fetched.remoteDiagnostics,
       diagnostics: options.diagnostics,
       share: options.share,
       watchDiagnostics: session && session.watchDiagnostics,
@@ -376,7 +395,7 @@ function countBySeverity(issues) {
  * --app <location>: finds the app, scans it statically, then runs as many watch sessions as the user wants (one per
  * account, typically), each with its own report and diagnostics file, all in one results folder.
  */
-async function guided(options, common, { reportFolder, watchArgs, headers, capture, traffic, scope, screenshots, campaign, debug }) {
+async function guided(options, common, { reportFolder, watchArgs, headers, remote, headerNames, capture, traffic, scope, screenshots, campaign, debug }) {
   const located = locateApp(options.app);
   const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
   const outDir = path.resolve(options.out || reportFolder || `electronegativity-results-${stamp}`);
@@ -408,16 +427,21 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
     return result;
   };
 
-  // 1. the app's code, including what's behind the login, and --remote URLs if given
-  console.log(chalk.cyan(__('appStatic')));
-  const remote = await collectRemote({ remote: options.remote || [], headers, scope, offline: options.offline });
-  // the profile review and the password trace belong to the sessions, after the app has been used
-  const staticResult = await step('static', { extraInputs: remote.extraInputs, remoteDiagnostics: remote.remoteDiagnostics, canaries: [], userData: undefined });
-
-  // 2. watch sessions, until the user stops
   const interactive = !!process.stdin.isTTY;
   const sessions = options.sessions !== undefined ? Math.max(0, Number.parseInt(options.sessions, 10) || 0) : campaign || options.debugUrl || options.debugLaunch ? 1 : interactive ? Infinity : 0;
   const observable = located.executable || options.debugUrl;
+  // --remote-header names: nothing to copy before the app has run, so the --remote sites are downloaded after each
+  // session, with the values it sent (there are no sessions: now, without them)
+  const afterSessions = headerNames.length > 0 && !!observable && sessions > 0;
+
+  // 1. the app's code, including what's behind the login, and --remote URLs if given
+  console.log(chalk.cyan(__('appStatic')));
+  if (afterSessions && remote.seeds.length > 0) console.log(chalk.gray(`--remote ${remote.hosts.join(', ')}: downloaded after each session, with the ${headerNames.join(', ')} the app sends there`));
+  const fetched = await collectRemote({ remote: afterSessions ? [] : remote.seeds, guessed: remote.guessed, headers, scope, allowHosts: remote.hosts, offline: options.offline });
+  // the profile review and the password trace belong to the sessions, after the app has been used
+  const staticResult = await step('static', { extraInputs: fetched.extraInputs, remoteDiagnostics: fetched.remoteDiagnostics, canaries: [], userData: undefined });
+
+  // 2. watch sessions, until the user stops
   if (!observable && sessions > 0) console.error(chalk.yellow(__('appNoExecutable')));
   const marker = options.watchMarker || generateMarker();
   if (observable && sessions > 0) console.log(chalk.cyan(__('appMarker', { marker })));
@@ -436,14 +460,17 @@ async function guided(options, common, { reportFolder, watchArgs, headers, captu
     try {
       session = await observeSession({ watch: options.debugUrl ? located.folder : located.kind === 'project' ? located.folder : located.executable, args: watchArgs, ...debug, marker, active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, capture, traffic, scope,
         screenshots: screenshots && (path.isAbsolute(screenshots) ? screenshots : path.join(outDir, screenshots)),
-        reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, assistant, confirm: interactiveConfirm() });
+        reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, assistant, confirm: interactiveConfirm(),
+        remoteHosts: remote.hosts, headerNames });
     } catch (error) {
       console.error(chalk.red(error.message));
       process.exitCode = 1;
       break;
     }
-    // the --remote-header goes to the --remote sites (and --scope domains) only, not to whatever the session captured
-    const captured = await collectRemote({ runtime: session.runtime, watchLog: session.watchLog, capture, headers, headerSites: options.remote || [], scope, offline: options.offline });
+    // headers go to the --remote sites (and without them the --scope domains) only, not to whatever the session captured;
+    // with --remote, nothing outside its hosts is downloaded
+    const captured = await collectRemote({ runtime: session.runtime, watchLog: session.watchLog, capture, remote: afterSessions ? remote.seeds : [], guessed: remote.guessed, headers, headerSites: remote.seeds, scope,
+      allowHosts: remote.hosts, headersByHost: session.copiedHeaders || {}, offline: options.offline });
     await step(`session-${n}`, { runtime: session.runtime, credentials: session.credentials, watchDiagnostics: session.watchDiagnostics, runtimeElectronVersion: session.watchDiagnostics.electron,
       extraInputs: captured.extraInputs, remoteDiagnostics: captured.remoteDiagnostics });
   }

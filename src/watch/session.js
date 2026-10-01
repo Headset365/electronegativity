@@ -30,12 +30,13 @@ export function parseHeaders(list = []) {
  * @throws when the app can't be started or the log can't be read
  */
 export async function observeSession({ watch, watchLog, args = [], debugUrl, debugLaunch = false, debugTarget, debugDuration = 0, marker, active = false, campaign, autoCampaign = false, capture = true, traffic = true, scope = [], reveal = false, canaries = [], searchDirs = [], userData,
-  assistant, staticIssues = [], confirm, screenshots }) {
+  assistant, staticIssues = [], confirm, screenshots, remoteHosts = [], headerNames = [] }) {
   let log = watchLog;
   let packagedApp;
   let injection;
   let staticInput;
   let credentials;
+  let copiedHeaders;
   const rendererDebug = !!debugUrl || debugLaunch;
   if (debugLaunch && (!watch || debugUrl || watchLog)) throw new Error('--debug-launch requires an app to launch and cannot be combined with a saved log or --debug-url');
   if (rendererDebug && campaign && (campaign.mode !== 'capture' || campaign.docxImport || campaign.cases.some(name => /^(api|nav)-/.test(name))))
@@ -81,19 +82,27 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
         fs.appendFileSync(commandsFile, JSON.stringify({ kind: 'run-campaign', profile: campaign }) + '\n');
     }
     const stopFollowing = followLog(logFile, record => assistant.handle(record));
+    // --remote-header names: the values the app sends to the --remote hosts, handed over in this file (never the log)
+    const headersFile = remoteHosts.length > 0 && headerNames.length > 0 ? path.join(logDir, 'remote-headers.json') : undefined;
+    const remoteOptions = { remoteHosts, headerNames, headersFile };
     try {
       const debugOptions = { target: debugTarget, duration: debugDuration, marker, active, campaign: !!campaign || autoCampaign,
-        traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile };
+        traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile, ...remoteOptions };
       log = debugUrl ? await watchDebug(debugUrl, debugOptions) : debugLaunch ? await watchDebugApp(located.kind === 'project' ? located.folder : located.executable,
         { ...debugOptions, args, onNote: note => { injection = note; } }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, active, campaign: !!campaign || autoCampaign, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
-        onNote: (note) => { injection = { ...injection, ...note }; } });
+        ...remoteOptions, onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
+      if (headersFile) {
+        copiedHeaders = readCopiedHeaders(headersFile);
+        for (const file of [headersFile, `${headersFile}.tmp`]) try { fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+      }
       stopFollowing();
       if (assistant.clearChannel) assistant.clearChannel();
       if ((campaign || autoCampaign) && commandsFile) try { fs.unlinkSync(commandsFile); } catch { /* best effort */ }
     }
     assistant.printSummary();
     console.log(chalk.gray(__('watchLogSaved', { file: log })));
+    if (headersFile) reportCopiedHeaders(copiedHeaders, remoteHosts, headerNames);
   }
   const records = readWatchLog(log);
   if (campaign && !records.some(r => r.kind === (campaign.mode === 'docx' ? 'docx-done' : 'campaign-done') || r.kind === 'campaign-error'))
@@ -143,26 +152,61 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
     console.error(chalk.yellow(__('watchNoWindows')));
     watchDiagnostics.noWindows = true;
   }
-  return { runtime, watchDiagnostics, watchLog: log, staticInput, credentials };
+  // the header names copied and for how many hosts, never the values or the hosts
+  if (copiedHeaders) watchDiagnostics.copiedHeaders = { hosts: Object.keys(copiedHeaders).length, names: headerNames.filter(name => Object.values(copiedHeaders).some(found => name in found)) };
+  return { runtime, watchDiagnostics, watchLog: log, staticInput, credentials, copiedHeaders };
+}
+
+function readCopiedHeaders(file) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const out = {};
+    for (const [host, headers] of Object.entries(parsed || {})) {
+      if (!headers || typeof headers !== 'object') continue;
+      const kept = Object.fromEntries(Object.entries(headers).filter(([, value]) => typeof value === 'string' && value && !/[\r\n]/.test(value)));
+      if (Object.keys(kept).length) out[host.toLowerCase()] = kept;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+// what was copied for the crawl after the session: names and hosts only
+function reportCopiedHeaders(copied, hosts, names) {
+  const seen = Object.keys(copied);
+  if (seen.length === 0) {
+    console.error(chalk.yellow(`No request the app sent to the --remote hosts (${hosts.join(', ')}) carried ${names.join(', ')}: the download after the session goes without them.`));
+    return;
+  }
+  // in the order they were named
+  for (const host of seen) {
+    const found = names.filter(name => name in copied[host]);
+    const missing = names.filter(name => !(name in copied[host]));
+    console.log(chalk.gray(`Copied ${found.join(', ')} from the app's requests to ${host}${missing.length ? ` (never sent there: ${missing.join(', ')})` : ''}`));
+  }
 }
 
 /**
  * Front-end code served over the network: what a watch session captured (capture/ next to its log) and `remote` URLs,
  * downloaded and prepared for scanning. Returns { extraInputs, remoteDiagnostics, scanDir }.
  */
-export async function collectRemote({ watchLog, capture = true, remote = [], headers = {}, headerSites = [], scope = [], offline = false, runtime }) {
+export async function collectRemote({ watchLog, capture = true, remote = [], guessed = [], headers = {}, headerSites = [], scope = [], allowHosts = [], headersByHost = {}, offline = false, runtime }) {
   const extraInputs = [];
   const captureDir = capture && watchLog ? path.join(path.dirname(watchLog), 'capture') : undefined;
   const hasCapture = !!captureDir && fs.existsSync(captureDir);
   if (remote.length === 0 && !hasCapture) return { extraInputs };
   const dir = hasCapture ? captureDir : fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-remote-'));
-  const remoteDiagnostics = { seeds: remote.length, fromWatch: hasCapture, headers: Object.keys(headers) };
+  const remoteDiagnostics = { seeds: remote.length, fromWatch: hasCapture, headers: Object.keys(headers), hosts: allowHosts.length || undefined,
+    copiedHeaders: Object.keys(headersByHost).length ? [...new Set(Object.values(headersByHost).flatMap(Object.keys))] : undefined };
   try {
     if (offline && remote.length > 0) console.error(chalk.yellow(__('remoteOffline')));
     if (!offline) {
       console.log(chalk.cyan(__('remoteFetching')));
-      const stats = await crawl(dir, remote, { headers, headerSites, headerScope: scope });
-      remoteDiagnostics.fetch = { fetched: stats.fetched, notFound: stats.notFound, skipped: stats.skipped, failed: stats.failed.slice(0, 20) };
+      const stats = await crawl(dir, remote.filter(url => !guessed.includes(url)), { headers, headerSites, headerScope: scope, allowHosts, headersByHost,
+        guessedSeeds: remote.filter(url => guessed.includes(url)) });
+      remoteDiagnostics.fetch = { fetched: stats.fetched, notFound: stats.notFound, skipped: stats.skipped, outOfScope: stats.outOfScope, failed: stats.failed.slice(0, 20) };
+      if (stats.outOfScope) console.log(chalk.gray(`Left alone ${stats.outOfScope} URL${stats.outOfScope === 1 ? '' : 's'} outside the --remote hosts`));
       for (const failure of stats.failed.slice(0, 10)) console.error(chalk.yellow(__('remoteFetchFailed', { url: failure.url, message: failure.message })));
     }
   } catch (error) {

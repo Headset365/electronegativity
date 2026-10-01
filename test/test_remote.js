@@ -6,6 +6,7 @@ import { should as chaiShould } from 'chai';
 import _i18n from '../src/locales/i18n.js';
 import run from '../src/runner.js';
 import { crawl } from '../src/remote/fetch.js';
+import remoteHosts from '../src/remote/hosts.cjs';
 import { prepareScanFolder, referencedUrls, sourceMapUrl, originalSources } from '../src/remote/sources.js';
 
 chaiShould();
@@ -104,6 +105,74 @@ describe('Remote front end', () => {
     const prepared = prepareScanFolder(capture);
     [...prepared.labels.values()].should.include(`${base}/static/app.min.js (source: src/editor.js)`);
     [...prepared.labels.values()].should.include(`${base}/views/doc.html`);
+  });
+
+  describe('--remote hosts and --remote-header names', () => {
+    const { parseRemote, parseRemoteHeaders, hostAllowed, pickHeaders } = remoteHosts;
+    it('takes host names, subdomain patterns and URLs, comma-separated or repeated', () => {
+      parseRemote(['app.example.com, *.api.example.com', 'https://portal.example.com/login', 'cdn.example.com:8443']).should.deep.equal({
+        seeds: ['https://app.example.com/', 'https://portal.example.com/login', 'https://cdn.example.com:8443/'],
+        guessed: ['https://app.example.com/', 'https://cdn.example.com:8443/'],
+        hosts: ['app.example.com', '*.api.example.com', 'portal.example.com', 'cdn.example.com'], invalid: [] });
+      // a start page also given as a URL is not a guess
+      parseRemote(['app.example.com', 'https://app.example.com/']).guessed.should.deep.equal([]);
+      parseRemote(['bad host', '*.example.com/path', 'https://user:pw@example.com/']).invalid.should.have.length(3);
+    });
+    it('matches a host exactly, and a pattern on its subdomains only', () => {
+      const hosts = ['app.example.com', '*.api.example.com'];
+      hostAllowed('https://APP.example.com/x', hosts).should.equal(true);
+      hostAllowed('https://v1.api.example.com/', hosts).should.equal(true);
+      hostAllowed('https://api.example.com/', hosts).should.equal(false);
+      hostAllowed('https://app.example.com.evil.test/', hosts).should.equal(false);
+      hostAllowed('https://evilapp.example.com/', hosts).should.equal(false);
+    });
+    it('takes header names to copy, and Name: value headers whole', () => {
+      parseRemoteHeaders(['Authorization,', 'ClientID, cookie', 'User-Agent', 'Accept: text/html, application/json', 'COOKIE']).should.deep.equal({
+        fixed: { Accept: 'text/html, application/json' }, names: ['Authorization', 'ClientID', 'cookie', 'User-Agent'], invalid: [] });
+      parseRemoteHeaders(['Bad Name']).invalid.should.deep.equal(['Bad Name']);
+      pickHeaders({ authorization: 'Bearer t', Cookie: 'a=1', Other: 'x' }, ['Authorization', 'Cookie', 'ClientID']).should.deep.equal({ Authorization: 'Bearer t', Cookie: 'a=1' });
+    });
+  });
+
+  it('with --remote, fetches from its hosts only, each with the headers copied for it', async () => {
+    // another host (a different name for this machine): captured, redirected to and named in a page
+    const seen = [];
+    const other = http.createServer((req, res) => {
+      seen.push(req.url);
+      res.writeHead(200, { 'content-type': 'application/javascript' });
+      res.end('var x = 1;');
+    });
+    await new Promise(resolve => other.listen(0, resolve));
+    const elsewhere = `http://localhost:${other.address().port}`;
+    const mineSeen = [];
+    const site = http.createServer((req, res) => {
+      mineSeen.push({ url: req.url, cookie: req.headers.cookie, auth: req.headers.authorization, client: req.headers.clientid });
+      if (req.url === '/go.js') { res.writeHead(302, { location: `${elsewhere}/landing.js` }); res.end(); return; }
+      if (req.url === '/app.js') { res.writeHead(200, { 'content-type': 'application/javascript' }); res.end('var app = 1;'); return; }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(`<script src="/app.js"></script><script src="/go.js"></script><script src="${elsewhere}/lib.js"></script>`);
+    });
+    await new Promise(resolve => site.listen(0, '127.0.0.1', resolve));
+    const mine = `http://127.0.0.1:${site.address().port}`;
+    try {
+      const capture = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-remote-hosts-'));
+      fs.mkdirSync(path.join(capture, 'files'));
+      fs.writeFileSync(path.join(capture, 'manifest.jsonl'), JSON.stringify({ kind: 'script', url: `${elsewhere}/captured.js` }) + '\n');
+      const stats = await crawl(capture, [`${mine}/`], { allowHosts: ['127.0.0.1'], headers: { ClientID: 'fixed' },
+        headersByHost: { '127.0.0.1': { Cookie: 'session=copied', Authorization: 'Bearer copied', ClientID: 'copied' }, localhost: { Cookie: 'other=1' } } });
+      seen.should.deep.equal([], 'nothing is fetched from another host');
+      // a start page guessed from a host name that doesn't answer is not an error
+      const guess = await crawl(fs.mkdtempSync(path.join(os.tmpdir(), 'eng-remote-guess-')), [], { allowHosts: ['127.0.0.1'], guessedSeeds: ['https://127.0.0.1:1/'] });
+      guess.failed.should.deep.equal([]);
+      guess.notFound.should.equal(1);
+      stats.outOfScope.should.equal(2); // the captured script and the redirect (third-party scripts are never crawled)
+      mineSeen.map(r => r.url).should.include.members(['/', '/app.js', '/go.js']);
+      // the values copied for this host, and a header set by hand wins over a copied one
+      mineSeen.every(r => r.cookie === 'session=copied' && r.auth === 'Bearer copied' && r.client === 'fixed').should.equal(true, JSON.stringify(mineSeen));
+    } finally {
+      site.close();
+      other.close();
+    }
   });
 
   it('sends --remote-header only to the named site: not to captured third parties, nor across a redirect', async () => {

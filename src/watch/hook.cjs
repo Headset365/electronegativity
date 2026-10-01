@@ -308,6 +308,44 @@ function instrument(electron, late) {
     if (traffic) traffic.instrumentNodeHttp();
   });
 
+  // --remote: the only hosts this hook downloads from itself (the capture below). --remote-header names: the values the
+  // app sends to those hosts (its login cookie, its bearer token), the latest per host, for the CLI to fetch with after
+  // the session. They are kept in memory and in a private file the CLI deletes once read: never in the log.
+  const { hostAllowed, pickHeaders } = require(path.join(__dirname, '..', 'remote', 'hosts.cjs'));
+  const listOf = (value) => String(value || '').split(',').map(s => s.trim()).filter(Boolean);
+  const REMOTE_HOSTS = listOf(process.env.ELECTRONEGATIVITY_WATCH_REMOTE_HOSTS);
+  const HEADER_NAMES = listOf(process.env.ELECTRONEGATIVITY_WATCH_HEADER_NAMES);
+  const HEADERS_FILE = REMOTE_HOSTS.length && HEADER_NAMES.length ? process.env.ELECTRONEGATIVITY_WATCH_HEADERS_FILE : undefined;
+  const copiedHeaders = {};
+  let copiedChanged = false;
+  const copyHeaders = (details) => {
+    if (!HEADERS_FILE || !/^https?:/i.test(details.url) || !hostAllowed(details.url, REMOTE_HOSTS)) return;
+    safely(() => {
+      const host = new URL(details.url).hostname.toLowerCase();
+      const picked = pickHeaders(details.requestHeaders, HEADER_NAMES);
+      const known = copiedHeaders[host] || (copiedHeaders[host] = {});
+      for (const name of Object.keys(picked)) if (known[name] !== picked[name]) {
+        known[name] = picked[name];
+        copiedChanged = true;
+      }
+    });
+  };
+  const saveCopiedHeaders = () => {
+    if (!copiedChanged) return;
+    copiedChanged = false;
+    try {
+      // written whole and renamed, so the CLI never reads half a file
+      fs.writeFileSync(`${HEADERS_FILE}.tmp`, JSON.stringify(copiedHeaders), { mode: 0o600 });
+      fs.renameSync(`${HEADERS_FILE}.tmp`, HEADERS_FILE);
+    } catch {
+      // best effort
+    }
+  };
+  if (HEADERS_FILE) {
+    const timer = setInterval(saveCopiedHeaders, 1000);
+    if (timer.unref) timer.unref();
+  }
+
   // What the app writes to its consoles and the errors it doesn't handle: secrets in log output (only the kind and a
   // redacted prefix are kept), uncaught exceptions (first line, secrets redacted) and CSP violations Chromium reports.
   let secrets;
@@ -462,12 +500,21 @@ function instrument(electron, late) {
     fs.writeFileSync(path.join(CAPTURE_DIR, file), body);
     return file;
   };
-  const download = (ses, url) => ses.fetch(url, { method: 'GET' })
+  // with the headers the app sent to that host (a bearer token the page adds itself is not in the session's cookies)
+  const download = (ses, url) => ses.fetch(url, { method: 'GET', headers: downloadHeaders(url) })
     .then(response => response.ok ? response.arrayBuffer() : null)
     .then(buffer => buffer && buffer.byteLength <= MAX_CAPTURE_BYTES ? Buffer.from(buffer) : null);
+  const downloadHeaders = (url) => {
+    const copied = { ...(copiedHeaders[new URL(url).hostname.toLowerCase()] || {}) };
+    // the session sends its own cookies
+    for (const name of Object.keys(copied)) if (name.toLowerCase() === 'cookie') delete copied[name];
+    return copied;
+  };
   function capture(details, ses) {
     if (!CAPTURE_DIR || details.webContentsId === undefined || details.method !== 'GET' || !/^https?:/i.test(details.url)) return;
     if (details.statusCode >= 400) return;
+    // with --remote, nothing is downloaded from any other host
+    if (REMOTE_HOSTS.length && !hostAllowed(details.url, REMOTE_HOSTS)) return;
     let pathname;
     try {
       pathname = new URL(details.url).pathname;
@@ -493,7 +540,7 @@ function instrument(electron, late) {
       const reference = [...tail.matchAll(/[#@]\s*sourceMappingURL=([^\s'"*]+)/g)].pop();
       if (!reference || /^data:/i.test(reference[1])) return; // inline maps are read from the script itself
       const mapUrl = new URL(reference[1], details.url).href;
-      if (!/^https?:/i.test(mapUrl)) return;
+      if (!/^https?:/i.test(mapUrl) || (REMOTE_HOSTS.length && !hostAllowed(mapUrl, REMOTE_HOSTS))) return;
       return download(ses, mapUrl).then(map => { if (map) appendCapture({ kind: 'map', url: redact(mapUrl), of: label, file: saveCapture(map, '.map') }); });
     }).catch(() => appendCapture(entry));
   }
@@ -659,10 +706,12 @@ function instrument(electron, late) {
       record(details);
       if (traffic) traffic.onHeadersReceived(details);
     });
-    if (traffic) {
-      chainObserver(request, 'onSendHeaders', traffic.onSendHeaders);
-      chainObserver(request, 'onErrorOccurred', traffic.onErrorOccurred);
-    }
+    // the headers actually sent, cookies included
+    if (traffic || HEADERS_FILE) chainObserver(request, 'onSendHeaders', (details) => {
+      copyHeaders(details);
+      if (traffic) traffic.onSendHeaders(details);
+    });
+    if (traffic) chainObserver(request, 'onErrorOccurred', traffic.onErrorOccurred);
 
     // permission requests and the answers; without a handler of the app's own, Electron grants everything
     const originalSetHandler = ses.setPermissionRequestHandler.bind(ses);
@@ -818,6 +867,7 @@ function instrument(electron, late) {
   app.whenReady().then(() => safely(() => write('paths', { userData: app.getPath('userData') })));
   app.on('quit', () => {
     if (traffic) safely(() => traffic.flush());
+    saveCopiedHeaders();
     write('quit', {});
   });
   // files, deep links and command lines handed to the app (listening does not change how the app handles them)

@@ -4,6 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { MANIFEST, sourceMapUrl, inlineSourceMap, referencedUrls, originalSources } from './sources.js';
 import { isOffline, OfflineError } from '../util/network.js';
+import hosts from './hosts.cjs';
+
+const { hostAllowed } = hosts;
 
 const MAX_BYTES = 30 * 1024 * 1024;
 
@@ -28,12 +31,18 @@ const kindOf = (url, contentType) => {
 /**
  * Fetches `seeds` (URLs) and what they refer to on the same origin, and completes a capture made by watch mode:
  * source maps of captured scripts and templates or chunks they name that were never loaded during the session.
- * `headers` (e.g. a Cookie or Authorization header for a test account) are only sent to the seeds' origins, the origins of
- * `headerSites` (the --remote URLs of an earlier step) and hosts in the `headerScope` domains (--scope): never to another
- * site a watch session happened to capture (a sign-in provider, an embedded frame), nor across a redirect to one.
- * Returns { fetched, failed, skipped, notFound } (notFound: guessed references the server doesn't have).
+ * `allowHosts` (the --remote hosts, '*.' for subdomains), when given, are the only hosts anything is fetched from:
+ * references, captured URLs and redirects that lead elsewhere are left alone (counted as outOfScope).
+ * `headers` (e.g. a Cookie or Authorization header for a test account) are only sent to the `allowHosts`, or without
+ * them to the seeds' origins, the origins of `headerSites` (the --remote URLs of an earlier step) and hosts in the
+ * `headerScope` domains (--scope): never to another site a watch session happened to capture (a sign-in provider, an
+ * embedded frame), nor across a redirect to one. `headersByHost` (host name -> headers) are the values the app itself
+ * sent to that host during the session (--remote-header names), sent to that host only; `headers` win over them.
+ * `guessedSeeds` (https://host/ for a --remote host name) are tried quietly, and not at all for a host the capture
+ * already has pages or scripts from (the app used that host, perhaps over another scheme or port).
+ * Returns { fetched, failed, skipped, notFound, outOfScope } (notFound: guessed references the server doesn't have).
  */
-export async function crawl(captureDir, seeds = [], { headers = {}, headerSites = [], headerScope = [], maxFiles = 300, log = () => {} } = {}) {
+export async function crawl(captureDir, seeds = [], { headers = {}, headerSites = [], headerScope = [], allowHosts = [], headersByHost = {}, guessedSeeds = [], maxFiles = 300, log = () => {} } = {}) {
   if (isOffline()) throw new OfflineError();
   fs.mkdirSync(path.join(captureDir, 'files'), { recursive: true });
   const entries = readManifest(captureDir);
@@ -50,39 +59,60 @@ export async function crawl(captureDir, seeds = [], { headers = {}, headerSites 
       // not a URL
     }
   };
+  const limited = allowHosts.length > 0;
+  const inScope = (url) => !limited || hostAllowed(url, allowHosts);
   for (const seed of seeds) addPage(seed);
   // where the headers may go
   const headerOrigins = new Set([...seeds, ...headerSites].map(url => { try { return new URL(url).origin; } catch { return undefined; } }).filter(Boolean));
   const domains = headerScope.map(domain => String(domain).toLowerCase().trim().replace(/^\*?\./, '')).filter(Boolean);
   const mayCarryHeaders = (url) => {
     try {
+      if (limited) return hostAllowed(url, allowHosts);
       const { origin, hostname } = new URL(url);
       return headerOrigins.has(origin) || domains.some(domain => hostname.toLowerCase() === domain || hostname.toLowerCase().endsWith(`.${domain}`));
     } catch {
       return false;
     }
   };
-  const withHeaders = Object.keys(headers).length > 0;
-  // redirects are followed here, not by fetch, so the headers stay behind when one leads to another site
+  const headersFor = (url) => {
+    let copied = {};
+    try {
+      copied = (limited ? hostAllowed(url, allowHosts) : true) && headersByHost[new URL(url).hostname.toLowerCase()] || {};
+    } catch {
+      // not a URL
+    }
+    return { ...copied, ...(mayCarryHeaders(url) ? headers : {}) };
+  };
+  const stats = { fetched: 0, failed: [], skipped: 0, notFound: 0, outOfScope: 0 };
+  // redirects are followed here, not by fetch, so the headers stay behind when one leads to another site, and a
+  // redirect never takes the crawl outside the --remote hosts
   const get = async (url) => {
     let current = url;
     for (let hop = 0; hop <= 5; hop++) {
-      const carry = withHeaders && mayCarryHeaders(current);
-      const response = await fetch(current, { headers: carry ? headers : {}, redirect: carry ? 'manual' : 'follow', signal: AbortSignal.timeout(20000) });
+      const sent = headersFor(current);
+      const manual = limited || Object.keys(sent).length > 0;
+      const response = await fetch(current, { headers: sent, redirect: manual ? 'manual' : 'follow', signal: AbortSignal.timeout(20000) });
       const location = response.status >= 300 && response.status < 400 && response.headers.get('location');
-      if (!carry || !location) return response;
+      if (!manual || !location) return response;
       current = new URL(location, current).href;
+      if (!inScope(current)) {
+        stats.outOfScope++;
+        return undefined;
+      }
     }
     throw new Error('too many redirects');
   };
   for (const entry of entries) if (entry.kind === 'page') addPage(entry.url);
-  const stats = { fetched: 0, failed: [], skipped: 0, notFound: 0 };
   let counter = entries.length;
   const append = (entry) => fs.appendFileSync(path.join(captureDir, MANIFEST), JSON.stringify(entry) + '\n');
   const queue = [];
   const enqueue = (url, from) => {
     if (known.has(url)) return;
     known.add(url);
+    if (!inScope(url)) {
+      stats.outOfScope++;
+      return;
+    }
     queue.push({ url, from });
   };
   const followReferences = (text, url, kind) => {
@@ -106,11 +136,17 @@ export async function crawl(captureDir, seeds = [], { headers = {}, headerSites 
         }
       } else if (map && !known.has(map)) {
         known.add(map);
-        queue.push({ url: map, from: url, mapOf: url });
+        if (inScope(map)) queue.push({ url: map, from: url, mapOf: url });
+        else stats.outOfScope++;
       }
     }
   };
   for (const seed of seeds) enqueue(seed);
+  const capturedHosts = new Set(entries.map(entry => { try { return new URL(entry.url).hostname.toLowerCase(); } catch { return undefined; } }));
+  for (const seed of guessedSeeds) if (!capturedHosts.has(new URL(seed).hostname.toLowerCase())) {
+    addPage(seed);
+    enqueue(seed, 'guess');
+  }
   // what watch mode captured: follow the references and source maps it didn't get to
   const mapped = new Set(entries.filter(e => e.kind === 'map').map(e => e.of));
   for (const entry of entries) {
@@ -139,7 +175,9 @@ export async function crawl(captureDir, seeds = [], { headers = {}, headerSites 
     let response;
     try {
       response = await get(url);
+      if (!response) return; // redirected outside the --remote hosts
     } catch (error) {
+      if (from === 'guess') { stats.notFound++; return; }
       const code = String(error && (error.cause && error.cause.code || error.message));
       // test servers often use an internal CA the app trusts through the OS, but Node doesn't
       const hint = /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER/i.test(code) ? ' (the server certificate is not trusted by Node.js: set NODE_EXTRA_CA_CERTS to your CA certificate file, or use watch mode, which downloads with the app\'s own session)' : '';
@@ -174,7 +212,11 @@ export async function crawl(captureDir, seeds = [], { headers = {}, headerSites 
     followReferences(body.toString('utf8'), url, kind);
     if (header && kind === 'script') {
       const map = sourceMapUrl('', url, header);
-      if (map && !known.has(map)) { known.add(map); queue.push({ url: map, mapOf: url }); }
+      if (map && !known.has(map)) {
+        known.add(map);
+        if (inScope(map)) queue.push({ url: map, mapOf: url });
+        else stats.outOfScope++;
+      }
     }
   };
   // a few requests at a time

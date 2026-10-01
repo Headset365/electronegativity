@@ -109,8 +109,12 @@ electronegativity --app "C:\Program Files\MyApp" --sessions 2
 # the app needs command-line arguments, or shows a blank window on a VM
 electronegativity --app "C:\Program Files\MyApp" --watch-args "--disable-gpu"
 
-# also fetch templates and screens the sessions never opened, from the test server, with account A's cookie from Burp
-# (typed at a prompt, which keeps it out of the PowerShell history)
+# also fetch templates and screens the sessions never opened, from the test servers only (nothing from any other host),
+# logged in with the same Cookie and Authorization the app sent them during the session (log in, use the app, close it
+# without logging out: the download runs right after)
+electronegativity --app "C:\Program Files\MyApp" --remote app.example.com,api.example.com --remote-header Authorization,Cookie
+
+# or set a header by hand, e.g. account A's cookie from Burp (typed at a prompt, which keeps it out of the PowerShell history)
 $Cookie = Read-Host "Cookie (name=value)"
 electronegativity --app "C:\Program Files\MyApp" --remote https://test-server.example/ --remote-header "Cookie: $Cookie"
 

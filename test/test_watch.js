@@ -533,10 +533,26 @@ describe('Watch mode', () => {
       // the app keeps its profile here (app.setPath), and remembers this test password base64-encoded
       const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-traffic-profile-'));
       const shots = path.join(dir, 'shots');
-      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '--no-report-dir', '-r', '--canary', 'Zq7-test-Pw!2026', '--watch-screenshots', shots, '-o', output];
+      const diagnostics = path.join(dir, 'diag.json');
+      // --remote-header names: copied from what the app sends to the --remote host only (not the tracker it also calls)
+      const cli = [path.join(import.meta.dirname, '..', 'src', 'index.js'), '--watch', dir, '--watch-args', '--no-sandbox', '--offline', '--no-report-dir', '-r', '--canary', 'Zq7-test-Pw!2026', '--watch-screenshots', shots, '-o', output,
+        '--remote', 'app.traffic.test', '--remote-header', 'Authorization,', 'Cookie', '--remote-header', 'X-Auth-Token', '--diagnostics', diagnostics];
       const env = { ...process.env, TRAFFIC_APP_PROFILE: profile };
       const command = runCli(cli, env);
       (command.status === 0).should.equal(true, why(command));
+      command.stdout.should.match(/Copied Authorization, Cookie from the app's requests to app\.traffic\.test \(never sent there: X-Auth-Token\)/, why(command));
+      command.stdout.should.not.match(/Copied .* to tracker\.other\.test/);
+      const watchDiag = JSON.parse(fs.readFileSync(diagnostics, 'utf8')).watch;
+      watchDiag.copiedHeaders.should.deep.equal({ hosts: 1, names: ['Authorization', 'Cookie'] });
+      // the values never reach the log, and the file that handed them over is gone
+      const logFile = /Session log saved to (.+?) \(reuse it/.exec(command.stdout)[1];
+      const logText = fs.readFileSync(logFile, 'utf8');
+      logText.should.not.include('Zk2Qm9Lr7Tx4Wv1Yp8Nb');
+      logText.should.not.include('Qx7Lm2Vt9Rk4Zp8Wn3Yb6Hs');
+      fs.readdirSync(path.dirname(logFile)).filter(f => /remote-headers/.test(f)).should.have.length(0);
+      // and with --remote, the hook downloads nothing from other hosts
+      const manifest = path.join(path.dirname(logFile), 'capture', 'manifest.jsonl');
+      if (fs.existsSync(manifest)) fs.readFileSync(manifest, 'utf8').should.not.match(/tracker\.other\.test|landing\.elsewhere\.test/);
       const report = JSON.parse(fs.readFileSync(output, 'utf8'));
       const ids = report.issues.map(i => i.id);
       // the profile Chromium wrote (Local Storage LevelDB, the cookie store) and where the password went
