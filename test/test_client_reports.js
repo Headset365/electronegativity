@@ -230,14 +230,95 @@ describe('Client report outputs', () => {
     ];
     const table = componentTable({ rows });
     table.rows.map(r => r[0]).should.deep.equal(['malicious', 'electron', 'old-dev']);
-    table.header.length.should.equal(19);
+    table.header.length.should.equal(20);
+    table.header[19].should.equal('References');
     const buffer = renderComponentsXlsx({ rows });
     const sheet = zipEntry(buffer, 'xl/worksheets/sheet1.xml');
     sheet.should.include('state="frozen"');
-    sheet.should.include('<autoFilter ref="A1:S4"/>');
+    sheet.should.include('<autoFilter ref="A1:T4"/>');
     sheet.should.include('CVE-2026-1');
     sheet.should.not.include('current');
     zipEntry(buffer, 'xl/workbook.xml').should.include('Outdated components');
+  });
+
+  it('exports the HTML dependency sources as separate clickable reference rows', () => {
+    const row = {
+      name: '@example/library', version: '1.0.0', known: true, latest: '3.0.0', latestInMajor: '1.9.0', versionsBehind: 4,
+      releaseNotes: 'https://github.com/example/library/releases', repository: 'https://github.com/example/library', homepage: 'https://example.com',
+      support: { status: 'outdated', policy: 'https://example.com/support' },
+      advisories: [{ id: 'GHSA-test-1234-5678', cves: ['CVE-2026-1234'], fixed: '2.0.0', references: [
+        { type: 'FIX', url: 'https://github.com/example/library/commit/abc' },
+        { type: 'REPORT', url: 'https://example.com/report?a=1&b="two"' },
+        { type: 'WEB', url: 'https://example.com/article' },
+      ] }],
+    };
+    const expected = [
+      'https://www.npmjs.com/package/%40example/library', 'https://www.npmjs.com/package/%40example/library/v/1.0.0',
+      'https://www.npmjs.com/package/%40example/library/v/3.0.0', 'https://www.npmjs.com/package/%40example/library/v/1.9.0',
+      row.releaseNotes, row.repository, row.homepage, row.support.policy,
+      'https://nvd.nist.gov/vuln/detail/CVE-2026-1234', 'https://osv.dev/vulnerability/GHSA-test-1234-5678',
+      'https://github.com/advisories/GHSA-test-1234-5678', ...row.advisories[0].references.map(r => r.url),
+      'https://www.npmjs.com/package/%40example/library/v/2.0.0',
+    ];
+    const table = componentTable({ rows: [row] });
+    table.references[0].map(ref => ref.url).should.deep.equal(expected);
+    for (const url of expected) table.rows[0][19].should.include(url);
+    const buffer = renderComponentsXlsx({ rows: [row] });
+    const sheet = zipEntry(buffer, 'xl/worksheets/sheet2.xml');
+    const rels = zipEntry(buffer, 'xl/worksheets/_rels/sheet2.xml.rels');
+    sheet.should.include(`<autoFilter ref="A1:E${expected.length + 1}"/>`).and.include('state="frozen"');
+    for (let i = 0; i < expected.length; i++) {
+      sheet.should.include(`<hyperlink ref="E${i + 2}" r:id="rId${i + 1}"/>`);
+      rels.should.include(`Id="rId${i + 1}"`).and.include('TargetMode="External"');
+    }
+    rels.should.include('report?a=1&amp;b=&quot;two&quot;');
+    zipEntry(buffer, 'xl/worksheets/sheet1.xml').should.include("ref=\"T2\" location=\"'References'!A2\"");
+    zipEntry(buffer, 'xl/workbook.xml').should.include('name="References" sheetId="2" r:id="rId2"');
+    zipEntry(buffer, 'xl/_rels/workbook.xml.rels').should.include('Target="worksheets/sheet2.xml"');
+    zipEntry(buffer, '[Content_Types].xml').should.include('PartName="/xl/worksheets/sheet2.xml"');
+  });
+
+  it('deduplicates reference URLs and excludes unsafe or malformed links', () => {
+    const url = 'https://example.com/source';
+    const row = { name: 'old', version: '1', latest: '2', known: true, releaseNotes: url, repository: url, homepage: `${url}#readme`,
+      support: { policy: 'file:///C:/secret.txt' }, advisories: [{ id: 'OSV-1', cves: ['CVE-2026-1'], references: [
+        { type: 'FIX', url }, { type: 'WEB', url: 'https://nvd.nist.gov/vuln/detail/CVE-2026-1' },
+        { type: 'WEB', url: 'javascript:alert(1)' }, { type: 'WEB', url: '=HYPERLINK("bad")' },
+        { type: 'WEB', url: 'https://' }, { type: 'WEB', url: 'https://example.com/\ninvalid' },
+      ] }] };
+    const table = componentTable({ rows: [row] });
+    const urls = table.references[0].map(ref => ref.url);
+    new Set(urls).size.should.equal(urls.length);
+    urls.filter(ref => ref === url).length.should.equal(1);
+    const buffer = renderComponentsXlsx({ rows: [row] });
+    const rels = zipEntry(buffer, 'xl/worksheets/_rels/sheet2.xml.rels');
+    for (const unsafe of ['file:', 'javascript:', 'HYPERLINK', 'invalid', '#readme']) rels.should.not.include(unsafe);
+    zipEntry(buffer, 'xl/worksheets/sheet2.xml').should.not.include('<f>');
+  });
+
+  it('keeps reference rows attached to the correct sorted component and installed version', () => {
+    const rows = [
+      { name: 'same', version: '1.0.0', latest: '3.0.0', repository: 'https://example.com/first' },
+      { name: 'same', version: '2.0.0', malicious: { id: 'MAL-1' }, repository: 'https://example.com/second' },
+    ];
+    const table = componentTable({ rows });
+    table.rows.map(r => r[2]).should.deep.equal(['2.0.0', '1.0.0']);
+    table.references[0].map(r => r.url).should.include('https://osv.dev/vulnerability/MAL-1').and.include('https://example.com/second');
+    const buffer = renderComponentsXlsx({ rows });
+    const sheet = zipEntry(buffer, 'xl/worksheets/sheet2.xml');
+    sheet.match(/<row r="2">.*?<\/row>/)[0].should.include('2.0.0');
+    const next = table.references[0].length + 2;
+    sheet.match(new RegExp(`<row r="${next}">.*?</row>`))[0].should.include('1.0.0');
+    zipEntry(buffer, 'xl/worksheets/sheet1.xml').should.include(`ref="T3" location="'References'!A${next}"`);
+  });
+
+  it('writes both sheets for an empty or offline dependency report without lookups', () => {
+    const empty = renderComponentsXlsx({ rows: [], offline: true });
+    zipEntry(empty, 'xl/worksheets/sheet1.xml').should.include('<autoFilter ref="A1:T1"/>');
+    zipEntry(empty, 'xl/worksheets/sheet2.xml').should.include('<autoFilter ref="A1:E1"/>').and.not.include('<hyperlinks>');
+    zipEntry(empty, 'xl/worksheets/_rels/sheet2.xml.rels').should.not.include('TargetMode');
+    const offline = componentTable({ offline: true, rows: [{ name: 'local', version: '1', deprecated: true }] });
+    offline.references[0].should.deep.equal([{ label: 'npm package', url: 'https://www.npmjs.com/package/local' }]);
   });
 
   it('dispatches mixed outputs through the existing writer', () => {

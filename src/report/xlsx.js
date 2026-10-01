@@ -1,8 +1,9 @@
 // The outdated components spreadsheet (-o components.xlsx) that the client report's "Outdated Third-Party Components"
-// finding refers to: one sheet, one row per component that is outdated, unsupported, end of life, deprecated or has
-// published advisories, with what to upgrade to. Written as a plain SpreadsheetML workbook with the same zip writer as
+// finding refers to: one row per component that is outdated, unsupported, end of life, deprecated or has published
+// advisories, with what to upgrade to, plus a sheet of clickable references. Written as SpreadsheetML with the zip writer of
 // the Word report, no dependencies.
 import { zipFiles, xmlText } from './ooxml.js';
+import { componentReferences } from '../util/dependency_references.js';
 
 const RANK = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, MODERATE: 2, LOW: 1 };
 
@@ -29,21 +30,23 @@ function action(row) {
 export function componentTable(dependencies) {
   const header = ['Component', 'Type', 'Installed version', 'Latest version', 'Installed version released', 'Latest version released', 'Versions behind',
     'Major versions behind', 'Support status', 'Support detail', 'Advisories', 'Highest advisory severity', 'Advisory IDs', 'CVEs',
-    'Exploited in the wild (CISA KEV)', 'Highest EPSS', 'Fixed in', 'Recommended action', 'Found in'];
+    'Exploited in the wild (CISA KEV)', 'Highest EPSS', 'Fixed in', 'Recommended action', 'Found in', 'References'];
   const rows = outdatedRows(dependencies).map(row => {
     const advisories = row.advisories || [];
     const highest = advisories.map(a => a.severity).filter(Boolean).sort((a, b) => (RANK[b] || 0) - (RANK[a] || 0))[0];
     const cves = [...new Set(advisories.flatMap(a => a.cves || []))];
     const epss = advisories.map(a => a.epss && a.epss.epss).filter(v => typeof v === 'number').sort((a, b) => b - a)[0];
+    const references = componentReferences(row);
     return {
+      references,
       sort: [row.malicious ? 1 : 0, advisories.some(a => a.kev) ? 1 : 0, RANK[highest] || 0, advisories.length, row.support && row.support.status === 'unsupported' ? 1 : 0, row.majorsBehind || 0],
       cells: [row.name, typeOf(row), row.version, row.latest || '', row.released || '', row.latestReleased || '', row.versionsBehind ?? '', row.majorsBehind ?? '',
         (row.support && row.support.status) || 'unknown', (row.support && row.support.detail) || '', advisories.length, highest ? highest.replace('MODERATE', 'MEDIUM') : '',
         advisories.map(a => a.id).join(', '), cves.join(', '), advisories.some(a => a.kev) ? 'Yes' : 'No', epss !== undefined ? Number(epss.toFixed(4)) : '',
-        row.fixedIn || '', action(row), (row.files || []).join(', ')],
+        row.fixedIn || '', action(row), (row.files || []).join(', '), references.map(ref => `${ref.label}: ${ref.url}`).join('\n')],
     };
   }).sort((a, b) => { for (let i = 0; i < a.sort.length; i++) if (a.sort[i] !== b.sort[i]) return b.sort[i] - a.sort[i]; return 0; });
-  return { header, rows: rows.map(r => r.cells) };
+  return { header, rows: rows.map(r => r.cells), references: rows.map(r => r.references) };
 }
 
 const column = (index) => { let s = ''; for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
@@ -53,44 +56,71 @@ function cell(value, ref, style) {
   return `<c r="${ref}" t="inlineStr"${style ? ` s="${style}"` : ''}><is><t xml:space="preserve">${xmlText(String(value).slice(0, 32000))}</t></is></c>`;
 }
 
-/** The workbook as a Buffer. */
-export function renderComponentsXlsx(dependencies, { appName } = {}) {
-  const { header, rows } = componentTable(dependencies);
-  const widths = [28, 20, 14, 14, 14, 14, 10, 10, 14, 50, 10, 14, 40, 40, 14, 10, 14, 50, 50];
+function worksheet(header, rows, widths, hyperlinks = []) {
   const last = column(header.length - 1);
+  const linkedCells = new Set(hyperlinks.map(link => link.ref));
   const sheetRows = [
     `<row r="1">${header.map((h, i) => cell(h, `${column(i)}1`, 1)).join('')}</row>`,
-    ...rows.map((cells, r) => `<row r="${r + 2}">${cells.map((v, i) => cell(v, `${column(i)}${r + 2}`, 2)).join('')}</row>`),
+    ...rows.map((cells, r) => `<row r="${r + 2}">${cells.map((v, i) => {
+      const ref = `${column(i)}${r + 2}`;
+      return cell(v, ref, linkedCells.has(ref) ? 3 : 2);
+    }).join('')}</row>`),
   ];
-  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
 <cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>
 <sheetData>${sheetRows.join('')}</sheetData>
 <autoFilter ref="A1:${last}${rows.length + 1}"/>
+${hyperlinks.length ? `<hyperlinks>${hyperlinks.map(link => `<hyperlink ref="${link.ref}" ${link.location ? `location="${xmlText(link.location)}"` : `r:id="${link.id}"`}/>`).join('')}</hyperlinks>` : ''}
 </worksheet>`;
+}
+
+/** The workbook as a Buffer. Each reference has its own clickable row to avoid Excel's one-link-per-cell limit. */
+export function renderComponentsXlsx(dependencies, { appName } = {}) {
+  const { header, rows, references } = componentTable(dependencies);
+  const widths = [28, 20, 14, 14, 14, 14, 10, 10, 14, 50, 10, 14, 40, 40, 14, 10, 14, 50, 50, 80];
+  const referenceRows = [];
+  const componentLinks = [];
+  const referenceLinks = [];
+  const targets = [];
+  references.forEach((sources, index) => {
+    if (sources.length) componentLinks.push({ ref: `${column(header.length - 1)}${index + 2}`, location: `'References'!A${referenceRows.length + 2}` });
+    for (const source of sources) {
+      referenceRows.push([rows[index][0], rows[index][2], source.advisory || '', source.label, source.url]);
+      const id = `rId${targets.length + 1}`;
+      referenceLinks.push({ ref: `E${referenceRows.length + 1}`, id });
+      targets.push({ id, url: source.url });
+    }
+  });
+  const sheet = worksheet(header, rows, widths, componentLinks);
+  const referenceSheet = worksheet(['Component', 'Installed version', 'Advisory', 'Reference', 'URL'], referenceRows, [28, 18, 32, 28, 100], referenceLinks);
+  const last = column(header.length - 1);
   const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<fonts count="2"><font><sz val="10"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>
+<fonts count="3"><font><sz val="10"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><sz val="10"/><color rgb="FF0563C1"/><u/><name val="Calibri"/></font></fonts>
 <fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F3864"/></patternFill></fill></fills>
 <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf></cellXfs>
+<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf></cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
   const title = xmlText(`Outdated components${appName ? ` - ${appName}` : ''}`);
   return zipFiles([
     ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`],
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`],
     ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`],
     ['docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${title}</dc:title><dc:creator>Electronegativity</dc:creator></cp:coreProperties>`],
     ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Outdated components" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">'Outdated components'!$A$1:$${last}$${rows.length + 1}</definedName></definedNames></workbook>`],
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Outdated components" sheetId="1" r:id="rId1"/><sheet name="References" sheetId="2" r:id="rId2"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">'Outdated components'!$A$1:$${last}$${rows.length + 1}</definedName><definedName name="_xlnm._FilterDatabase" localSheetId="1" hidden="1">'References'!$A$1:$E$${referenceRows.length + 1}</definedName></definedNames></workbook>`],
     ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
     ['xl/worksheets/sheet1.xml', sheet],
+    ['xl/worksheets/sheet2.xml', referenceSheet],
+    ['xl/worksheets/_rels/sheet2.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${targets.map(target => `<Relationship Id="${target.id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${xmlText(target.url)}" TargetMode="External"/>`).join('')}</Relationships>`],
     ['xl/styles.xml', styles],
   ]);
 }

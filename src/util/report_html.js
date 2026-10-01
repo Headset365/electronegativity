@@ -3,6 +3,7 @@ import { ROUTES, ROUTE_IMPACT, consequenceOf, validationHint, worstCase, interac
 import { remediationOf } from '../finder/remediation.js';
 import { NOTE_FIELDS } from '../report/notes.js';
 import { scores } from '../report/scores.js';
+import { npmUrl, projectReferences, advisoryReferences } from './dependency_references.js';
 
 const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
 const CONFIDENCES = ['CERTAIN', 'FIRM', 'TENTATIVE'];
@@ -183,19 +184,11 @@ function groupCard(group) {
 
 // The dependency table: one row per package or library version found
 const SUPPORT_LABELS = { supported: 'Supported', unsupported: 'Unsupported', outdated: 'Older major', current: 'Latest major', unknown: 'Unknown' };
-const npmUrl = (name, version) => `https://www.npmjs.com/package/${name.split('/').map(encodeURIComponent).join('/')}${version ? `/v/${encodeURIComponent(version)}` : ''}`;
-
-const REFERENCE_LABELS = { ADVISORY: 'advisory', FIX: 'fix', REPORT: 'report', ARTICLE: 'article', WEB: 'reference' };
 const link = (url, text) => safeUrl(url) ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>` : escapeHtml(text);
 
 // links for the latest version: its npm page, release notes, repository and homepage
 function projectLinks(row) {
-  const links = [];
-  if (row.latest && row.known !== undefined) links.push(link(npmUrl(row.name, row.latest), 'npm'));
-  if (row.releaseNotes) links.push(link(row.releaseNotes, 'release notes'));
-  if (row.repository && row.repository !== row.releaseNotes) links.push(link(row.repository, 'repository'));
-  if (row.homepage && row.homepage !== row.repository && !String(row.homepage).startsWith(`${row.repository}#`)) links.push(link(row.homepage, 'homepage'));
-  if (row.support && row.support.policy && safeUrl(row.support.policy)) links.push(link(row.support.policy, 'support policy'));
+  const links = projectReferences(row).map(ref => link(ref.url, ref.label));
   return links.length ? `<div class="refs">${links.join(' · ')}</div>` : '';
 }
 
@@ -209,9 +202,7 @@ function advisoryList(row) {
     (kev ? ` <span class="adv adv-critical">${kev} exploited (KEV)</span>` : '') + (row.malicious ? ' <span class="adv adv-critical">malicious</span>' : '');
   const items = row.advisories.map(a => {
     const cves = a.cves.map(cve => link(`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve)}`, cve)).join(', ');
-    const sources = [link(`https://osv.dev/vulnerability/${encodeURIComponent(a.id)}`, a.cves.length ? a.id : `${a.id} (OSV)`)];
-    if (/^GHSA-/.test(a.id)) sources.push(link(`https://github.com/advisories/${encodeURIComponent(a.id)}`, 'GitHub advisory'));
-    for (const ref of a.references || []) if (safeUrl(ref.url) && !sources.some(s => s.includes(escapeHtml(ref.url)))) sources.push(link(ref.url, REFERENCE_LABELS[ref.type] || 'reference'));
+    const sources = advisoryReferences(a).map(ref => link(ref.url, ref.label === 'OSV advisory' ? (a.cves.length ? a.id : `${a.id} (OSV)`) : ref.label));
     const fixed = a.fixed ? ` <span class="muted">(fixed in ${link(npmUrl(row.name, a.fixed), a.fixed)})</span>` : ' <span class="muted">(no fixed version)</span>';
     const exploited = a.kev ? ` <span class="adv adv-critical" title="CISA Known Exploited Vulnerabilities, added ${escapeHtml(a.kev.added || '?')}">exploited in the wild (KEV)${a.kev.ransomware ? ', ransomware' : ''}</span>` : '';
     const epss = a.epss ? ` <span class="muted" title="FIRST EPSS: probability of exploitation in the next 30 days">EPSS ${escapeHtml((a.epss.epss * 100).toFixed(1))}%</span>` : '';
