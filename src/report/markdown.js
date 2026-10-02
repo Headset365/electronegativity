@@ -71,11 +71,17 @@ const introductions = {
 // (PRELOAD_JS_CHECK is informational with context isolation, reported without: the preload then shares the page's world)
 const evidenceOnly = /^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|IPC_RENDERER_CHANNEL|RUNTIME_IPC$|RUNTIME_MARKER_SENT|CREDENTIAL_ACCESS|DEPENDENCY_INVENTORY|ELECTRON_VERSION)/;
 const observations = new Set(['SOURCE_MAP_SHIPPED', 'STORAGE_CACHED_RESPONSES', 'CERTIFICATE_PINNING', 'WORD_LAUNCH']);
+// findings whose Reproduction and Evidence lists only validated instances
+const VALIDATED_EVIDENCE_ONLY = new Set(['Cross-Site Scripting Exposure in Content Rendering']);
 const normalId = id => String(id || '').replace(/_(JS|HTML|JSON|GLOBAL|LOCK)_CHECK$/, '');
 const nameOf = i => i?.name || i || '';
 // Script execution or a tested capability. Live markup and observed settings do not establish exploitation.
 // (the campaign's Node, Electron, file and eval findings exist only when the payload's script ran and signalled them)
 const isConfirmed = executionConfirmed;
+// validation not run (a static observation with no runtime result), or its best result inconclusive. A screenshot is
+// runtime evidence: an instance carrying one is never left out
+const unvalidated = i => !(i.properties?.screenshot || i.properties?.screenshots?.length) && (validationResults(i).length
+  ? i.validation?.status === 'inconclusive' : !isConfirmed(i) && !/^RUNTIME_|^TRAFFIC_/.test(i.id));
 const victimAction = i => /\b(click|open|install|updat|import|attachment|document)/i.test(interactionOf(i.id) || '');
 const consequenceScale = ['Very Low', 'Low', 'Medium', 'High', 'Critical'];
 const likelihoodScale = ['Rare', 'Unlikely', 'Possible', 'Likely', 'Very Likely'];
@@ -378,7 +384,13 @@ function renderGroup(g, ctx) {
   }
   const places = [...affected].map(([where, entry]) => `- ${where} — ${unique(entry.labels).join('; ')}${entry.accepted ? ' (accepted risk)' : ''}`);
 
-  const instances = g.issues.slice(0, MAX_INSTANCES).map(i => {
+  // findings whose evidence lists only what was validated: an instance whose validation was not run, or was
+  // inconclusive, is left out of Reproduction and Evidence (it stays in Affected, and in the JSON and HTML reports)
+  const validatedOnly = VALIDATED_EVIDENCE_ONLY.has(title);
+  const shown = validatedOnly ? g.issues.filter(i => !unvalidated(i)) : g.issues;
+  const supporting = validatedOnly ? g.evidence.filter(i => !unvalidated(i)) : g.evidence;
+  const left = g.issues.length - shown.length + g.evidence.length - supporting.length;
+  const instances = shown.slice(0, MAX_INSTANCES).map(i => {
     const head = `- **${i.id}** at ${details(i, ctx)}${accepted(i)}: ${text(i.description, ctx)}`;
     return i.sample ? `${head}\n\n${codeBlock(ctx.scrub(i.sample), language(i.file))}` : head;
   });
@@ -417,10 +429,12 @@ function renderGroup(g, ctx) {
     ...noteValues(g.issues, 'preconditions').map(value => `- **Precondition:** ${text(value, ctx)}`),
     ...noteValues(g.issues, 'steps').map(value => `- **Reproduction step:** ${text(value, ctx)}`),
     ...instances,
-    ...(g.issues.length > MAX_INSTANCES ? [`- …and ${g.issues.length - MAX_INSTANCES} further instances; see the affected list or the full HTML/JSON report.`] : []),
-    '**Validation results and recorded facts (all instances):**',
-    ...g.issues.map(i => recordedEvidence(i, ctx)),
-    ...g.evidence.map(i => `- Supporting observation: ${text(i.description, ctx)}\n\n${recordedEvidence(i, ctx)}`),
+    ...(shown.length > MAX_INSTANCES ? [`- …and ${shown.length - MAX_INSTANCES} further instances; see the affected list or the full HTML/JSON report.`] : []),
+    ...(validatedOnly && !shown.length && !supporting.length ? [`No instance of this finding was validated at runtime. The locations are listed under Affected, and every observation is in the HTML and JSON reports.`] : []),
+    ...(shown.length || supporting.length ? ['**Validation results and recorded facts (all instances):**'] : []),
+    ...shown.map(i => recordedEvidence(i, ctx)),
+    ...supporting.map(i => `- Supporting observation: ${text(i.description, ctx)}\n\n${recordedEvidence(i, ctx)}`),
+    ...(validatedOnly && left && (shown.length || supporting.length) ? [`${left} observation${left === 1 ? '' : 's'} not validated at runtime, or with an inconclusive result, ${left === 1 ? 'is' : 'are'} not listed here; ${left === 1 ? 'it is' : 'they are'} in the HTML and JSON reports.`] : []),
     '**Validation steps to perform (instructions, not recorded results):**',
     ...variations.map(v => `- **How to confirm — ${v.label}:** ${v.evidence}`),
     ...noteValues(g.issues, 'confirm').map(value => `- **How to confirm:** ${text(value, ctx)}`),

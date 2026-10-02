@@ -203,8 +203,10 @@ describe('Client report outputs', () => {
   });
 
   it('lists the most severe instances first, so a cut-off list keeps the one that rates the finding', () => {
-    const many = [...Array.from({ length: 13 }, (_, n) => issue('XSS_SINK_JS_CHECK', severity.LOW, confidence.FIRM, { file: `/app/low${n}.js` })),
-      issue('XSS_SINK_JS_CHECK', severity.HIGH, confidence.FIRM, { file: '/app/high.js' })];
+    // (validated: the Cross-Site Scripting evidence lists validated instances only)
+    const seen = { validation: { status: 'observed' } };
+    const many = [...Array.from({ length: 13 }, (_, n) => issue('XSS_SINK_JS_CHECK', severity.LOW, confidence.FIRM, { file: `/app/low${n}.js`, ...seen })),
+      issue('XSS_SINK_JS_CHECK', severity.HIGH, confidence.FIRM, { file: '/app/high.js', ...seen })];
     const [finding] = renderClientFindings(many, { root: '/app', app: { name: 'Demo' } });
     const evidence = finding.content.split('## Reproduction and Evidence')[1];
     evidence.should.include('high.js');
@@ -394,7 +396,7 @@ describe('Client report outputs', () => {
   it('escapes what the app supplies, cuts long code and keeps code out of the finding separators', () => {
     const markdown = renderClientMarkdown([
       issue('XSS_SINK_JS_CHECK', severity.HIGH, confidence.FIRM, { file: '/x/[a](javascript:alert(1)).js', description: '<img src=x onerror=alert(1)> **bold**',
-        sample: `${'a'.repeat(5000)}\n---\nb: 2` }),
+        sample: `${'a'.repeat(5000)}\n---\nb: 2`, validation: { status: 'observed' } }),
     ], { app: { name: "<script>alert(1)</script> Evil$'App" } });
     markdown.should.not.match(/(^|[^\\])<(script|img)/m);
     markdown.should.include('\\<script\\>alert(1)\\</script\\> Evil$\'App');
@@ -405,6 +407,31 @@ describe('Client report outputs', () => {
     (markdown.match(/^---\s*$/gm) || []).length.should.equal(2);
     const front = YAML.parse(markdown.split(/^---\s*$/m)[1]);
     front.Title.should.equal('Cross-Site Scripting Exposure in Content Rendering');
+  });
+
+  it('lists only validated instances in the Cross-Site Scripting evidence, keeping the rest under Affected', () => {
+    const notRun = issue('XSS_SINK_JS_CHECK', severity.HIGH, confidence.FIRM, { file: '/client/app/static-only.js', sample: 'el.innerHTML = notRunValue;' });
+    const observed = issue('XSS_SINK_JS_CHECK', severity.HIGH, confidence.FIRM, { file: '/client/app/viewer.js', sample: 'el.innerHTML = seenValue;',
+      validation: { status: 'observed', scope: 'data-flow', text: 'marker markup reached innerHTML' } });
+    const inconclusive = issue('RUNTIME_CAMPAIGN_SCRIPT', severity.MEDIUM, confidence.FIRM, { file: 'https://app.test/editor', sample: '',
+      description: 'Campaign payload delivered without an execution signal', validation: { status: 'inconclusive', scope: 'workflow', text: 'no execution signal' } });
+    const [finding] = renderClientFindings([notRun, observed, inconclusive], { root: '/client/app', app: { name: 'Demo' } });
+    const section = (heading) => finding.content.split(`## ${heading}\n`)[1].split(/^## /m)[0];
+    const evidence = section('Reproduction and Evidence');
+    evidence.should.include('viewer.js').and.include('seenValue').and.include('**observed**');
+    evidence.should.not.include('static-only.js').and.not.include('notRunValue').and.not.include('Validation: not run').and.not.include('**inconclusive**');
+    evidence.should.include('2 observations not validated at runtime, or with an inconclusive result, are not listed here');
+    // still listed as affected, and in every other report
+    section('Affected').should.include('static-only.js').and.include('app.test/editor');
+    // a screenshot is runtime evidence: kept
+    const pictured = { ...notRun, properties: { screenshot: '/client/app/shots/xss.png' } };
+    renderClientFindings([pictured], { root: '/client/app', app: { name: 'Demo' } })[0].content.split('## Reproduction and Evidence\n')[1].should.include('static-only.js');
+    // nothing validated: one sentence instead of the evidence
+    const [none] = renderClientFindings([notRun], { root: '/client/app', app: { name: 'Demo' } });
+    none.content.split('## Reproduction and Evidence\n')[1].should.include('No instance of this finding was validated at runtime.');
+    // other findings keep every instance
+    const [other] = renderClientFindings([issue('NODE_INTEGRATION_JS_CHECK', severity.HIGH)], { app: { name: 'Demo' } });
+    other.content.should.include('Validation: not run');
   });
 
   it('says so when nothing is reportable', () => {
