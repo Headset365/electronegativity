@@ -8,7 +8,7 @@ import { Finder } from '../src/finder/index.js';
 import { ProjectIndex } from '../src/finder/project_index.js';
 import i18n from '../src/locales/i18n.js';
 import run from '../src/runner.js';
-import { isNonAppFile } from '../src/util/file.js';
+import { isNonAppFile, getSample } from '../src/util/file.js';
 
 await i18n();
 const { findSecrets } = createRequire(import.meta.url)('../src/traffic/secrets.cjs');
@@ -40,6 +40,17 @@ async function scanProject(files, checks, options = {}) {
 }
 
 describe('Real-app benchmark regressions', () => {
+  it('bounds exported minified evidence at the finding while preserving trailing disable directives', async () => {
+    const code = `const padding = "${'x'.repeat(10000)}"; shell.openExternal(input); // eng-disable OPEN_EXTERNAL_JS_CHECK`;
+    const parser = new Parser(), finder = new Finder(null, null, null);
+    const [type, data, content] = parser.parse('main.js', code);
+    const issues = (await finder.find('main.js', data, type, content)).filter(i => i.id === 'OPEN_EXTERNAL_JS_CHECK');
+    assert.equal(issues.length, 1);
+    assert.ok(issues[0].sample.length <= 302);
+    assert.ok(issues[0].sample.includes('shell.openExternal(input)'));
+    assert.equal(issues[0].visibility.inlineDisabled, true);
+    assert.equal(getSample([code], 0), code, 'directive inspection must retain the complete line');
+  });
   it('deduplicates cyclic dispatch paths while retaining the reachable IPC sink', () => {
     const entries = Array.from({ length: 64 }, (_, i) => `p${i}: table[name]`).join(',');
     const code = `const table = { ${entries}, target: sink }; function sink(value) { return require(value); } ipcMain.handle('load', (event, name, value) => table[name](value));`;

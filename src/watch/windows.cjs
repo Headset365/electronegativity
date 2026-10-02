@@ -8,7 +8,9 @@ const { StringDecoder } = require('node:string_decoder');
 
 function powershell(script, data, { run = spawn, timeout = 12000 } = {}) {
   return new Promise(resolve => {
-    const preamble = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $d=ConvertFrom-Json $env:ENG_WINDOWS_INPUT; ";
+    // A parent PowerShell 7 shell can pass its module path to Windows PowerShell 5.1, hiding Get-Acl and other
+    // Windows inbox cmdlets. Add the launched interpreter's own modules without removing custom module paths.
+    const preamble = "$ErrorActionPreference='Stop'; $env:PSModulePath=$PSHOME+'\\Modules;'+$env:PSModulePath; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $d=ConvertFrom-Json $env:ENG_WINDOWS_INPUT; ";
     const command = Buffer.from(preamble + script, 'utf16le').toString('base64');
     const child = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
       windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ENG_WINDOWS_INPUT: JSON.stringify(data) },

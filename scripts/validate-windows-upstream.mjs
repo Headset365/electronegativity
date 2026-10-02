@@ -17,6 +17,7 @@ import { parsePe } from '../src/binary/pe.js';
 const config = JSON.parse(fs.readFileSync(new URL('./windows-upstream-apps.json', import.meta.url), 'utf8'));
 const spec = config.apps.find(a => a.id === process.argv[2]);
 if (!spec || process.platform !== 'win32') throw Error('A configured app and a native Windows runner are required');
+const watchSeconds = spec.id === 'joplin' ? 90 : 45;
 const repo = path.resolve(import.meta.dirname, '..');
 const out = path.join(repo, 'validation-results', spec.id);
 const work = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'eng-upstream-' + spec.id);
@@ -32,7 +33,7 @@ const status = {
     spec.advisory.limitation,
     'No app accounts, remote meeting/SSH server, signed-in state or logout workflow are configured.',
     'No reviewed app-specific IPC, link or local-service contract is supplied; those probes are skipped.',
-    'The startup session is closed by terminating the observed main process after 45 seconds of hook observation (180-second outer limit).',
+    'The startup session is closed by terminating the observed main process after ' + watchSeconds + ' seconds of hook observation (180-second outer limit).',
     'The package is extracted, not installed: ACLs describe this extraction folder; installer-created registry entries are not established.',
     'Hosted Windows Server is the actual test OS, not a Windows 10/11 desktop certification.',
     'Online dependency intelligence is enabled. Chromium NVD lookups and workbook URL link checks are disabled; lookup failures remain visible.',
@@ -84,7 +85,7 @@ try {
     session = await observeSession({ watch: installer.mainExe, prove: true, capture: false, traffic: true,
       assistant: {
         handle(record) {
-          if (record.kind === 'start' && !hooked) { hooked = true; clearTimeout(outerTimer); stopTimer = setTimeout(stop, 45000); }
+          if (record.kind === 'start' && !hooked) { hooked = true; clearTimeout(outerTimer); stopTimer = setTimeout(stop, watchSeconds * 1000); }
         },
         printSummary() {},
       },
@@ -98,6 +99,8 @@ try {
       advisoryTriggered: false };
     // Re-read the complete persisted log; retain the actual analyzer's summary and findings.
     session.runtime = analyzeWatchLog(rows);
+    status.watch.completedAppPages = session.runtime.summary.pages;
+    if (!session.runtime.summary.pages) status.limits.push('No app page completed loading in this watch session. Constructor preferences are available, but renderer and app handler coverage is incomplete.');
   } catch (error) { status.watch = { error: error.message, hookObserved: hooked, advisoryTriggered: false }; }
   finally { clearTimeout(outerTimer); clearTimeout(stopTimer); }
   status.shipped.asarSha256After = await hash(installer.code);
