@@ -32,12 +32,12 @@ function powershell(script, data, { run = spawn, timeout = 12000 } = {}) {
 const ACL_SCRIPT = `
 $rows=@(); foreach($p in $d.paths) {
   try {
-    $a=Get-Acl -LiteralPath $p; $aces=@($a.Access | ForEach-Object {
-      $sid=$null; try {$sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value} catch {}
+    $a=Get-Acl -LiteralPath $p; $aces=@($a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]) | ForEach-Object {
+      $sid=$_.IdentityReference.Value;
       @{sid=$sid; identity=$_.IdentityReference.Value; rights=[int64]$_.FileSystemRights; type=[string]$_.AccessControlType;
         inherited=$_.IsInherited; propagation=[string]$_.PropagationFlags; inheritance=[string]$_.InheritanceFlags}
-    }); $rows+=@{path=$p; status='observed'; owner=$a.Owner; entries=$aces}
-  } catch {$rows+=@{path=$p; status='access-error'}}
+    }); $rows+=@{path=$p; status='observed'; owner=$a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; entries=$aces}
+  } catch {$rows+=@{path=$p; status='access-error'; errorType=$_.Exception.GetType().FullName}}
 }; $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent();
 $principal=New-Object System.Security.Principal.WindowsPrincipal($identity);
 @{paths=$rows; user=$identity.Name; userSid=$identity.User.Value; groups=@($identity.Groups | ForEach-Object {$_.Value});

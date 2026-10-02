@@ -23,8 +23,8 @@ const work = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'eng-upstream-' +
 fs.mkdirSync(out, { recursive: true }); fs.mkdirSync(work, { recursive: true });
 const status = {
   app: spec.name, version: spec.version, advisory: spec.advisory,
-  startedAt: new Date().toISOString(), scannerCommit: config.scannerCommit,
-  harnessCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+  startedAt: new Date().toISOString(), baselineScannerCommit: config.scannerCommit,
+  scannerCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   runner: { platform: process.platform, release: os.release(), architecture: process.arch, node: process.version,
     image: process.env.ImageOS, imageVersion: process.env.ImageVersion },
   scope: 'Shipped x64 Windows package plus an automated fresh-profile startup watch session with bounded proofs',
@@ -36,6 +36,7 @@ const status = {
     'The package is extracted, not installed: ACLs describe this extraction folder; installer-created registry entries are not established.',
     'Hosted Windows Server is the actual test OS, not a Windows 10/11 desktop certification.',
     'Online dependency intelligence is enabled. Chromium NVD lookups and workbook URL link checks are disabled; lookup failures remain visible.',
+    'The static scan uses the shipped compiled bundles directly; automatic source-map replacement is disabled for this bounded production-package validation.',
     'A scanner finding is not proof that the selected advisory was exploited. Bundled/minified code and parser gaps can limit static detection.',
   ],
 };
@@ -108,7 +109,7 @@ try {
   console.log('Scanning shipped code and querying dependency advisories');
   scan = await run({
     input: installer.code, installer, runtime: session?.runtime, runtimeElectronVersion: session?.watchDiagnostics?.electron,
-    watchDiagnostics: session?.watchDiagnostics, isRelative: true, nvd: false, checkLinks: false,
+    watchDiagnostics: session?.watchDiagnostics, isRelative: true, nvd: false, checkLinks: false, sourceMaps: false,
     reportsBase: out, output: [path.join(out, 'report.html'), path.join(out, 'report.json'), path.join(out, 'components.xlsx')],
     diagnostics: path.join(out, 'diagnostics.json'),
   });
@@ -120,6 +121,15 @@ try {
     advisoryRelevantFindingIds: [...new Set(scan.reported.filter(i => spec.advisory.expectedChecks.includes(i.id)).map(i => i.id))],
     html: 'report.html', json: 'report.json', componentsWorkbook: 'components.xlsx',
     markdownFindings: scan.reports.findings.map(f => path.relative(out, f)),
+  };
+  status.validationChecks = {
+    earlyHook: !!session?.watchDiagnostics?.hookStarted && !!session?.watchDiagnostics?.injection?.atEntry,
+    appWindow: (status.watch?.windows?.length || 0) > 0,
+    aclRead: status.watch?.inventory?.some(r => r.kind === 'windows-acl' && r.status === 'observed' &&
+      r.paths?.length > 0 && r.paths.every(p => p.status === 'observed')) || false,
+    proofsWithoutErrors: !!status.watch?.proofs?.length && !status.watch.proofs.some(p => p.outcome === 'error'),
+    scanWithoutFatalErrors: !scan.errors.some(e => !e.tolerable),
+    shippedCodeUnchanged: status.shipped.unchanged,
   };
   status.finishedAt = new Date().toISOString(); persist();
   const readme = [
@@ -138,7 +148,7 @@ try {
     '',
     '## Actual environment', '',
     JSON.stringify(status.runner, null, 2), '',
-    'Scanner: ' + config.scannerCommit + '. Release SHA-256: ' + status.package.sha256 + '.',
+    'Scanner: ' + status.scannerCommit + '. Release SHA-256: ' + status.package.sha256 + '.',
     'Shipped manifest version and executable architecture verified. Executable and app.asar hashes unchanged through watch.',
     '',
     '## Coverage limits', '',
@@ -149,7 +159,7 @@ try {
   ].join('\n');
   fs.writeFileSync(path.join(out, 'README.md'), readme + '\n');
   console.log(JSON.stringify({ app: spec.id, scan: status.scan, hook: session?.watchDiagnostics?.hookStarted }, null, 2));
-  if (!session?.watchDiagnostics?.hookStarted || scan.errors.some(e => !e.tolerable)) process.exitCode = 1;
+  if (Object.values(status.validationChecks).some(ok => !ok)) process.exitCode = 1;
 } catch (error) {
   status.error = { message: error.message, stack: error.stack }; status.finishedAt = new Date().toISOString(); persist();
   console.error(error); process.exitCode = 1;

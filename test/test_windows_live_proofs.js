@@ -55,7 +55,7 @@ describe('Native Windows proof regression fixtures', function () {
       assert.equal(outcome('node-inspector'), 'connected');
       assert.equal(outcome('ipc'), hardened ? 'rejected' : 'canary-read');
       assert.ok(rows.some(r => r.kind === 'windows-acl' && r.status === 'observed'));
-      assert.ok(rows.some(r => r.kind === 'windows-acl' && r.paths?.some(p => p.path === executable)), 'ACL paths must preserve Unicode');
+      assert.ok(rows.some(r => r.kind === 'windows-acl' && r.paths?.some(p => p.path === executable && p.status === 'observed')), 'ACL rules and Unicode paths must be read successfully');
       const result = analyzeWatchLog(rows);
       assert.equal(result.summary.windows, 1, 'tool-created windows must not count as app windows');
       assert.equal(result.issues.some(i => i.id === 'RUNTIME_CERTIFICATE_PROOF'), !hardened);

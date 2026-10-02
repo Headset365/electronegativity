@@ -214,18 +214,34 @@ export class ProjectIndex {
     });
     const names = new Map();
     for (const [name, fns] of local) for (const fn of fns) names.set(functionKey(file, fn), name);
+    // Minified dispatch tables can revisit the same expression thousands of times. Cache by expression and
+    // remaining depth, and keep each reachable function once rather than expanding duplicate paths.
+    const resolved = new WeakMap();
     const resolve = (callee, depth = 0) => {
-      if (depth > MAX_CALL_DEPTH) return [];
+      if (!callee || depth > MAX_CALL_DEPTH) return [];
+      if (!resolved.has(callee)) resolved.set(callee, new Map());
+      const cache = resolved.get(callee);
+      if (cache.has(depth)) return cache.get(depth);
+      const result = [...new Set(resolveExpression(callee, depth))];
+      cache.set(depth, result);
+      return result;
+    };
+    const resolveEntries = (entries, key, depth) => {
+      const targets = new Set();
+      for (const entry of entries || []) if (key === undefined || entry.key === undefined || key === entry.key)
+        for (const target of resolve(entry.value, depth + 1)) targets.add(target);
+      return targets;
+    };
+    const resolveExpression = (callee, depth) => {
       // handlers.get(name)(...args), with known Map entries and later .set() calls.
       if (callee?.type === 'CallExpression' && isMember(callee.callee) && keyName(callee.callee.property) === 'get' && callee.callee.object.type === 'Identifier') {
         const key = callee.arguments[0]?.type === 'Identifier' ? undefined : keyName(callee.arguments[0]);
-        return (dispatch.get(callee.callee.object.name) || []).filter(p => key === undefined || p.key === undefined || key === p.key).flatMap(p => resolve(p.value, depth + 1));
+        return resolveEntries(dispatch.get(callee.callee.object.name), key, depth);
       }
       if (isMember(callee) && callee.object.type === 'Identifier') {
         // Explicit dispatch tables forward their arguments to every possible selected handler.
         const key = callee.computed && callee.property.type === 'Identifier' ? undefined : keyName(callee.property);
-        return (dispatch.get(callee.object.name) || []).filter(p => key === undefined || p.key === undefined || key === p.key)
-          .flatMap(p => resolve(p.value, depth + 1));
+        return resolveEntries(dispatch.get(callee.object.name), key, depth);
       }
       if (!callee || callee.type !== 'Identifier') return isFunction(callee) ? [functionKey(file, callee)] : [];
       if (local.has(callee.name)) return local.get(callee.name).map(fn => functionKey(file, fn));
@@ -254,7 +270,8 @@ export class ProjectIndex {
         for (const fn of ancestors) {
           if (!isFunction(fn) || !node.arguments.some(argument => dependsOnParams(argument, fn))) continue;
           const key = functionKey(file, fn);
-          this.edges.set(key, [...(this.edges.get(key) || []), ...callees]);
+          if (!this.edges.has(key)) this.edges.set(key, new Set());
+          for (const callee of callees) this.edges.get(key).add(callee);
         }
       }
       return true;

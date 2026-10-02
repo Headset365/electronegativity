@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { Parser } from '../src/parser/index.js';
 import { Finder } from '../src/finder/index.js';
+import { ProjectIndex } from '../src/finder/project_index.js';
 import i18n from '../src/locales/i18n.js';
 import run from '../src/runner.js';
 import { isNonAppFile } from '../src/util/file.js';
@@ -39,6 +40,16 @@ async function scanProject(files, checks, options = {}) {
 }
 
 describe('Real-app benchmark regressions', () => {
+  it('deduplicates cyclic dispatch paths while retaining the reachable IPC sink', () => {
+    const entries = Array.from({ length: 64 }, (_, i) => `p${i}: table[name]`).join(',');
+    const code = `const table = { ${entries}, target: sink }; function sink(value) { return require(value); } ipcMain.handle('load', (event, name, value) => table[name](value));`;
+    const index = new ProjectIndex({ list_files: new Set(['main.js']), load_buffer: () => code }, new Parser());
+    const summary = index.summarize('main.js');
+    const sink = [...summary.names].find(([, name]) => name === 'sink')[0];
+    assert.equal(index.callSites.get(sink).count, 1, 'one actual call site regardless of dispatch paths');
+    assert.ok(index.findTaintedFunctions().has(sink), 'IPC data must still reach the sink');
+    for (const targets of index.edges.values()) assert.equal([...targets].filter(key => key === sink).length, 1);
+  });
   describe('HTML sanitizer provenance', () => {
     for (const mutation of ['DOMPurify.sanitize = x => x;', 'DOMPurify["sanitize"] = x => x;', 'const alias = DOMPurify; alias.sanitize = x => x;', 'Object.assign(DOMPurify, { sanitize: x => x });', 'Object.defineProperty(DOMPurify, "sanitize", { value: x => x });']) {
       for (const prefix of ['', 'import DOMPurify from "dompurify";', 'const DOMPurify = require("dompurify");']) {
