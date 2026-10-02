@@ -69,6 +69,7 @@ import HardcodedSecretsCheck from './HardcodedSecretsCheck.js';
 import PackagedBinaryCheck from './PackagedBinaryCheck.js';
 import { IpcFileAccessJSCheck, IpcHandlerJSCheck, IpcRendererChannelJSCheck } from './IpcHandlerChecks.js';
 import IpcRpcProcedureJSCheck from './IpcRpcProcedureJSCheck.js';
+import AuthModeBypassJSCheck from './AuthModeBypassJSCheck.js';
 import NavigationRedirectJSCheck from './NavigationRedirectJSCheck.js';
 import SourceMapsCheck from './SourceMapsCheck.js';
 import { DevelopmentCodeJSCheck, DebugLoggingJSCheck, WordLaunchJSCheck, DocumentPipelineJSCheck } from './ProductionChecks.js';
@@ -168,6 +169,7 @@ const CHECKS = [
   IpcFileAccessJSCheck,
   IpcHandlerJSCheck,
   IpcRpcProcedureJSCheck,
+  AuthModeBypassJSCheck,
   IpcRendererChannelJSCheck,
   NavigationRedirectJSCheck,
   DevelopmentCodeJSCheck,

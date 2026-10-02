@@ -592,11 +592,15 @@ function instrument(electron, late) {
   let replayCounter = 0;
   // headers to leave off a re-send: hop-by-hop or ones fetch/the session set themselves. Cookies come from the session,
   // and we always set our own content-type for the rebuilt body, so both are dropped here to avoid duplicating them.
-  const SKIP_REPLAY_HEADERS = new Set(['host', 'content-length', 'connection', 'accept-encoding', 'cookie', 'content-type']);
+  // Chromium also refuses a request that sets a forbidden header (Origin, Referer, Sec-*, Proxy-*): session.fetch fails
+  // with net::ERR_INVALID_ARGUMENT and nothing is sent, so those are left to the session too.
+  const SKIP_REPLAY_HEADERS = new Set(['host', 'content-length', 'connection', 'accept-encoding', 'cookie', 'content-type',
+    'accept-charset', 'access-control-request-headers', 'access-control-request-method', 'cookie2', 'date', 'dnt', 'expect',
+    'keep-alive', 'origin', 'referer', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'via']);
   const replayHeaders = (headers) => {
     const out = {};
     if (headers && typeof headers === 'object') for (const key of Object.keys(headers)) {
-      if (SKIP_REPLAY_HEADERS.has(key.toLowerCase())) continue;
+      if (SKIP_REPLAY_HEADERS.has(key.toLowerCase()) || /^(sec|proxy)-/i.test(key)) continue;
       const value = headers[key];
       out[key] = Array.isArray(value) ? value.join(', ') : String(value);
     }

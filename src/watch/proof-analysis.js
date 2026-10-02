@@ -43,12 +43,33 @@ export function analyzeProofs(records) {
       text += ' Only feed metadata was fetched; artifact hashes and publisher signature enforcement were not verified.';
       if (p.outcome === 'observed' && !p.secureTransport) { text += ' At least one feed hop used HTTP.'; sev = severity.MEDIUM; }
       if (p.outcome === 'observed' && !p.hashesPresent) text += ' Valid hashes were not present for every artifact.';
+    } else if (p.test === 'local-service-cors') {
+      const echoed = (p.origins || []).filter(o => o.allowOrigin === o.origin);
+      const credentials = (p.origins || []).some(o => o.credentials && o.allowOrigin !== '*');
+      const where = `port ${p.port} (${p.address})`;
+      if (!['foreign-origin-allowed', 'no-cors-for-foreign-origin'].includes(p.outcome)) text = `Local service on ${where}: ${p.outcome}; not an HTTP service the probe could read.`;
+      else {
+        const allowed = [...new Set((p.origins || []).map(o => o.origin.replace(/:\/\/.*$/, '://…')))];
+        text = `An app process serves HTTP on ${where}, answering an unauthenticated GET / with HTTP ${p.status}${p.contentType ? ` (${String(p.contentType).split(';')[0]})` : ''}.`;
+        if (p.origins && p.origins.length) {
+          text += ` It allows cross-origin reads from ${allowed.join(' and ')} origins (Access-Control-Allow-Origin: ${echoed.length ? 'the requesting origin' : '*'}${credentials ? ', with credentials' : ''}), so a web page${allowed.some(o => o.startsWith('chrome-extension')) ? ' or a browser extension' : ''} the user opens can call this service and read its answers.`;
+          sev = credentials || echoed.length ? severity.HIGH : severity.MEDIUM;
+          confirmed = true;
+        }
+        if (p.exposed) {
+          text += ' The port is bound to every network interface, so other machines on the network can reach it.';
+          if (sev === severity.INFORMATIONAL) sev = severity.MEDIUM;
+          confirmed = true;
+        }
+        text += ' Only the root path was requested, without credentials; which routes need authentication is not established.';
+      }
     } else if (p.test === 'local-service') {
       text += ' The configured route was requested without credentials; response status or a WebSocket handshake alone does not prove that protected data/actions are accessible.';
     }
     const id = sev === severity.INFORMATIONAL ? 'RUNTIME_PROOF' : p.test === 'certificate' ? 'RUNTIME_CERTIFICATE_PROOF' :
       ['run-as-node', 'node-inspector'].includes(p.test) ? 'RUNTIME_FUSE_PROOF' : p.test === 'ipc' ? 'RUNTIME_IPC_PROOF' :
-        p.test === 'shell-handoff' ? 'RUNTIME_SHELL_PROOF' : p.test === 'update-feed' ? 'RUNTIME_UPDATE_PROOF' : 'RUNTIME_PROOF';
+        p.test === 'shell-handoff' ? 'RUNTIME_SHELL_PROOF' : p.test === 'update-feed' ? 'RUNTIME_UPDATE_PROOF' :
+          p.test === 'local-service-cors' ? 'RUNTIME_LOCAL_SERVICE' : 'RUNTIME_PROOF';
     issues.push(issue(id, text, properties, sev, confirmed, p.scope || 'bounded-probe'));
   }
   for (const r of records.filter(r => r.kind === 'windows-acl')) {

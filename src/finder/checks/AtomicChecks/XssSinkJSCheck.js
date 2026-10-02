@@ -12,6 +12,8 @@ const HTML_PROPERTIES = ['innerHTML', 'outerHTML', 'srcdoc'];
 const DOCUMENT_OBJECTS = new Set(['document', 'contentDocument']);
 // jsx("iframe", props), React.createElement("iframe", props) and similar compiled JSX calls
 const ELEMENT_FACTORIES = new Set(['jsx', 'jsxs', '_jsx', '_jsxs', 'jsxDEV', 'createElement', 'h']);
+// Vue's compiled render functions: createElementVNode("div", { innerHTML: x }) is what v-html becomes
+const VUE_FACTORIES = new Set(['createElementVNode', '_createElementVNode', 'createVNode', '_createVNode', 'createElementBlock', '_createElementBlock', 'h']);
 const JQUERY_INSERTION = ['append', 'prepend', 'before', 'after', 'replaceWith'];
 // sanitizers make the value safe to insert
 const SANITIZER_MODULES = /^(dompurify|isomorphic-dompurify|sanitize-html|escape-html|he|lodash|underscore)(\/|$)/;
@@ -73,6 +75,23 @@ export default class XssSinkJSCheck {
         }
       }
     }
+    // compiled React and Preact: jsx("div", { dangerouslySetInnerHTML: { __html: x } }), props.dangerouslySetInnerHTML = {...},
+    // or a helper that wraps the value: { dangerouslySetInnerHTML: getHtml(x) }
+    if ((astNode.type === 'ObjectProperty' || astNode.type === 'Property') && keyName(astNode.key) === 'dangerouslySetInnerHTML') {
+      sink = 'dangerouslySetInnerHTML';
+      value = innerHtmlValue(astNode.value, scope);
+    }
+    if (astNode.type === 'AssignmentExpression' && memberName(astNode.left) === 'dangerouslySetInnerHTML') {
+      sink = 'dangerouslySetInnerHTML';
+      value = innerHtmlValue(astNode.right, scope);
+    }
+    // compiled Vue v-html: createElementVNode("div", { innerHTML: x })
+    if ((astNode.type === 'ObjectProperty' || astNode.type === 'Property') && keyName(astNode.key) === 'innerHTML' && context && context.ancestors) {
+      const object = context.ancestors[context.ancestors.length - 1];
+      const call = context.ancestors[context.ancestors.length - 2];
+      const factory = call && isCall(call) ? (call.callee.type === 'Identifier' ? call.callee.name : memberName(call.callee)) : undefined;
+      if (object && object.type === 'ObjectExpression' && VUE_FACTORIES.has(factory) && call.arguments[1] === object) { sink = 'innerHTML prop'; value = astNode.value; }
+    }
     // <iframe srcDoc={x} />
     if (astNode.type === 'JSXAttribute' && astNode.name && /^srcdoc$/i.test(astNode.name.name || '')) {
       sink = 'srcdoc';
@@ -96,6 +115,37 @@ export default class XssSinkJSCheck {
     return [finding(this, astNode, { severity: origin ? severity.HIGH : severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
       description: `${this.description} (${sink} with ${origin || 'a dynamic value'})`, properties: { sink, serverFed: origin === ORIGINS.SERVER, origin } })];
   }
+}
+
+// The markup in a dangerouslySetInnerHTML value: x in { __html: x }, or the argument a wrapper puts there
+// (function getHtml(html) { return { __html: html } } called as getHtml(x))
+function innerHtmlValue(node, scope) {
+  if (!node) return undefined;
+  if (node.type === 'ObjectExpression') {
+    const html = node.properties.find(p => p.type !== 'SpreadElement' && keyName(p.key) === '__html');
+    return html ? html.value : undefined;
+  }
+  if (isCall(node) && node.type !== 'NewExpression') {
+    const definition = functionDefinition(node.callee, scope);
+    const fn = definition && definition.node;
+    if (fn && isFunction(fn)) {
+      const params = fn.params.map(param => param.type === 'AssignmentPattern' ? param.left : param);
+      for (const { value } of returnedValues(fn)) {
+        const html = value && value.type === 'ObjectExpression' && value.properties.find(p => p.type !== 'SpreadElement' && keyName(p.key) === '__html');
+        if (!html) continue;
+        const index = params.findIndex(param => param.type === 'Identifier' && [...identifierNames(html.value)].includes(param.name));
+        if (index !== -1) return node.arguments[index];
+        return html.value && onlyConstantParts(html.value, null) ? html.value : node;
+      }
+    }
+    return node;
+  }
+  return node;
+}
+function identifierNames(node) {
+  const names = new Set();
+  visit(node, n => { if (n.type === 'Identifier') names.add(n.name); return true; });
+  return names;
 }
 
 // Whether an argument to $()/angular.element() is an HTML string rather than a selector: a built string with markup,

@@ -164,6 +164,12 @@ export const VARIATIONS = {
     ['Platform exploit mitigations', /^BINARY_HARDENING/,
       'Inspect mitigation flags in the exact shipped binary and any native modules.'],
   ],
+  'Local Services Accessible Without Adequate Access Control': [
+    ['Authentication skipped in one mode', /^AUTH_MODE_BYPASS/,
+      'Call each listed route on the running desktop build without credentials, from the same computer, and record the response.'],
+    ['Cross-origin reads allowed', /^RUNTIME_LOCAL_SERVICE/,
+      'Repeat the request with a foreign Origin header and compare the Access-Control-Allow-Origin answer and the bound address.'],
+  ],
   'Insecure Software Update Mechanism': [
     ['Update files fetched during testing', /^RUNTIME_UPDATE_DOWNLOAD/,
       'Note the version downloaded, and repeat later sessions against the scanned version only.'],

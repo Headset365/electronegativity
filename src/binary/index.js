@@ -160,6 +160,8 @@ export function analyzeBinary(input, { executable = appExecutableFor(input), pla
 
   // --- the updater configuration shipped next to the app (electron-updater's resources/app-update.yml) ---
   issues.push(...updateConfigIssues(path.dirname(archive || path.resolve(input)), { signed: signature.status !== NOT_SIGNED && !!signature.format }));
+  // --- launcher scripts shipped next to the executable (trilium-no-cert-check.bat) ---
+  issues.push(...launcherScriptIssues(path.dirname(executable)));
 
   // --- exploit mitigations ---
   const built = mitigations(executable);
@@ -176,6 +178,49 @@ export function analyzeBinary(input, { executable = appExecutableFor(input), pla
  * resources/app-update.yml, which electron-updater reads: a feed over plain http, and no publisherName while the app is
  * unsigned (nothing to check a downloaded update's signature against on Windows).
  */
+// What a shipped launcher script can turn off: certificate checks for the whole Node.js side, Chromium's checks and
+// sandbox, or the app's Node.js boundary
+const LAUNCHER_SETTINGS = [
+  { id: 'NODE_TLS_REJECT_UNAUTHORIZED_SCRIPT', pattern: /NODE_TLS_REJECT_UNAUTHORIZED\b[^\r\n]{0,40}?(?:=|-Value)\s*['"]?0\b/i, severity: severity.MEDIUM,
+    text: 'sets NODE_TLS_REJECT_UNAUTHORIZED=0, so the app accepts any certificate on its Node.js connections (sync, updates, APIs)' },
+  { id: 'CUSTOM_ARGUMENTS_SCRIPT', pattern: /--ignore-certificate-errors\b/i, severity: severity.MEDIUM, text: 'starts the app with --ignore-certificate-errors' },
+  { id: 'CUSTOM_ARGUMENTS_SCRIPT', pattern: /--disable-web-security\b/i, severity: severity.MEDIUM, text: 'starts the app with --disable-web-security' },
+  { id: 'CUSTOM_ARGUMENTS_SCRIPT', pattern: /--no-sandbox\b/i, severity: severity.LOW, text: 'starts the app with --no-sandbox' },
+  { id: 'CUSTOM_ARGUMENTS_SCRIPT', pattern: /--(?:inspect(?:-brk)?|remote-debugging-port)\b/i, severity: severity.LOW, text: 'starts the app with a debugging port open' },
+  { id: 'CUSTOM_ARGUMENTS_SCRIPT', pattern: /ELECTRON_RUN_AS_NODE\b[^\r\n]{0,20}?(?:=|-Value)\s*['"]?1\b/i, severity: severity.LOW, text: 'runs the executable as plain Node.js (ELECTRON_RUN_AS_NODE=1)' },
+];
+const LAUNCHER = /\.(bat|cmd|ps1|sh|vbs|command)$/i;
+
+/** Settings that weaken security in the launcher scripts an app ships next to its executable. */
+export function launcherScriptIssues(folder) {
+  let names;
+  try {
+    names = fs.readdirSync(folder).filter(name => LAUNCHER.test(name));
+  } catch {
+    return [];
+  }
+  const issues = [];
+  for (const name of names.slice(0, 50)) {
+    const file = path.join(folder, name);
+    let text;
+    try {
+      if (fs.statSync(file).size > 262144) continue;
+      text = fs.readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    const lines = text.split(/\r?\n/);
+    for (const setting of LAUNCHER_SETTINGS) {
+      const index = lines.findIndex(line => setting.pattern.test(line) && !/^\s*(?:::|rem\b|#)/i.test(line));
+      if (index === -1) continue;
+      issues.push({ ...issue(setting.id, file, setting.severity, confidence.CERTAIN, `The launcher script ${name} ${setting.text}`,
+        { script: name, setting: setting.text }, 'https://www.electronjs.org/docs/latest/tutorial/security'),
+      location: { line: index + 1, column: 0 }, sample: lines[index].trim().slice(0, 300) });
+    }
+  }
+  return issues;
+}
+
 export function updateConfigIssues(resources, { signed = false } = {}) {
   const file = path.join(resources, 'app-update.yml');
   let text;

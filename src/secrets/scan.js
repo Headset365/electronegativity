@@ -145,10 +145,14 @@ export function scanSecrets(sources) {
     seenValues.add(value);
     const generic = kind.startsWith('Hard-coded');
     const entropy = kind.startsWith('High-entropy');
-    const sev = entropy ? severity.LOW : generic ? severity.MEDIUM : severity.HIGH;
-    const conf = entropy ? confidence.TENTATIVE : generic ? confidence.TENTATIVE : confidence.FIRM;
+    // public by design: a product licence key, a Firebase web API key
+    const published = /^(Product licence key|Firebase web API key)/.test(kind);
+    const sev = published ? severity.INFORMATIONAL : entropy ? severity.LOW : generic ? severity.MEDIUM : severity.HIGH;
+    const conf = published ? confidence.FIRM : entropy ? confidence.TENTATIVE : generic ? confidence.TENTATIVE : confidence.FIRM;
     issues.push({ file, sample, location: { line, column: 0 }, id: 'HARDCODED_SECRET',
-      description: `${kind} in the app package${extra.offset !== undefined ? ` (at offset 0x${extra.offset.toString(16)})` : ''}, value ${redact(value)}: anyone who downloads the app can extract it${entropy ? '. Found by randomness alone: check whether it is a credential' : ''}`,
+      description: published
+        ? `${kind} in the app package, value ${redact(value)}: public by design${/Firebase/.test(kind) ? '; check that the project\'s security rules and API key restrictions limit what it can do' : '; check that it grants nothing beyond the licensed product'}`
+        : `${kind} in the app package${extra.offset !== undefined ? ` (at offset 0x${extra.offset.toString(16)})` : ''}, value ${redact(value)}: anyone who downloads the app can extract it${entropy ? '. Found by randomness alone: check whether it is a credential' : ''}`,
       properties: { kind, source: extra.binary ? 'binary' : 'file', offset: extra.offset }, severity: sev, confidence: conf, manualReview: conf !== confidence.CERTAIN,
       shortenedURL: 'https://cwe.mitre.org/data/definitions/798.html',
       visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: 'HardcodedSecrets' });
@@ -165,13 +169,13 @@ export function scanSecrets(sources) {
     if (source.kind === 'binary') {
       if (buffer.length > MAX_BINARY) continue;
       for (const [text, offset] of binaryStrings(buffer))
-        for (const hit of findSecrets(text, { patternsOnly: true })) push(source.label, 0, hit.kind, hit.value, `${hit.kind}: ${redact(hit.value)}`, { binary: true, offset: offset + hit.offset });
+        for (const hit of findSecrets(text, { patternsOnly: true, includePublic: true })) push(source.label, 0, hit.kind, hit.value, `${hit.kind}: ${redact(hit.value)}`, { binary: true, offset: offset + hit.offset });
       continue;
     }
     if (buffer.length > MAX_TEXT || buffer.includes(0)) continue;
     const text = buffer.toString('utf8');
     const lines = text.split('\n');
-    for (const hit of findSecrets(text, { config: source.kind === 'config' })) {
+    for (const hit of findSecrets(text, { config: source.kind === 'config', includePublic: true })) {
       const line = text.slice(0, hit.offset).split('\n').length;
       const code = (lines[line - 1] || '').trim().slice(0, 300).split(hit.value).join(redact(hit.value));
       push(source.label, line, hit.kind, hit.value, code);

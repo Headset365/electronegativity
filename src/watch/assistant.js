@@ -58,6 +58,23 @@ const originOf = (url) => {
 /**
  * @param {{ marker?: string, staticIssues?: Array, files?: { page, file }, print?: Function }} options
  */
+// What a request does, from the verb its path ends in: /api/notebook/lsNotebooks and getConf read, removeNotebook deletes.
+// Unknown when the path names no verb (/api/notes/42), which is how REST writes usually look.
+const READ_VERB = /^(get|ls|list|load|search|query|find|fetch|read|check|stat|stats|count|preview|render|resolve|lookup|is|has|exists|validate|verify|ping|status|info)(?=[A-Z_-]|$)/;
+const DELETE_VERB = /^(remove|delete|del|destroy|purge|drop|clear|trash|unlink|empty|wipe|erase)(?=[A-Z_-]|$)/;
+export function routeIntent(url) {
+  let segment;
+  try {
+    segment = new URL(url, 'http://local.invalid').pathname.split('/').filter(Boolean).pop() || '';
+  } catch {
+    return 'unknown';
+  }
+  const verb = segment.replace(/^[^A-Za-z]+/, '');
+  if (DELETE_VERB.test(verb) || DELETE_VERB.test(verb.toLowerCase())) return 'delete';
+  if (READ_VERB.test(verb)) return 'read';
+  return 'unknown';
+}
+
 export function createAssistant({ marker, active = false, campaign, autoCampaign = false, scope = [], saveCampaign, staticIssues = [], files, print = (line) => console.log(line) } = {}) {
   const forms = marker ? markerForms(marker) : undefined;
   const say = {
@@ -90,6 +107,9 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
     print(chalk.cyan(`[validate]   text fields (titles, names, comments): ${forms.text}`));
     print(chalk.cyan(`[validate]   rich-text / HTML fields:                ${forms.html}`));
     print(chalk.cyan(`[validate]   links:                                  ${forms.link}`));
+    // where stored markup has reached these apps' renderers: metadata shown in lists, menus, toasts and exports, not
+    // only the body of a document
+    print(chalk.cyan(`[validate]   also put the HTML form in metadata: titles, names, tags or labels, table captions, database or column names, icons, and a value the app rejects (its error message is often shown as HTML)`));
     if (files) {
       print(chalk.cyan(`[validate]   formatted copy to paste: open ${files.page} in a browser, select all, copy, paste into the editor`));
       print(chalk.cyan(`[validate]   file to attach or open:  ${files.file}`));
@@ -252,6 +272,13 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
           if (!WRITE_METHODS.has(String(r.method).toUpperCase())) break;
           const route = apiRoute(r.url) || r.url;
           const key = `${r.method} ${route}`;
+          // RPC-style APIs POST their reads too (getConf, lsNotebooks); a delete or remove route is never offered
+          const intent = routeIntent(r.url);
+          if (intent === 'read') break;
+          if (intent === 'delete') {
+            if (first(`capture-delete:${key}`)) say.note(`Not offering ${key} for a campaign: it removes data.`);
+            break;
+          }
           const failure = captureFailure(r);
           if (failure) {
             if (first(`capture-skip:${key}:${failure}`)) say.note(`Save observed for ${key}, but no campaign prompt: ${failure}.`);
@@ -267,6 +294,7 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
           break;
         }
         if (!WRITE_METHODS.has(String(r.method).toUpperCase()) || !Array.isArray(r.fields) || r.fields.length === 0 || (r.status && r.status >= 400)) break;
+        if (['read', 'delete'].includes(routeIntent(r.url)) && !r.fields.some(f => f.marker)) break;
         const route = apiRoute(r.url) || r.url;
         const key = `${r.method} ${route}`;
         const withMarker = r.fields.filter(f => f.marker);
@@ -340,7 +368,8 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
           say.note(`Campaign ${r.case}: ${r.signal} in ${r.url}.`);
         break;
       case 'campaign-done':
-        say.note(`Campaign finished ${r.cases} cases. The report separates delivery, rendering and execution evidence.`);
+        if (r.delivered === 0 && r.failed) say.bad(`Campaign sent nothing: all ${r.cases} cases failed before reaching the app (${r.error || 'request error'}). No content was changed; nothing was tested.`);
+        else say.note(`Campaign finished ${r.cases} cases${r.delivered !== undefined ? ` (${r.delivered} delivered${r.failed ? `, ${r.failed} failed before reaching the app` : ''})` : ''}. The report separates delivery, rendering and execution evidence.`);
         state.campaignBusy = false;
         state.channel?.onCampaign?.({ key: state.currentCampaign || campaign?.route || 'Configured campaign', status: 'completed', reason: `${r.cases} cases finished. Review delivery, rendering and execution evidence.` });
         drainQueue();

@@ -14,7 +14,7 @@ import { prepareScanFolder, mapFrames } from '../remote/sources.js';
 import { createAssistant, followLog, writeMarkerFiles } from './assistant.js';
 import { watchDebug } from './debug.js';
 import { watchDebugApp } from './debug_launch.js';
-import { inspectFeed, inspectServices } from './network-proofs.js';
+import { inspectFeed, inspectServices, probeLocalService } from './network-proofs.js';
 import { feedFromAppUpdate, feedFromCode, resourcesFolder, APP_UPDATE_FILE } from './app-update.js';
 import { logoutCheck } from './logout.js';
 import { createRequire } from 'node:module';
@@ -102,7 +102,13 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
       if (record.kind === 'proof-listener') toolPorts.add(`${record.pid}:${record.port}`);
       if (prove && record.kind === 'windows-listener' && !record.toolInspector && !toolPorts.has(`${record.pid}:${record.port}`) && !servicePorts.has(record.port)) {
         const routes = (proofProfile?.services || []).filter(s => s.port === record.port);
-        if (!routes.length) return;
+        if (!routes.length) {
+          // no reviewed route: the read-only CORS and exposure probe of the port's root
+          if (record.transport !== 'tcp') return;
+          servicePorts.add(record.port);
+          serviceTasks.push(probeLocalService(record).then(p => fs.appendFileSync(logFile, JSON.stringify({ t: Date.now(), kind: 'proof', ...p }) + '\n')));
+          return;
+        }
         servicePorts.add(record.port);
         serviceTasks.push(inspectServices(routes, [record]).then(results => {
           for (const p of results) fs.appendFileSync(logFile, JSON.stringify({ t: Date.now(), kind: 'proof', ...p }) + '\n');
@@ -280,9 +286,12 @@ export async function collectRemote({ watchLog, capture = true, remote = [], gue
     if (offline && remote.length > 0) console.error(chalk.yellow(__('remoteOffline')));
     if (!offline) {
       console.log(chalk.cyan(__('remoteFetching')));
+      // after a session the app's own local server is gone; what it served was captured during the session, or is in the package
+      const afterSession = hasCapture || !!runtime;
       const stats = await crawl(dir, remote.filter(url => !guessed.includes(url)), { headers, headerSites, headerScope: scope, allowHosts, headersByHost,
-        guessedSeeds: remote.filter(url => guessed.includes(url)) });
-      remoteDiagnostics.fetch = { fetched: stats.fetched, notFound: stats.notFound, skipped: stats.skipped, outOfScope: stats.outOfScope, failed: stats.failed.slice(0, 20) };
+        guessedSeeds: remote.filter(url => guessed.includes(url)), skipLoopback: afterSession });
+      remoteDiagnostics.fetch = { fetched: stats.fetched, notFound: stats.notFound, skipped: stats.skipped, outOfScope: stats.outOfScope, loopback: stats.loopback || undefined, failed: stats.failed.slice(0, 20) };
+      if (stats.loopback) console.log(chalk.gray(`Left alone ${stats.loopback} URL${stats.loopback === 1 ? '' : 's'} on the app's own local server (it stopped with the app): what it served was captured during the session, and its files are scanned from the package`));
       if (told) console.log(chalk.gray(`Downloaded ${stats.fetched} file${stats.fetched === 1 ? '' : 's'} from the --remote hosts${stats.notFound ? ` (${stats.notFound} not found)` : ''}${stats.failed.length ? `, ${stats.failed.length} failed` : ''}`));
       if (stats.outOfScope) console.log(chalk.gray(`Left alone ${stats.outOfScope} URL${stats.outOfScope === 1 ? '' : 's'} outside the --remote hosts`));
       for (const failure of stats.failed.slice(0, 10)) console.error(chalk.yellow(__('remoteFetchFailed', { url: failure.url, message: failure.message })));

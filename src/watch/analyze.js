@@ -55,6 +55,18 @@ export function analyzeWatchLog(records) {
     visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: 'Runtime'
   });
   const once = new Set();
+  // the app's own local server: a loopback address on a port one of the app's processes listens on (or any loopback
+  // address when the port list was not taken, e.g. outside Windows)
+  const appPorts = new Set(records.filter(r => r.kind === 'windows-listener' && !r.toolInspector && r.transport !== 'udp').map(r => Number(r.port)));
+  const ownServer = (url) => {
+    try {
+      const u = new URL(url);
+      if (!/^(127\.\d+\.\d+\.\d+|localhost|\[::1\])$/i.test(u.host.replace(/:\d+$/, ''))) return false;
+      return !appPorts.size || appPorts.has(Number(u.port || (u.protocol === 'https:' ? 443 : 80)));
+    } catch {
+      return false;
+    }
+  };
   const first = (key) => !once.has(key) && once.add(key);
   const activeSent = records.filter(r => r.kind === 'active-payload-sent');
   const executed = records.filter(r => r.kind === 'active-payload-executed');
@@ -132,6 +144,11 @@ export function analyzeWatchLog(records) {
         `The matched probe reported ${signal} in the tested page world. Other windows, accounts and capabilities were not tested.` };
     }
   }
+  // a campaign whose requests all failed before reaching the app tested nothing: say so once, with the reason
+  for (const done of records.filter(r => r.kind === 'campaign-done' && r.delivered === 0 && r.failed))
+    add('RUNTIME_CAMPAIGN_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
+      `Campaign not delivered: all ${done.cases} case(s) failed before reaching the app (${done.error || 'request error'}); no content was changed and nothing was tested`,
+      { delivered: 0, failed: done.failed, error: done.error });
   for (const error of records.filter(r => r.kind === 'campaign-error'))
     add('RUNTIME_CAMPAIGN_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
       `Campaign incomplete: ${error.message}`, { error: error.message });
@@ -216,8 +233,11 @@ export function analyzeWatchLog(records) {
       startOrigin.set(r.id, origin(r.url));
       continue;
     }
-    if (origin(r.url) !== startOrigin.get(r.id) && /^https?:/i.test(r.url) && first(`nav:${r.id}:${origin(r.url)}`))
-      add('RUNTIME_NAVIGATION', r.url, severity.MEDIUM, confidence.FIRM, `A window navigated from ${startOrigin.get(r.id)} to another origin: ${r.url}; check that will-navigate limits navigation`, undefined, `${DOCS}#13-disable-or-limit-navigation`);
+    if (origin(r.url) !== startOrigin.get(r.id) && /^https?:/i.test(r.url) && first(`nav:${r.id}:${origin(r.url)}`)) {
+      // the app moving its window to its own local server (a boot page, then the app's UI on 127.0.0.1) is its design
+      if (ownServer(r.url)) add('RUNTIME_NAVIGATION', r.url, severity.INFORMATIONAL, confidence.FIRM, `A window moved from ${startOrigin.get(r.id)} to the app's own local server: ${r.url}`, { ownServer: true }, `${DOCS}#13-disable-or-limit-navigation`);
+      else add('RUNTIME_NAVIGATION', r.url, severity.MEDIUM, confidence.FIRM, `A window navigated from ${startOrigin.get(r.id)} to another origin: ${r.url}; check that will-navigate limits navigation`, undefined, `${DOCS}#13-disable-or-limit-navigation`);
+    }
   }
   for (const r of records.filter(r => r.kind === 'child-window' && /^https?:/i.test(r.url || '') && !LOCAL_HOSTS.test(hostOf(r.url)))) {
     if (first(`child:${origin(r.url)}`))
@@ -244,6 +264,8 @@ export function analyzeWatchLog(records) {
 
   // server redirects the app followed to another origin (will-navigate never sees these)
   for (const r of records.filter(r => r.kind === 'will-redirect' && !r.prevented && /^https?:/i.test(r.url || ''))) {
+    // a first load (no page before it) or a redirect onto the app's own local server is not a navigation away
+    if (!r.from || r.from === 'about:blank' || (ownServer(r.url) && !r.marker)) continue;
     if (origin(r.url) === origin(r.from) || !first(`redirect:${r.id}:${origin(r.url)}`)) continue;
     add('RUNTIME_REDIRECT', r.url, r.marker ? severity.HIGH : severity.MEDIUM, r.marker ? confidence.CERTAIN : confidence.FIRM,
       `A window followed a server redirect from ${r.from} to ${origin(r.url)}${r.marker ? ' carrying the planted marker' : ''}; will-navigate allowlists don't see redirects, will-redirect does`,
@@ -293,11 +315,18 @@ export function analyzeWatchLog(records) {
   }
   // synchronous permission checks (setPermissionCheckHandler): without a handler of the app's own, Electron allows them
   // checks without an origin come from Chromium itself (media device enumeration and the like), not from a page
+  // one finding per origin, listing the permissions, rather than one per permission
+  const defaultChecks = new Map();
   for (const r of records.filter(r => r.kind === 'permission-check' && r.granted && r.origin)) {
     if (!first(`permcheck:${r.permission}:${origin(r.origin)}`)) continue;
-    if (r.default) add('RUNTIME_PERMISSION_CHECK', r.origin, severity.MEDIUM, confidence.CERTAIN, `The '${r.permission}' permission check was allowed for ${r.origin} automatically, as the app has no setPermissionCheckHandler`, undefined, `${DOCS}#5-handle-session-permission-requests-from-remote-content`);
-    else add('RUNTIME_PERMISSION_CHECK', r.origin, severity.INFORMATIONAL, confidence.CERTAIN, `The app's permission check handler allowed '${r.permission}' for ${r.origin}`);
+    if (r.default) {
+      if (!defaultChecks.has(r.origin)) defaultChecks.set(r.origin, []);
+      defaultChecks.get(r.origin).push(r.permission);
+    } else add('RUNTIME_PERMISSION_CHECK', r.origin, severity.INFORMATIONAL, confidence.CERTAIN, `The app's permission check handler allowed '${r.permission}' for ${r.origin}`);
   }
+  for (const [where, permissions] of defaultChecks)
+    add('RUNTIME_PERMISSION_CHECK', where, severity.MEDIUM, confidence.CERTAIN, `Permission checks were allowed for ${where} automatically, as the app has no setPermissionCheckHandler: ${permissions.map(p => `'${p}'`).join(', ')}`,
+      { permissions }, `${DOCS}#5-handle-session-permission-requests-from-remote-content`);
   // what the renderer-side observer saw inside pages: script-bearing DOM changes, and planted-marker reflections
   for (const r of records.filter(r => r.kind === 'dom-observed')) {
     if (r.event === 'marker') {

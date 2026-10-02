@@ -77,11 +77,16 @@ function isSensitiveParam(name) {
 
 // values in code that are not credentials: a route or path (/login, /inbox/api-keys), a CSS or DOM selector
 // ([type=password], #token-field), or a constant's own name in words (RequiredPassword, ResetPasswordToken)
-const CODE_VALUE = /^(?:[/[.#@:~]|\w+:\/\/)|^(?:[A-Z]?[a-z]{2,}){3,}$|^[a-z]+(?:[-_][a-z]+){2,}$|^(?:[A-Z][A-Z]+_)+[A-Z]+$/;
+// a grammar token or l10n id (variable-2, string.special, dialog-password, pdfjs-password-invalid), a protocol method
+// (textDocument/semanticTokens/full), a regular expression fragment, and a placeholder made of the words it stands for
+const CODE_VALUE = /^(?:[/[.#@:~]|\w+:\/\/)|^(?:[A-Z]?[a-z]{2,}){3,}$|^[a-z]{2,}(?:[-_.](?:[a-z]{2,}|\d{1,2}))+$|^(?:[A-Z][A-Z]+_)+[A-Z]+$|^[A-Za-z]+(?:\/[A-Za-z$-]+)+$|[|\\^$*?()[\]{}]/;
+const PLACEHOLDER_WORDS = /^(?:my|your|the|some|test|dummy|example|sample|fake|demo|default)?[-_]?(?:secret|password|passwd|pass|token|key|api[-_]?key|value)(?:[-_](?:secret|password|pass|value|here|key|token|goes[-_]here|\d{1,3}))*$/i;
+// prose: translated text (パスワード…, 请将生成…) is a message, not a key; keys and tokens are ASCII
+const PROSE = /[^\t\n\r\x20-\x7e]/;
 
 function looksSecretValue(value) {
   const text = String(value || '');
-  if (text.length < 12 || PLACEHOLDER.test(text) || text.includes(' ') || CODE_VALUE.test(text)) return false;
+  if (text.length < 12 || PLACEHOLDER.test(text) || PLACEHOLDER_WORDS.test(text) || text.includes(' ') || CODE_VALUE.test(text) || PROSE.test(text)) return false;
   return shannonEntropy(text) >= 3.3;
 }
 
@@ -97,7 +102,11 @@ function looksRandomSecret(value) {
  * on any key's value (for .env / .ini / .json / .yml files, not code); `patternsOnly` keeps the provider-specific
  * patterns (strings from binaries). Kinds starting with "Hard-coded" come from a secret-named assignment.
  */
-function findSecrets(text, { maxHits = 50, config = false, patternsOnly = false } = {}) {
+const isPublicKind = (kind) => /^(Product licence key|Firebase web API key)/.test(String(kind));
+
+/* includePublic: also return values that are public by design (licence keys, Firebase web keys), which only the package
+ * scan reports, as information; responses, storage and URLs leave them out */
+function findSecrets(text, { maxHits = 50, config = false, patternsOnly = false, includePublic = false } = {}) {
   const hits = [];
   const seen = new Set();
   const input = String(text || '');
@@ -110,7 +119,9 @@ function findSecrets(text, { maxHits = 50, config = false, patternsOnly = false 
   for (const [kind, pattern] of SECRET_PATTERNS) {
     for (const match of input.matchAll(pattern)) {
       if (kind === 'Basic-auth credentials in URL' && placeholderCredentials(match[0])) continue;
-      if (add(kind, match[0], match.index)) return hits;
+      const named = publicKind(kind, match[0], input, match.index);
+      if (!includePublic && isPublicKind(named)) continue;
+      if (add(named, match[0], match.index)) return hits;
     }
   }
   if (patternsOnly) return hits;
@@ -132,6 +143,24 @@ function findSecrets(text, { maxHits = 50, config = false, patternsOnly = false 
     if (classes >= 3 && shannonEntropy(value) >= 4.3 && add(`High-entropy value (${key})`, value, match.index + match[0].lastIndexOf(value))) return hits;
   }
   return hits;
+}
+
+// Values that look like secrets but are public by design, named so the findings can say so: a product licence key
+// shipped as a JWT (CKEditor's, with features and a distribution channel), and a Firebase web API key, which only
+// identifies the project (its protection is the project's security rules and API key restrictions).
+function publicKind(kind, value, text, offset) {
+  if (kind === 'JSON Web Token') {
+    try {
+      const claims = JSON.parse(Buffer.from(value.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      if (claims && typeof claims === 'object' && (claims.features || claims.distributionChannel || claims.licensedHosts || claims.licenseId || claims.licenseKey))
+        return 'Product licence key (JWT)';
+    } catch {
+      // not a JSON payload
+    }
+  }
+  if (kind === 'Google API key' && /authDomain|firebaseapp\.com|projectId|storageBucket|messagingSenderId/.test(text.slice(Math.max(0, offset - 400), offset + 400)))
+    return 'Firebase web API key';
+  return kind;
 }
 
 // Suppress only explicit user/password templates, not a real password paired with a generic-looking user.
@@ -160,5 +189,5 @@ function isAuthHeader(name) {
   return AUTH_HEADERS.has(n) || (n.includes('token') && n.startsWith('x-')) || n.endsWith('-api-key');
 }
 
-module.exports = { SECRET_PATTERNS, shannonEntropy, redact, redactText, paramTokens, isSensitiveParam, looksSecretValue, looksRandomSecret,
+module.exports = { isPublicKind, SECRET_PATTERNS, shannonEntropy, redact, redactText, paramTokens, isSensitiveParam, looksSecretValue, looksRandomSecret,
   findSecrets, isAuthHeader };

@@ -87,15 +87,21 @@ async function scan(options, forCli) {
   // front-end code captured from a server (--remote, or scripts pages loaded during --watch), scanned with the app.
   // Findings in it point at the URL the file was served from.
   const remoteLabels = new Map();
-  const extraInputs = (options.extraInputs || []).filter(extra => extra && extra.dir && is_directory(extra.dir));
+  // web code a packaged app ships next to resources/app and serves from its own local server (SiYuan's resources/stage):
+  // part of the package, scanned with it, and shown as resources/<folder>/...
+  const siblings = options.packageSiblings === false ? [] : packagedWebFolders(options.input);
+  const extraInputs = [...siblings, ...(options.extraInputs || [])].filter(extra => extra && extra.dir && is_directory(extra.dir));
   if (extraInputs.length > 0) {
     const extras = [];
     for (const extra of extraInputs) {
       const extraLoader = new LoaderDirectory();
       await extraLoader.load(extra.dir, { allFiles: !!options.allFiles, packaged: true });
+      extraLoader.isPackage = !!extra.isPackage;
       extras.push(extraLoader);
       for (const [file, label] of extra.labels || []) remoteLabels.set(file, label);
+      if (extra.isPackage) for (const file of extraLoader.list_files) remoteLabels.set(file, `${extra.label}/${path.relative(extra.dir, file).split(path.sep).join('/')}`);
     }
+    if (forCli && siblings.length) console.log(chalk.gray(`Also scanning web code shipped next to the app: ${siblings.map(extra => extra.label).join(', ')}`));
     loader = new LoaderCombined(loader, extras);
     // pages the app serves from its own files (protocol.handle('https'), app://) were captured as remote code
     if (forCli && loader.duplicatesOfPackage.length)
@@ -708,6 +714,34 @@ async function dependencyTable(issues, filenames, loader, electronVersion, input
   annotateShipment(report.rows, { packaged: /\.asar$/i.test(input) || /[\\/]resources[\\/]app$/i.test(input) });
   report.rows = sortRows(report.rows);
   return report;
+}
+
+// Folders next to a packaged app's resources/app (or app.asar) that hold web code: pages and scripts the app serves itself.
+// Native helpers, locales and the unpacked asar are left out.
+const SKIP_RESOURCE_FOLDERS = /^(app|app\.asar\.unpacked|locales?|swiftshader|bin|kernel|inspector|electron\.asar)$/i;
+const WEB_FILE = /\.(?:m?js|html?)$/i;
+function packagedWebFolders(input) {
+  const resolved = path.resolve(String(input || ''));
+  if (!/[\\/]resources[\\/]app(\.asar)?[\\/]?$/i.test(resolved)) return [];
+  const resources = path.dirname(resolved.replace(/[\\/]+$/, ''));
+  let entries;
+  try {
+    entries = fs.readdirSync(resources, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const hasWebCode = (dir, depth = 0) => {
+    let items;
+    try {
+      items = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    if (items.some(item => item.isFile() && WEB_FILE.test(item.name))) return true;
+    return depth < 4 && items.some(item => item.isDirectory() && item.name !== 'node_modules' && hasWebCode(path.join(dir, item.name), depth + 1));
+  };
+  return entries.filter(entry => entry.isDirectory() && !SKIP_RESOURCE_FOLDERS.test(entry.name) && hasWebCode(path.join(resources, entry.name)))
+    .map(entry => ({ dir: path.join(resources, entry.name), isPackage: true, label: `resources/${entry.name}` }));
 }
 
 // Lets CommonJS consumers keep using `const run = require('@doyensec/electronegativity')` (Node's require(esm))

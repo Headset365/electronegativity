@@ -142,12 +142,34 @@ the console says how many.
   listed, with a note when the app turns off `isEvalSupported` (CVE-2024-4367 mitigated). A library found only in code
   loaded from the app's server is marked `loaded-from-server`: the fix is a server deployment, not the installer.
 
+- **Web code shipped next to the app** (`resources\stage`, `resources\appearance`: pages the app serves from its own
+  local server) is scanned as part of the package, and shown as `resources/<folder>/...`.
+- **Compiled React and Vue HTML**: `dangerouslySetInnerHTML` in bundles (`jsx("div", {dangerouslySetInnerHTML: …})`,
+  including through a wrapper such as `getHtml(message)`) and Vue's `innerHTML` prop are HTML sinks.
+- **Authentication switched off in one mode** (`isElectron ? [] : [checkToken]`, `isElectron ? next() : auth(...)`) is
+  reported with the routes it protects, under "Local Services Accessible Without Adequate Access Control".
+- **Local services** (`--prove`): every TCP port an app process listens on gets a read-only probe of `/` (GET and a CORS
+  preflight with a foreign web origin and a `chrome-extension://` origin, no credentials). A service that lets those
+  origins read its answers, or listens on every interface, is reported (`RUNTIME_LOCAL_SERVICE`).
+- **Launcher scripts** shipped next to the `.exe` (`.bat`, `.cmd`, `.ps1`, `.sh`) are read for
+  `NODE_TLS_REJECT_UNAUTHORIZED=0`, `--ignore-certificate-errors`, `--disable-web-security`, `--no-sandbox`, debugging
+  ports and `ELECTRON_RUN_AS_NODE`.
+- **Campaigns**: requests replayed by the tool no longer carry the headers Chromium refuses (Origin, Referer, `Sec-*`),
+  which made every case fail; a campaign that delivered nothing says so, and restores nothing. Saves whose route reads
+  (`getConf`, `lsNotebooks`) or deletes (`removeNotebook`) are not offered, and record IDs (`rootID`, `notebook`,
+  `dataType`) are not offered as content fields. Also put the HTML form of the marker in metadata: titles, names, tags or
+  labels, table captions, database or column names, icons, and a value the app rejects, as the assistant now suggests.
+- **After a session**, the app's own local server (127.0.0.1) is not crawled again: it stopped with the app.
+
 Less noise than before: timers given a callback are not code evaluation; paste, drop, file-picker, FileReader and
 `message` handlers are their own check (`RENDERER_INPUT_JS_CHECK`, not "Deep Links") and are informational unless the
 input reaches an operation; template credentials (`username:password@…`), routes, selectors and constant names are not
 secrets; signed download links (S3, Azure SAS, GitHub release assets) and JSON query values are not "secret in URL"; the
 tool's own debugging port is left out and UDP endpoints are summarised once; a signature Windows could not finish
-checking (`Unknown`) is informational, to verify on a connected workstation.
+checking (`Unknown`) is informational, to verify on a connected workstation; translated text, grammar tokens
+(`variable-2`), protocol method names and regular expressions are not secrets; product licence keys shipped as JWTs and
+Firebase web API keys are informational (public by design); default permission checks are one finding per origin; and a
+window moving from the app's boot page to its own local server is not reported as navigation away.
 
 ## 4. Useful variations
 

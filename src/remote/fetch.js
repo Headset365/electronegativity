@@ -42,7 +42,17 @@ const kindOf = (url, contentType) => {
  * origin the capture has for that host (the app reached it over another scheme or port).
  * Returns { fetched, failed, skipped, notFound, outOfScope } (notFound: guessed references the server doesn't have).
  */
-export async function crawl(captureDir, seeds = [], { headers = {}, headerSites = [], headerScope = [], allowHosts = [], headersByHost = {}, guessedSeeds = [], maxFiles = 300, log = () => {} } = {}) {
+// the app's own local server (127.0.0.1, localhost, ::1) stops with the app: after a session there is nothing to fetch
+export const isLoopbackUrl = (url) => {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127\./.test(host);
+  } catch {
+    return false;
+  }
+};
+
+export async function crawl(captureDir, seeds = [], { headers = {}, headerSites = [], headerScope = [], allowHosts = [], headersByHost = {}, guessedSeeds = [], maxFiles = 300, skipLoopback = false, log = () => {} } = {}) {
   if (isOffline()) throw new OfflineError();
   fs.mkdirSync(path.join(captureDir, 'files'), { recursive: true });
   const entries = readManifest(captureDir);
@@ -83,7 +93,7 @@ export async function crawl(captureDir, seeds = [], { headers = {}, headerSites 
     }
     return { ...copied, ...(mayCarryHeaders(url) ? headers : {}) };
   };
-  const stats = { fetched: 0, failed: [], skipped: 0, notFound: 0, outOfScope: 0 };
+  const stats = { fetched: 0, failed: [], skipped: 0, notFound: 0, outOfScope: 0, loopback: 0 };
   // redirects are followed here, not by fetch, so the headers stay behind when one leads to another site, and a
   // redirect never takes the crawl outside the --remote hosts
   const get = async (url) => {
@@ -109,6 +119,10 @@ export async function crawl(captureDir, seeds = [], { headers = {}, headerSites 
   const enqueue = (url, from) => {
     if (known.has(url)) return;
     known.add(url);
+    if (skipLoopback && isLoopbackUrl(url)) {
+      stats.loopback++;
+      return;
+    }
     if (!inScope(url)) {
       stats.outOfScope++;
       return;

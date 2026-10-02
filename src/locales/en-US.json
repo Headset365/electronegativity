@@ -235,6 +235,7 @@
 	"compareOptionDescription": "an earlier JSON report of this app: each finding is marked new, unchanged or changed in severity, and what was fixed since is listed",
 	"IPC_FILE_ACCESS_JS_CHECK": "A file path chosen by a renderer, a navigation or a deep link reaches the file system",
 	"IPC_HANDLER_JS_CHECK": "IPC handler",
+	"AUTH_MODE_BYPASS_JS_CHECK": "Authentication is turned off in one mode of the application",
 	"IPC_RPC_PROCEDURE_JS_CHECK": "Sensitive IPC procedure exposed to the renderer",
 	"IPC_RENDERER_CHANNEL_JS_CHECK": "IPC channel used by renderer code",
 	"IPC_CHANNEL_MAP_GLOBAL_CHECK": "IPC channel",

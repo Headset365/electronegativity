@@ -26,6 +26,7 @@ export const TITLES = {
   'Certificate Pinning Not Implemented (hardening)': 'Certificate Pinning Not Implemented',
   'Insecure Transport and Certificate Validation': 'Insecure Network Transport and Certificate Validation',
   'Sensitive Data Exposed in Network Traffic': 'Sensitive Data Exposed in Network Traffic',
+  'Local Services Accessible Without Adequate Access Control': 'Local Services Accessible Without Adequate Access Control',
   'Known Malicious Package': 'Known Malicious Software Package',
   'Other Security Observations': 'Additional Security Observations',
 };
@@ -50,6 +51,7 @@ export const LEADS = {
   [T['Application Code Not Protected Against Inspection or Tampering']]: 'Testing identified that the code of {app} is not protected against inspection or modification after it is installed.',
   [T['Executable Signing and Exploit Mitigations (hardening)']]: 'Testing identified that distributed files of {app} lack a publisher signature or operating system exploit mitigations.',
   [T['Insecure Update Mechanism']]: 'Testing identified weaknesses in how {app} obtains and verifies software updates.',
+  [T['Local Services Accessible Without Adequate Access Control']]: 'Testing identified that {app} runs a local network service whose access controls are weaker than its data requires: authentication is skipped in the desktop build, or other web origins are allowed to read its responses.',
   [T['Development and Debugging Features in Production']]: 'Testing identified that the production build of {app} retains development or debugging features.',
   [T['Hard-coded Secrets in the Application Package']]: 'Testing identified values resembling credentials embedded in the distributed files of {app}.',
   [T['Sensitive Data Stored Insecurely']]: 'Testing identified that {app} stores data on the device without adequate protection.',
@@ -79,6 +81,7 @@ export const NOTES = {
   [T['Application Code Not Protected Against Inspection or Tampering']]: 'These weaknesses matter to someone who can obtain or modify the installed application. They do not provide remote access on their own.',
   [T['Executable Signing and Exploit Mitigations (hardening)']]: 'This is a hardening observation. It does not indicate that the distributed files have been modified.',
   [T['Insecure Update Mechanism']]: 'Exploitation requires an attacker to be able to intercept or substitute the update traffic.',
+  [T['Local Services Accessible Without Adequate Access Control']]: 'Exploitation requires the attacker to reach the service: through a web page the user opens, a browser extension, another program on the same computer or, where the port is bound to every interface, the local network.',
   [T['Development and Debugging Features in Production']]: 'These features are generally available only to someone already using the application on the device.',
   [T['Hard-coded Secrets in the Application Package']]: 'The impact depends on whether the value is a live credential and on the access it grants, which should be confirmed with its owner.',
   [T['Sensitive Data Stored Insecurely']]: 'Exploitation requires access to the user’s profile on the device, or to a backup of it.',
@@ -134,6 +137,9 @@ const STATIC = {
   IPC_HANDLER: (i) => { const op = /uses (\w+) with arguments/.exec(i.description || ''); const what = { processes: 'to start a process', shell: 'to Electron’s `shell` module', files: 'to file system operations', fs: 'to file system operations', network: 'to network requests' }[op && op[1]] || 'to a sensitive operation'; return `the handler${channel(i)} passes values received from the user interface ${what} without validating them`; },
   IPC_RPC_PROCEDURE: (i) => { const p = i.properties || {}; const what = (p.capabilities || []).join(', ') || 'performs a privileged operation';
     return `the ${code(p.procedure || 'listed')} procedure, which any page that reaches the inter-process channel can call, ${what}${p.takesInput ? ' using input supplied by the page' : ''}`; },
+  AUTH_MODE_BYPASS: (i) => { const routes = (i.properties?.routes || []).slice(0, 4); return `authentication of the local service is skipped in one mode of the application${routes.length ? `, for routes such as ${routes.map(code).join(', ')}` : ''}`; },
+  NODE_TLS_REJECT_UNAUTHORIZED_SCRIPT: (i) => `the launcher script ${code(i.properties?.script || 'shipped with the application')} disables certificate validation for the application’s Node.js connections`,
+  CUSTOM_ARGUMENTS_SCRIPT: (i) => `the launcher script ${code(i.properties?.script || 'shipped with the application')} ${String(i.properties?.setting || 'weakens a security setting').replace(/^starts the app/, 'starts the application').replace(/^runs the executable/, 'runs the executable')}`,
   IPC_FILE_ACCESS: () => 'a file path chosen by the user interface, a navigation or a deep link reaches the file system without validation',
   IPC_CHANNEL_MAP: (i) => `the main process handles the ${code(i.properties?.channel || 'listed')} channel`,
   OPEN_EXTERNAL: shell('shell.openExternal()'),

@@ -225,7 +225,7 @@ describe('Client report outputs', () => {
   });
 
   it('defines several complete variants for every named group and falls back for new checks', () => {
-    Object.keys(VARIATIONS).length.should.equal(25);
+    Object.keys(VARIATIONS).length.should.equal(26);
     for (const entries of Object.values(VARIATIONS)) {
       entries.length.should.be.at.least(2);
       for (const entry of entries) {

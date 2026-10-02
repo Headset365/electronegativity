@@ -21,12 +21,16 @@ function attr(code) { return code.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
 // Only string leaves are candidates. Skip fields whose names suggest identities, credentials or control flags;
 // the original request body is restored after the bounded campaign. Explicit `fields` can override this filter.
 function discoverFields(body) {
-  const excluded = new Set(['id', 'uuid', 'key', 'token', 'password', 'secret', 'auth', 'csrf', 'nonce', 'version', 'type', 'role', 'permission', 'status']);
+  const excluded = new Set(['id', 'ids', 'uuid', 'key', 'token', 'password', 'secret', 'auth', 'csrf', 'nonce', 'version', 'type', 'role',
+    'permission', 'status', 'callback', 'url', 'href', 'src', 'path', 'mode', 'format', 'lang', 'locale', 'sort', 'order', 'app']);
   const out = [];
+  // a value that identifies a record rather than holding content: 20261002150519-mc4r8gp, y6hpRYzH31hk, a UUID
+  const identifier = value => /^[A-Za-z0-9_-]{6,64}$/.test(value) && /\d/.test(value) && /[A-Za-z]/.test(value) || /^\d{4,}$/.test(value);
   const add = (name, value) => {
-    const parts = name.toLowerCase().replaceAll('[]', '.').split(/[._-]/);
+    // camelCase names split too: rootID, dataType, noteId
+    const parts = name.replace(/([a-z0-9])([A-Z])/g, '$1.$2').toLowerCase().replaceAll('[]', '.').split(/[._-]/);
     if (typeof value === 'string' && name && !parts.some(part => excluded.has(part) || /(?:token|password|secret|csrf|nonce)$/.test(part)) &&
-      value.length <= 10000 && !out.includes(name) && out.length < 8) out.push(name);
+      !identifier(value) && value.length <= 10000 && !out.includes(name) && out.length < 8) out.push(name);
   };
   const walk = (value, name, depth) => {
     if (depth > 6 || out.length >= 8) return;
@@ -137,6 +141,8 @@ async function runCampaign({ profile, marker, campaignId, fetch, fill, view, wri
   if (!fields.length) throw new Error('No mutable string fields were discovered in the configured request');
   write('campaign-fields', { count: fields.length, automatic: profile.fields === 'auto' });
   let sent = 0;
+  let failed = 0;
+  let firstError;
   let contentType;
   try {
     for (const [slot, field] of fields.entries()) for (const name of cases) {
@@ -153,8 +159,9 @@ async function runCampaign({ profile, marker, campaignId, fetch, fill, view, wri
         if (TYPED.has(name) && built.contentType !== 'application/json') throw new Error('Typed mutation requires a JSON request body');
         contentType = built.contentType;
         const headers = { ...request.headers, 'content-type': built.contentType };
-        sent++;
         const response = await fetch(request.url, { method: request.method, headers, body: built.body });
+        // only a request the server answered can have changed the record: that is what restoration undoes
+        sent++;
         write('campaign-send', { case: name, route: profile.route, status: response.status, ok: !!response.ok, field, slot: fieldSlot });
         if (response.ok && profile.verify) write('campaign-verification', { case: name, slot: fieldSlot,
           ...await verifySaved({ verify: profile.verify, expected: built.body, fields: [field], fetch, headers: request.headers }) });
@@ -163,6 +170,8 @@ async function runCampaign({ profile, marker, campaignId, fetch, fill, view, wri
           write('campaign-view', { case: name, slot: fieldSlot, opened: !!opened });
         }
       } catch (error) {
+        failed++;
+        if (!firstError) firstError = String(error && error.message || error).slice(0, 160);
         write('campaign-send', { case: name, route: profile.route, field, slot: fields.length > 1 ? slot : undefined,
           ok: false, error: String(error && error.message || error).slice(0, 160) });
       }
@@ -180,7 +189,7 @@ async function runCampaign({ profile, marker, campaignId, fetch, fill, view, wri
       }
     }
   }
-  write('campaign-done', { cases: cases.length * fields.length, fields: fields.length });
+  write('campaign-done', { cases: cases.length * fields.length, fields: fields.length, delivered: sent, failed, ...(firstError ? { error: firstError } : {}) });
 }
 
 async function startResourceReceiver(marker, write) {

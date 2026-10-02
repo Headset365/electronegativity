@@ -5,13 +5,15 @@ import { parse } from 'yaml';
 import { isOffline } from '../util/network.js';
 
 // Metadata-only probes: no cookies/auth headers, artifact download or update install.
-export function fetchMetadata(url, { origin, websocket = false, metadataOnly = false, maxBytes = 1048576, timeout = 5000 } = {}) {
+export function fetchMetadata(url, { origin, websocket = false, metadataOnly = false, maxBytes = 1048576, timeout = 5000, method = 'GET' } = {}) {
   return new Promise(resolve => {
     const u = new URL(url);
     const headers = origin ? { Origin: origin } : {};
+    if (method === 'OPTIONS' && origin) Object.assign(headers, { 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type' });
     if (websocket) Object.assign(headers, { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': crypto.randomBytes(16).toString('base64') });
-    const req = (u.protocol === 'https:' ? https : http).request(u, { method: 'GET', headers }, res => {
-      if (metadataOnly) { done({ outcome: 'response', status: res.statusCode, location: res.headers.location }); res.destroy(); return; }
+    const req = (u.protocol === 'https:' ? https : http).request(u, { method: method === 'OPTIONS' ? 'OPTIONS' : 'GET', headers }, res => {
+      const cors = { allowOrigin: res.headers['access-control-allow-origin'], allowCredentials: res.headers['access-control-allow-credentials'] };
+      if (metadataOnly) { done({ outcome: 'response', status: res.statusCode, location: res.headers.location, cors, contentType: res.headers['content-type'] }); res.destroy(); return; }
       let size = 0; const chunks = [];
       res.on('data', b => { size += b.length; if (size > maxBytes) { done({ outcome: 'limit' }); req.destroy(); } else chunks.push(b); });
       res.on('end', () => done({ outcome: 'response', status: res.statusCode, location: res.headers.location, body: Buffer.concat(chunks).toString('utf8') }));
@@ -75,4 +77,34 @@ export async function inspectServices(services, listeners, { request = fetchMeta
     }
   }
   return results;
+}
+
+// Origins a web page or a browser extension would send: a local service that echoes them back in
+// Access-Control-Allow-Origin lets that page read its answers (SiYuan's kernel API, CVE-2026-34449 and CVE-2026-54069)
+const FOREIGN_ORIGINS = ['https://eng-proof.invalid', 'chrome-extension://engprooftestextensionid'];
+
+/**
+ * Every TCP port an app process listens on, without a reviewed route: GET / and a CORS preflight with foreign origins,
+ * no cookies or credentials, nothing written. Reports the status, whether the origin is echoed back (and credentials
+ * allowed), and whether the port is bound to every interface rather than loopback only.
+ */
+export async function probeLocalService(listener, { request = fetchMetadata } = {}) {
+  const exposed = ['0.0.0.0', '::'].includes(listener.address);
+  const host = listener.address === '::1' ? '[::1]' : '127.0.0.1';
+  const base = `http://${host}:${listener.port}/`;
+  const result = { test: 'local-service-cors', port: listener.port, address: listener.address, exposed, scope: 'unauthenticated-read-only-probe', origins: [] };
+  const plain = await request(base, { metadataOnly: true });
+  if (plain.outcome !== 'response') return { ...result, outcome: plain.outcome === 'timeout' ? 'timeout' : 'not-http' };
+  result.status = plain.status;
+  result.contentType = plain.contentType;
+  for (const origin of FOREIGN_ORIGINS) {
+    for (const method of ['GET', 'OPTIONS']) {
+      const r = await request(base, { origin, method, metadataOnly: true });
+      const allow = r.cors && r.cors.allowOrigin;
+      if (allow && (allow === '*' || allow === origin))
+        result.origins.push({ origin, method, allowOrigin: allow, credentials: String(r.cors.allowCredentials).toLowerCase() === 'true' });
+    }
+  }
+  result.outcome = result.origins.length ? 'foreign-origin-allowed' : 'no-cors-for-foreign-origin';
+  return result;
 }

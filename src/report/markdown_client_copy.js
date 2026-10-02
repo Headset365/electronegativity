@@ -162,6 +162,16 @@ export const CLIENT_COPY = {
     'Later testing could examine a different version from the one assessed, so results may not reflect the release in scope.',
     'Disable automatic updates in the test environment, or confirm the version before each session.'
   ],
+  'Authentication skipped in one mode': [
+    'The application runs a local service whose authentication middleware is skipped in the desktop build, so the listed routes answer requests that carry no credentials.',
+    'Any program on the computer, or a web page that can reach the port (for example through a permissive cross-origin policy or DNS rebinding), could read or change the user’s data through these routes.',
+    'Require the same authentication on every route in every build, for example a per-session token the application’s own windows hold. Verify that a request without the token is rejected.'
+  ],
+  'Cross-origin reads allowed': [
+    'The application’s local service allows other web origins, or browser extensions, to read its responses.',
+    'A web page or extension the user opens could call the service in the background and read the data it returns, and possibly act on the user’s behalf.',
+    'Allow cross-origin requests only from the application’s own origins, bind the service to the loopback interface, and require authentication. Verify that a request with a foreign Origin header is refused.'
+  ],
   'Embedded content': [
     'The application allows embedded content, through `<webview>` tags or iframes, without restricting its source and privileges.',
     'Less trusted embedded content could gain privileges, such as Node.js access or the parent window’s preload script, that should be limited to the application’s own pages.',
@@ -410,6 +420,8 @@ export const CLIENT_LABELS = {
   'Top-level navigation or redirect': 'Navigation and redirects not restricted',
   'Popup or middle-click': 'New windows not restricted',
   'Embedded content': 'Embedded content not restricted',
+  'Authentication skipped in one mode': 'Authentication skipped in the desktop build',
+  'Cross-origin reads allowed': 'Local service readable from other origins',
   'Privileged procedure exposed': 'Privileged procedures exposed over IPC',
   'HTML built from unescaped values': 'HTML built from unescaped values',
   'Pasted, dropped or opened content': 'Pasted or opened content not validated',

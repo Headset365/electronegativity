@@ -235,6 +235,7 @@
 	"compareOptionDescription": "un informe JSON anterior de esta aplicación: cada hallazgo se marca como nuevo, sin cambios o con cambio de gravedad, y se listan los que se han corregido desde entonces",
 	"IPC_FILE_ACCESS_JS_CHECK": "Una ruta elegida por un renderer, una navegación o un enlace profundo llega al sistema de archivos",
 	"IPC_HANDLER_JS_CHECK": "Manejador IPC",
+	"AUTH_MODE_BYPASS_JS_CHECK": "La autenticación se desactiva en un modo de la aplicación",
 	"IPC_RPC_PROCEDURE_JS_CHECK": "Procedimiento IPC sensible expuesto al proceso de renderizado",
 	"IPC_RENDERER_CHANNEL_JS_CHECK": "Canal IPC usado por código del renderer",
 	"IPC_CHANNEL_MAP_GLOBAL_CHECK": "Canal IPC",

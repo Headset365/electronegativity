@@ -78,7 +78,7 @@ describe('Watch mode', () => {
     });
 
     it('reports synchronous permission checks the app allows', () => {
-      find('RUNTIME_PERMISSION_CHECK', /'geolocation'.*automatically/)[0].severity.name.should.equal('MEDIUM');
+      find('RUNTIME_PERMISSION_CHECK', /automatically.*'geolocation'/)[0].severity.name.should.equal('MEDIUM');
       find('RUNTIME_PERMISSION_CHECK', /'clipboard-read'/)[0].severity.name.should.equal('INFORMATIONAL');
     });
 
@@ -122,7 +122,7 @@ describe('Watch mode', () => {
         { kind: 'permission-check', permission: 'geolocation', origin: 'https://app.example.com/', granted: true, default: true }]);
       const checks = issues.filter(i => i.id === 'RUNTIME_PERMISSION_CHECK');
       checks.should.have.length(1);
-      checks[0].description.should.match(/geolocation.*https:\/\/app\.example\.com/);
+      checks[0].description.should.match(/https:\/\/app\.example\.com.*'geolocation'/);
     });
 
     it('notices when the hook never ran', () => {
