@@ -491,7 +491,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
   if (markdown) {
     const { reported, suppressed } = combined;
     const files = writeClientMarkdown(outDir, reported, { app: results[0].app, root: located.code, suppressed, outputs: lastOutputs });
-    written.push(`${path.join(outDir, MARKDOWN_FOLDER)} (${files.length} finding${files.length === 1 ? '' : 's'}, from ${results.length} step${results.length === 1 ? '' : 's'})`);
+    written.push(`${path.join(outDir, MARKDOWN_FOLDER)} (${files.length} Markdown report${files.length === 1 ? '' : 's'}, from ${results.length} step${results.length === 1 ? '' : 's'})`);
   }
   console.log(chalk.green(__('appDone', { dir: outDir })));
   for (const file of written) console.log(`  ${file}`);

@@ -99,7 +99,7 @@ describe('Client report outputs', () => {
     ratingOf(issue('END_OF_LIFE_LIBRARY_GLOBAL_CHECK', severity.MEDIUM), 'Outdated Third-Party Components')
       .should.deep.equal({ consequence: 'Medium', likelihood: 'Possible' });
     ratingOf(issue('RUNTIME_ACTIVE_SCRIPT', severity.MEDIUM, confidence.FIRM, { properties: { execution: 'observed' } }),
-      'Cross-Site Scripting Exposure in Content Rendering').consequence.should.equal('Critical');
+      'Cross-Site Scripting Exposure in Content Rendering').consequence.should.equal('Medium');
     ratingOf(issue('MALICIOUS_DEPENDENCY', severity.HIGH), 'Known Malicious Package').consequence.should.equal('Critical');
   });
 
@@ -409,12 +409,14 @@ describe('Client report outputs', () => {
     try {
       fs.mkdirSync(path.join(dir, 'markdown'));
       fs.writeFileSync(path.join(dir, 'markdown', 'Fixed Since.md'), '---\nTitle: Fixed Since\n---\n');
+      // A legacy generated report is recognisable by its known title and six report sections.
+      fs.writeFileSync(path.join(dir, 'markdown', 'Development and Debugging Features in Production.md'), renderClientMarkdown([issue('DEVTOOLS_JS_CHECK')]).replace('GeneratedBy: Electronegativity\n', ''));
       fs.writeFileSync(path.join(dir, 'markdown', 'my notes.md'), 'kept');
       const files = writeClientMarkdown(dir, [issue('NODE_INTEGRATION_JS_CHECK', severity.HIGH), issue('CSP_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { file: 'N/A' }),
         issue('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { properties: { advisories: ['OSV-1'] } })],
       { app: { name: 'Example' }, outputs: [path.join(dir, 'components.xlsx')] });
       files.map(f => path.basename(f)).sort().should.deep.equal(['Missing or Weak Content Security Policy.md', 'Outdated Third-Party Components.md', 'Renderer Isolation Weakened.md']);
-      fs.readdirSync(path.join(dir, 'markdown')).should.include('my notes.md').and.not.include('Fixed Since.md');
+      fs.readdirSync(path.join(dir, 'markdown')).should.include('my notes.md').and.include('Fixed Since.md').and.not.include('Development and Debugging Features in Production.md');
       for (const file of files) {
         const text = fs.readFileSync(file, 'utf8');
         (text.match(/^---$/gm) || []).length.should.equal(2);

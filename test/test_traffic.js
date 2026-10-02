@@ -201,7 +201,7 @@ describe('Traffic', () => {
       ];
       reconcileTraffic(issues, { interceptedHttps: 3 });
       issues[0].validation.status.should.equal('confirmed');
-      issues[1].validation.status.should.equal('confirmed');
+      issues[1].validation.status.should.equal('observed');
       issues[2].validation.status.should.equal('observed');
       const noProxy = [issue('CERTIFICATE_PINNING_GLOBAL_CHECK')];
       reconcileTraffic(noProxy, {});

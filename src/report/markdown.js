@@ -6,6 +6,7 @@ import YAML from 'yaml';
 import { consequenceOf, interactionOf, validationHint } from '../finder/consequences.js';
 import { remediationOf } from '../finder/remediation.js';
 import { matchingVariations } from './markdown_variations.js';
+import { executionConfirmed, mergeFindingEvidence, validationResults } from '../finder/validation.js';
 
 const definitions = [
   ['Renderer Isolation Weakened', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|PRELOAD|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX)|RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$)/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
@@ -72,12 +73,9 @@ const evidenceOnly = /^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|IPC_RE
 const observations = new Set(['SOURCE_MAP_SHIPPED', 'STORAGE_CACHED_RESPONSES', 'CERTIFICATE_PINNING', 'WORD_LAUNCH']);
 const normalId = id => String(id || '').replace(/_(JS|HTML|JSON|GLOBAL|LOCK)_CHECK$/, '');
 const nameOf = i => i?.name || i || '';
-// Script execution or a live marker recorded at runtime. A setting observed at runtime is evidence of the setting, not of
-// an exploit, so it does not count.
+// Script execution or a tested capability. Live markup and observed settings do not establish exploitation.
 // (the campaign's Node, Electron, file and eval findings exist only when the payload's script ran and signalled them)
-const isConfirmed = i => i.validation?.status === 'confirmed' || i.properties?.executed === true || i.properties?.execution === 'observed' ||
-  /^RUNTIME_CAMPAIGN_(FS_READ|NODE|ELECTRON|EVAL)$/.test(normalId(i.id)) ||
-  (/^RUNTIME_MARKER/.test(normalId(i.id)) && i.properties?.live === true);
+const isConfirmed = executionConfirmed;
 const victimAction = i => /\b(click|open|install|updat|import|attachment|document)/i.test(interactionOf(i.id) || '');
 const consequenceScale = ['Very Low', 'Low', 'Medium', 'High', 'Critical'];
 const likelihoodScale = ['Rare', 'Unlikely', 'Possible', 'Likely', 'Very Likely'];
@@ -98,6 +96,7 @@ function reportable(i) {
   const id = normalId(i.id);
   if (/_(DEPRECATION|REMOVAL|CHANGE)$/.test(id) || id === 'IPC_SEND_STRUCTURED_CLONE_ALGORITHM' ||
       ['TRAFFIC_IDOR_CANDIDATE', 'TRAFFIC_STATE_CHANGE_NO_AUTH'].includes(id) || /COVERAGE/.test(id) ||
+      id === 'RUNTIME_CSP_VIOLATION' ||
       // the tool's own housekeeping during a campaign (restoring the test record, removing its canaries), not the app's
       ['RUNTIME_CAMPAIGN_RESTORE', 'RUNTIME_CAMPAIGN_CLEANUP'].includes(id)) return false;
   if (evidenceOnly.test(id) || /^(CSP_(JS|HTML)|NAVIGATION_REDIRECT_JS)_CHECK$/.test(i.id) || (id === 'RUNTIME_MARKER' && !i.properties?.live) ||
@@ -113,10 +112,25 @@ function groupOf(i) {
 
 function evidenceGroupOf(i) {
   const id = normalId(i.id);
+  if (id === 'RUNTIME_CSP_VIOLATION') return 'Missing or Weak Content Security Policy';
+  if (/^RUNTIME_DOCX_/.test(id)) return 'Document Parsing Risks';
+  if (id === 'RUNTIME_WINDOW_COVERAGE') return 'Renderer Isolation Weakened';
+  if (/^RUNTIME_(CAMPAIGN|ACTIVE|ENTRY)_COVERAGE$/.test(id) || /^RUNTIME_CAMPAIGN_(RESTORE|CLEANUP)$/.test(id))
+    return ['Cross-Site Scripting Exposure in Content Rendering', 'Renderer Isolation Weakened', 'Missing or Weak Content Security Policy', 'Document Parsing Risks'];
+  if (/^RUNTIME_CAMPAIGN_/.test(id)) {
+    const name = i.properties?.case || '';
+    if (name.startsWith('nav-')) return 'Insufficient Navigation and Window Controls';
+    if (['node', 'electron', 'fs-read'].includes(name)) return ['Renderer Isolation Weakened', 'Cross-Site Scripting Exposure in Content Rendering'];
+    if (name === 'eval') return ['Missing or Weak Content Security Policy', 'Cross-Site Scripting Exposure in Content Rendering'];
+    return 'Cross-Site Scripting Exposure in Content Rendering';
+  }
+  if (/^RUNTIME_MARKER_(NAVIGATION|NEW_WINDOW)$/.test(id)) return 'Insufficient Navigation and Window Controls';
+  if (/^RUNTIME_MARKER_OPEN_(PATH|EXTERNAL)$/.test(id)) return groupOf(i)[0];
+  if (/^RUNTIME_MARKER_(COMMAND|MODULE)$/.test(id)) return 'Code or Command Execution from Untrusted Data';
   if (id === 'CSP') return 'Missing or Weak Content Security Policy';
   if (id === 'NAVIGATION_REDIRECT') return 'Insufficient Navigation and Window Controls';
   if (/^(RUNTIME_MARKER|RUNTIME_MARKER_SENT)$/.test(id)) return 'Cross-Site Scripting Exposure in Content Rendering';
-  if (/^(IPC_HANDLER|IPC_CHANNEL_MAP|IPC_RENDERER_CHANNEL|RUNTIME_IPC)$/.test(id)) return 'IPC Handlers Trust Renderer Input';
+  if (/^(IPC_HANDLER|IPC_CHANNEL_MAP|IPC_RENDERER_CHANNEL|RUNTIME_IPC|RUNTIME_MARKER_IPC)$/.test(id)) return 'IPC Handlers Trust Renderer Input';
   if (/^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|PRELOAD)$/.test(id)) return 'Renderer Isolation Weakened';
   if (id === 'DEPENDENCY_INVENTORY') return 'Outdated Third-Party Components';
   if (id === 'ELECTRON_VERSION') return 'Outdated Electron Runtime';
@@ -136,7 +150,9 @@ export function ratingOf(i, title) {
   const route = consequenceOf(i.id)?.route;
   let c = ({ HIGH: 3, MEDIUM: 2, LOW: 1 })[severity] ?? 0;
   if (route === 'local') c = Math.max(0, c - 1);
-  if (id === 'MALICIOUS_DEPENDENCY' || ['RUNTIME_ACTIVE_SCRIPT', 'RUNTIME_CAMPAIGN_SCRIPT'].includes(id) && isConfirmed(i)) c = 4;
+  // An execution probe proves execution in its tested renderer, not the account/privilege boundary of a full exploit.
+  if (id === 'MALICIOUS_DEPENDENCY' || ['RUNTIME_ACTIVE_SCRIPT', 'RUNTIME_CAMPAIGN_SCRIPT'].includes(id) &&
+      validationResults(i).some(r => r.status === 'confirmed' && r.scope === 'exploit')) c = 4;
   let l = isConfirmed(i) ? 4 : ({ CERTAIN: 3, FIRM: 2, TENTATIVE: 1 })[nameOf(i.confidence)] ?? 1;
   if (victimAction(i)) l--;
   if (route === 'local') l = Math.min(l, nameOf(i.confidence) === 'CERTAIN' ? 1 : 0);
@@ -155,8 +171,11 @@ export function groupClientFindings(issues) {
     groups.get(definition[0]).issues.push(i);
   }
   for (const i of issues.filter(i => !reportable(i))) {
-    const group = groups.get(evidenceGroupOf(i));
-    if (group) group.evidence.push(i);
+    const titles = evidenceGroupOf(i);
+    for (const title of Array.isArray(titles) ? titles : [titles]) {
+      const group = groups.get(title);
+      if (group) group.evidence.push(i);
+    }
   }
   return [...groups.values()].map(g => {
     g.items = g.issues.map(i => ({ issue: i, rating: ratingOf(i, g.definition[0]) })).sort(byRating);
@@ -179,7 +198,7 @@ function language(file) {
   return ({ js: 'javascript', cjs: 'javascript', mjs: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx', json: 'json', html: 'html', css: 'css', ps1: 'powershell', sh: 'bash' })[path.extname(file || '').slice(1).toLowerCase()] || 'text';
 }
 function exampleLanguage(source) { return /^\s*</.test(source) ? 'html' : 'javascript'; }
-const linkTarget = target => encodeURI(target).replace(/\(/g, '%28').replace(/\)/g, '%29');
+const linkTarget = target => target.split('/').map(segment => encodeURIComponent(segment).replace(/\(/g, '%28').replace(/\)/g, '%29')).join('/');
 
 /**
  * What every finding of one report shares: the app's name, the scanned folder (paths are shown relative to it, and to a
@@ -195,7 +214,8 @@ function context(meta) {
     for (const base of bases) out = out.split(base + path.sep).join('').split(base).join(path.basename(base));
     return home && home.length > 1 ? out.split(home).join('~') : out;
   };
-  return { app: meta.app?.name || 'the application', bases, scrub, outputFile: meta.outputFile, outputs: meta.outputs || [] };
+  return { app: meta.app?.name || 'the application', bases, scrub, outputFile: meta.outputFile,
+    reportRoot: meta.reportRoot || (meta.outputFile && path.dirname(path.resolve(meta.outputFile))), outputs: meta.outputs || [] };
 }
 
 function shownFile(file, ctx) {
@@ -254,11 +274,53 @@ function details(i, ctx) {
 function screenshot(file, ctx) {
   if (ctx.outputFile && path.isAbsolute(file)) {
     const relative = path.relative(path.dirname(path.resolve(ctx.outputFile)), file);
-    if (!relative.startsWith('..') && !path.isAbsolute(relative)) return `[${text(path.basename(file), ctx)}](${linkTarget(relative.split(path.sep).join('/'))})`;
+    const within = path.relative(path.resolve(ctx.reportRoot), file);
+    if (within !== '..' && !within.startsWith(`..${path.sep}`) && !path.isAbsolute(within))
+      return `[${text(path.basename(file), ctx)}](${linkTarget(relative.split(path.sep).join('/'))})`;
   }
   return codeSpan(ctx.scrub(file));
 }
-const screenshotOf = (i, ctx) => scalar(i.properties?.screenshot) ? `; screenshot ${screenshot(i.properties.screenshot, ctx)}` : '';
+const screenshotOf = (i, ctx) => unique([i.properties?.screenshot, ...strings(i.properties?.screenshots)])
+  .filter(f => typeof f === 'string').map(f => `; screenshot ${screenshot(f, ctx)}`).join('');
+
+// Facts stay with their owning check. Arbitrary properties may contain credentials, so only known evidence fields are shown.
+function recordedEvidence(i, ctx) {
+  const p = i.properties || {};
+  const lines = [`- **${text(i.id, ctx)}** at ${location(i, ctx)}${i.session ? `; session ${text(i.session, ctx)}` : ''}${screenshotOf(i, ctx)}`];
+  const results = validationResults(i);
+  for (const r of results) {
+    lines.push(`  - Validation: **${text(r.status, ctx)}**${r.scope ? ` (${text(r.scope, ctx)})` : ''}${r.session ? `; session ${text(r.session, ctx)}` : ''}${r.text ? ` — ${text(r.text, ctx)}` : ''}`);
+    for (const value of strings(r.evidence)) lines.push(`    - Evidence: ${text(value, ctx)}`);
+  }
+  if (!results.length) lines.push(`  - Validation: ${isConfirmed(i) ? 'script execution or tested capability recorded; wider exploitability unverified' : /^RUNTIME_|^TRAFFIC_/.test(i.id) ? 'runtime observation; exploitability unverified' : 'not run; static or artifact observation only'}`);
+  if (i.location?.line > 0 && i.location?.column != null) lines.push(`  - Source column: ${text(i.location.column, ctx)}`);
+  for (const value of strings(p.evidence)) lines.push(`  - Observed evidence: ${text(value, ctx)}`);
+  const fields = ['campaignId', 'correlation', 'case', 'field', 'slot', 'delivery', 'savedValue', 'view', 'execution', 'signal', 'signals',
+    'resources', 'method', 'route', 'webContents', 'page', 'frame', 'sender', 'sink', 'policy', 'directive', 'blocked', 'loaded',
+    'request', 'resolved', 'program', 'source', 'count', 'accepted', 'viewOpened', 'loopbackRequested', 'sha256', 'bytes', 'verification', 'error',
+    'expected', 'actual', 'enforced', 'format', 'missing', 'status', 'signer', 'verifiedBy', 'maps', 'inline', 'withSources', 'store',
+    'origin', 'key', 'kind', 'basis', 'entries', 'weakEncryption', 'preload', 'partition', 'untried', 'unmatched', 'sent',
+    'staticFinding', 'staticFindings', 'staticWindow', 'observedAt'];
+  for (const field of fields) {
+    const value = p[field];
+    const printable = typeof value === 'boolean' ? String(value) : scalar(value) || strings(value).join(', ');
+    if (printable) lines.push(`  - ${field}: ${text(printable, ctx)}`);
+  }
+  if (p.action) for (const field of ['clicked', 'navigated', 'url'])
+    if (p.action[field] != null) lines.push(`  - action.${field}: ${text(p.action[field], ctx)}`);
+  for (const [name, setting] of Object.entries(p.settings || {}))
+    lines.push(`  - ${text(name, ctx)}: ${text(setting.value === undefined ? 'unavailable' : setting.value, ctx)} (${text(setting.source, ctx)})`);
+  for (const f of p.frames || []) {
+    lines.push(`  - Stack frame: ${codeSpan(ctx.scrub(`${f.url}:${f.line}:${f.column}`))}`);
+    if (f.original) lines.push(`    - Original source: ${codeSpan(ctx.scrub(`${f.original.file}:${f.original.line}:${f.original.column}`))}`);
+  }
+  for (const advisory of p.advisories || []) {
+    const value = typeof advisory === 'string' ? advisory : [advisory.id, ...strings(advisory.cves), advisory.severity, advisory.fixed && `fixed: ${advisory.fixed}`].filter(Boolean).join('; ');
+    if (value) lines.push(`  - Advisory: ${text(value, ctx)}`);
+  }
+  for (const url of p.urls || []) lines.push(`  - Load target (${text(url.kind, ctx)}): ${text(url.value, ctx)}`);
+  return lines.join('\n');
+}
 
 function proseNotes(g, ctx) {
   const i = g.basis;
@@ -287,7 +349,7 @@ function renderGroup(g, ctx) {
   const labelsOf = issue => variations.filter(v => v.issues.includes(issue)).map(v => v.label);
   const accepted = i => i.suppression ? ' (accepted risk)' : '';
   const notes = field => noteValues(g.issues, field).map(value => `- ${text(value, ctx)}`);
-  const front = YAML.stringify({ Title: title, Consequence: g.rating.consequence, Likelihood: g.rating.likelihood, Notes: proseNotes(g, ctx) }).trimEnd();
+  const front = YAML.stringify({ Title: title, GeneratedBy: 'Electronegativity', Consequence: g.rating.consequence, Likelihood: g.rating.likelihood, Notes: proseNotes(g, ctx) }).trimEnd();
 
   // each location once, with the scenarios it supports
   const affected = new Map();
@@ -345,13 +407,13 @@ function renderGroup(g, ctx) {
     ...noteValues(g.issues, 'steps').map(value => `- **Reproduction step:** ${text(value, ctx)}`),
     ...instances,
     ...(g.issues.length > MAX_INSTANCES ? [`- …and ${g.issues.length - MAX_INSTANCES} further instances; see the affected list or the full HTML/JSON report.`] : []),
-    ...unique(g.issues.flatMap(i => strings(i.properties?.evidence))).slice(0, 8).map(value => `- Observed evidence: ${text(value, ctx)}`),
-    ...g.issues.filter(i => i.validation || scalar(i.properties?.screenshot)).slice(0, 8)
-      .map(i => `- ${location(i, ctx)}: ${text(i.validation?.status || 'Evidence', ctx)}${i.validation?.text ? ` — ${text(i.validation.text, ctx)}` : ''}${screenshotOf(i, ctx)}`),
-    ...g.evidence.slice(0, 8).map(i => `- Supporting observation at ${location(i, ctx)}: ${text(i.description, ctx)}${screenshotOf(i, ctx)}`),
+    '**Validation results and recorded facts (all instances):**',
+    ...g.issues.map(i => recordedEvidence(i, ctx)),
+    ...g.evidence.map(i => `- Supporting observation: ${text(i.description, ctx)}\n\n${recordedEvidence(i, ctx)}`),
+    '**Validation steps to perform (instructions, not recorded results):**',
     ...variations.map(v => `- **How to confirm — ${v.label}:** ${v.evidence}`),
     ...noteValues(g.issues, 'confirm').map(value => `- **How to confirm:** ${text(value, ctx)}`),
-    ...unique(ids.map(validationHint)).slice(0, 3).map(hint => `- ${hint}`),
+    ...ids.filter(id => validationHint(id)).map(id => `- **${text(id, ctx)}:** ${validationHint(id)}`),
     ...(COMMANDS[title] ? [`- **Validation command:** ${codeSpan(COMMANDS[title])}`] : []),
     '## Recommendations', recommendation,
     ...variations.map(v => `- **${v.label}:** ${v.recommendation}`), ...notes('recommendation'),
@@ -373,23 +435,45 @@ export function findingFileName(title) {
   return `${name || 'Finding'}.md`;
 }
 
+const COVERAGE_TITLE = 'Validation Coverage and Test Outcomes';
+function coverageDocument(issues, ctx) {
+  const records = issues.filter(i => /COVERAGE/.test(i.id) || /^RUNTIME_CAMPAIGN_(CASE|RESTORE|CLEANUP)$/.test(i.id) || /^RUNTIME_DOCX_/.test(i.id));
+  if (!records.length) return undefined;
+  const front = YAML.stringify({ Title: COVERAGE_TITLE, GeneratedBy: 'Electronegativity', ReportType: 'Validation coverage' }, { lineWidth: 0 }).trimEnd();
+  return `---\n${front}\n---\n\n# ${COVERAGE_TITLE}\n\nThese are test outcomes and coverage limitations, not additional vulnerability findings. Acceptance, opening a view and absence of a signal do not prove execution or safety. Restore and cleanup warnings describe the test state.\n\n${records.map(i => `- ${text(i.description, ctx)}\n\n${recordedEvidence(i, ctx)}`).join('\n\n')}\n`;
+}
+
 /**
- * One Markdown document per finding, each with its YAML header and six sections: [{ title, file, content }]. meta.dir is
+ * One Markdown document per finding, plus a coverage document when test outcomes exist: [{ title, file, content }]. meta.dir is
  * the folder the files go in (links to other reports are relative to it); meta.root the scanned folder.
  */
 export function renderClientFindings(issues, meta = {}) {
-  return groupClientFindings([...issues, ...(meta.suppressed || [])]).map(g => {
+  const all = [...issues, ...(meta.suppressed || [])];
+  const findings = groupClientFindings(all).map(g => {
     const file = findingFileName(g.definition[0]);
     const ctx = context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile });
     return { title: g.definition[0], file, content: `${renderGroup(g, ctx)}\n` };
   });
+  const file = findingFileName(COVERAGE_TITLE);
+  const coverage = coverageDocument(all, context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile }));
+  if (coverage) findings.push({ title: COVERAGE_TITLE, file, content: coverage });
+  return findings;
 }
 
 export const MARKDOWN_FOLDER = 'markdown';
 // a finding file this report wrote: an earlier run's, replaced by this one's (other files in the folder are left alone)
 const isFindingFile = (file) => {
   try {
-    return /^---\r?\nTitle: /.test(fs.readFileSync(file, 'utf8').slice(0, 200));
+    const content = fs.readFileSync(file, 'utf8');
+    const header = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+    if (!header) return false;
+    const meta = YAML.parse(header[1]);
+    if (!meta?.Title || findingFileName(meta.Title) !== path.basename(file)) return false;
+    if (meta.GeneratedBy === 'Electronegativity') return true;
+    // A user's arbitrary Title front matter is not evidence of report ownership.
+    return [...definitions, other].some(d => d[0] === meta.Title) &&
+      ['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References']
+        .every(heading => content.includes(`\n## ${heading}\n`));
   } catch {
     return false;
   }
@@ -402,31 +486,41 @@ const isFindingFile = (file) => {
 export function writeClientMarkdown(folder, issues, meta = {}) {
   const dir = path.join(folder, MARKDOWN_FOLDER);
   fs.mkdirSync(dir, { recursive: true });
-  for (const name of fs.readdirSync(dir)) if (/\.md$/i.test(name) && isFindingFile(path.join(dir, name))) fs.rmSync(path.join(dir, name));
-  return renderClientFindings(issues, { ...meta, dir }).map(finding => {
+  const findings = renderClientFindings(issues, { ...meta, dir, reportRoot: folder });
+  const previous = fs.readdirSync(dir).filter(name => /\.md$/i.test(name) && isFindingFile(path.join(dir, name)));
+  for (const finding of findings) {
+    const file = path.join(dir, finding.file);
+    if (fs.existsSync(file) && !isFindingFile(file)) throw new Error(`Refusing to overwrite a Markdown file not owned by this report: ${file}`);
+  }
+  const files = findings.map(finding => {
     const file = path.join(dir, finding.file);
     fs.writeFileSync(file, finding.content);
     return file;
   });
+  const current = new Set(findings.map(f => f.file));
+  for (const name of previous) if (!current.has(name)) fs.rmSync(path.join(dir, name));
+  return files;
 }
 
 /**
  * The findings of several runs of one app (the static scan, then each watch session, which scans the code again), each
- * once: a finding a later run repeats takes that run's copy, which can carry runtime evidence, unless only the earlier
- * copy has it. Returns { reported, suppressed }.
+ * once, preserving validation history, evidence and screenshots across sessions. Returns { reported, suppressed }.
  */
 export function combineRuns(runs) {
-  const key = (i) => [i.id, i.file, i.location?.line, i.location?.column, i.description, i.sample].join('\u0000');
+  const key = (i) => [i.id, i.file, i.location?.line, i.location?.column, i.description, i.sample,
+    i.properties?.campaignId, i.properties?.case, i.properties?.slot, i.properties?.field, i.properties?.webContents].join('\u0000');
   const merge = (lists) => {
     const byKey = new Map();
     for (const list of lists) for (const issue of list || []) {
       const earlier = byKey.get(key(issue));
-      if (!earlier || !earlier.validation || issue.validation) byKey.set(key(issue), issue);
+      byKey.set(key(issue), earlier ? mergeFindingEvidence(earlier, issue) : issue);
     }
     return byKey;
   };
   const suppressed = merge(runs.map(r => r.suppressed));
-  const reported = [...merge(runs.map(r => r.reported))].filter(([k]) => !suppressed.has(k)).map(([, issue]) => issue);
+  const allReported = merge(runs.map(r => r.reported));
+  for (const [k, issue] of suppressed) if (allReported.has(k)) suppressed.set(k, mergeFindingEvidence(allReported.get(k), issue));
+  const reported = [...allReported].filter(([k]) => !suppressed.has(k)).map(([, issue]) => issue);
   return { reported, suppressed: [...suppressed.values()] };
 }
 
@@ -437,6 +531,7 @@ export function combineRuns(runs) {
 export function renderClientMarkdown(issues, meta = {}) {
   const ctx = context(meta);
   const groups = groupClientFindings([...issues, ...(meta.suppressed || [])]);
-  if (groups.length === 0) return `No reportable findings were identified in ${text(ctx.app, ctx)}.\n`;
-  return groups.map(g => renderGroup(g, ctx)).join('\n\n') + '\n';
+  const coverage = coverageDocument([...issues, ...(meta.suppressed || [])], ctx);
+  const findings = groups.length ? groups.map(g => renderGroup(g, ctx)).join('\n\n') : `No reportable findings were identified in ${text(ctx.app, ctx)}.`;
+  return findings + (coverage ? `\n\n${coverage}` : '\n');
 }

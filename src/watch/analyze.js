@@ -54,27 +54,29 @@ export function analyzeWatchLog(records) {
   const first = (key) => !once.has(key) && once.add(key);
   const activeSent = records.filter(r => r.kind === 'active-payload-sent');
   const executed = records.filter(r => r.kind === 'active-payload-executed');
-  for (const r of executed) if (first(`active:${r.id}:${r.url}`))
+  for (const r of executed) if (first(`active:${r.id}:${r.url}`)) {
     add('RUNTIME_ACTIVE_SCRIPT', r.url, severity.MEDIUM, confidence.FIRM,
       `A benign event-handler probe executed script in this renderer. The log does not establish which save route supplied it or whether a second account can reach it`,
       { webContents: r.id, execution: 'observed' }, `${DOCS}#7-define-a-content-security-policy`);
+    issues.at(-1).validation = { status: 'confirmed', scope: 'execution', text: 'A benign probe emitted an execution signal in this renderer. The save route and cross-account reachability are not established.' };
+  }
   if (activeSent.length && !executed.length)
     add('RUNTIME_ACTIVE_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
       `${activeSent.length} benign execution probe(s) were accepted by save requests, but no execution signal appeared in the watched pages. The content may not have been viewed; this is not a safe verdict`,
       { sent: activeSent.length, execution: 'not observed' });
   const campaignCases = [];
   for (const sent of records.filter(r => r.kind === 'campaign-send')) {
-    const ambiguous = !sent.campaignId && records.filter(r => r.kind === 'campaign-send' && r.case === sent.case && r.slot === sent.slot && !r.campaignId).length > 1;
+    const ambiguous = records.filter(r => r.kind === 'campaign-send' && r.case === sent.case && r.slot === sent.slot && r.campaignId === sent.campaignId).length > 1;
     const same = r => !ambiguous && r.case === sent.case && r.slot === sent.slot && r.campaignId === sent.campaignId;
     const views = records.filter(r => r.kind === 'campaign-view' && same(r));
     const signals = records.filter(r => r.kind === 'campaign-result' && same(r));
     const resources = records.filter(r => r.kind === 'campaign-resource' && same(r));
     const action = records.find(r => r.kind === 'campaign-action' && same(r));
-    const execution = signals.some(r => r.signal === 'executed');
+    const execution = sent.ok && EXECUTION.has(sent.case) && signals.some(r => r.signal === 'executed');
     const delivery = sent.ok ? 'accepted' : sent.status ? 'rejected' : 'failed';
     const view = views.some(r => r.opened) ? 'opened' : 'not observed';
     const verification = records.find(r => r.kind === 'campaign-verification' && same(r));
-    const caseState = { campaignId: sent.campaignId, correlation: ambiguous ? 'ambiguous' : 'matched-case', savedValue: verification?.verification || 'not verified', case: sent.case, field: sent.field, slot: sent.slot, delivery, view,
+    const caseState = { campaignId: sent.campaignId, correlation: ambiguous ? 'ambiguous' : 'matched-case', savedValue: verification?.verification || 'not verified', case: sent.case, field: sent.field, slot: sent.slot, method: sent.method, route: sent.route, delivery, view,
       action: action ? { clicked: action.clicked, navigated: action.navigated, url: action.url } : undefined,
       execution: EXECUTION.has(sent.case) ? (execution ? 'observed' : 'not observed') : 'not applicable',
       resources: resources.map(r => r.resource),
@@ -83,6 +85,9 @@ export function analyzeWatchLog(records) {
     add('RUNTIME_CAMPAIGN_CASE', sent.route || 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
       `Campaign ${sent.case}${sent.field ? ` in ${sent.field}` : ''}: request ${delivery}${sent.status ? ` (HTTP ${sent.status})` : ''}, saved view ${view}, script ${caseState.execution}${resources.length ? `, local resource requests ${resources.length}` : ''}. Silence is not a safe verdict`,
       caseState);
+    issues.at(-1).validation = { status: execution ? 'confirmed' : 'inconclusive', scope: execution ? 'execution' : 'workflow',
+      text: execution ? 'An execution signal matched this campaign case and slot. Account boundaries and additional privileges remain unverified.' :
+        'No matching execution signal was established. Request acceptance or opening a view alone is not a safe verdict or proof of execution.' };
     if (!sent.ok) continue;
     for (const resource of resources)
       add('RUNTIME_CAMPAIGN_RESOURCE', 'http://127.0.0.1', severity.INFORMATIONAL, confidence.CERTAIN,
@@ -105,17 +110,23 @@ export function analyzeWatchLog(records) {
       add('RUNTIME_CAMPAIGN_API', signals.find(r => r.signal === 'api-invoked').url, severity.INFORMATIONAL, confidence.CERTAIN,
         `The ${sent.case} probe called a configured page API; ${signals.some(r => r.signal === 'api-resolved') ? 'the call resolved' : signals.some(r => r.signal === 'api-rejected') ? 'the call rejected' : 'the outcome was not observed'}. No IPC authorization or privileged effect is inferred from the call result`,
         { case: sent.case, outcome: signals.some(r => r.signal === 'api-resolved') ? 'resolved' : signals.some(r => r.signal === 'api-rejected') ? 'rejected' : 'unknown' });
-    if (execution && EXECUTION.has(sent.case))
-      add('RUNTIME_CAMPAIGN_SCRIPT', signals[0]?.url || 'runtime', severity.MEDIUM, confidence.FIRM,
+    if (execution && EXECUTION.has(sent.case)) {
+      add('RUNTIME_CAMPAIGN_SCRIPT', signals.find(r => r.signal === 'executed')?.url || 'runtime', severity.MEDIUM, confidence.FIRM,
         `The ${sent.case} probe executed through a configured save/view workflow. Account boundaries and exposed privileges require separate evidence`,
-        { case: sent.case, delivery, view, execution: 'observed' });
-    for (const [signal, id, sev] of [['fs-read', 'RUNTIME_CAMPAIGN_FS_READ', severity.HIGH],
-      ['node-available', 'RUNTIME_CAMPAIGN_NODE', severity.LOW], ['electron-available', 'RUNTIME_CAMPAIGN_ELECTRON', severity.MEDIUM],
-      ['eval-allowed', 'RUNTIME_CAMPAIGN_EVAL', severity.LOW]]) if (signals.some(r => r.signal === signal))
+        { ...caseState, execution: 'observed' });
+      issues.at(-1).validation = { status: 'confirmed', scope: 'execution', text: 'A benign script execution signal matched the recorded campaign case and slot. Saved-value verification, account boundaries and additional privileges require their own evidence.' };
+    }
+    for (const [name, signal, id, sev] of [['fs-read', 'fs-read', 'RUNTIME_CAMPAIGN_FS_READ', severity.HIGH],
+      ['node', 'node-available', 'RUNTIME_CAMPAIGN_NODE', severity.LOW], ['electron', 'electron-available', 'RUNTIME_CAMPAIGN_ELECTRON', severity.MEDIUM],
+      ['eval', 'eval-allowed', 'RUNTIME_CAMPAIGN_EVAL', severity.LOW]]) if (sent.case === name && signals.some(r => r.signal === signal)) {
       add(id, signals.find(r => r.signal === signal).url, sev, confidence.FIRM,
         signal === 'fs-read' ? 'Renderer script read a unique, tool-created file canary through Node fs' :
           `${sent.case} probe reported ${signal} in the page world; assess the window and origin`,
-        { case: sent.case, signal, delivery });
+        { ...caseState, signal });
+      issues.at(-1).validation = { status: 'confirmed', scope: 'execution', text: signal === 'fs-read' ?
+        'The matched probe read the tool-owned file canary. Access to other files or accounts was not tested.' :
+        `The matched probe reported ${signal} in the tested page world. Other windows, accounts and capabilities were not tested.` };
+    }
   }
   for (const error of records.filter(r => r.kind === 'campaign-error'))
     add('RUNTIME_CAMPAIGN_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
@@ -365,8 +376,13 @@ export function analyzeWatchLog(records) {
   // evidence screenshots (--watch-screenshots), attached to the findings about the same page
   const screenshots = records.filter(r => r.kind === 'screenshot').map(r => ({ reason: r.reason, url: r.url, file: r.file }));
   for (const issue of issues) {
-    const shot = screenshots.find(s => s.url === issue.file);
-    if (shot) issue.properties = { ...(issue.properties || {}), screenshot: shot.file };
+    const shots = screenshots.filter(s => s.url === (issue.properties?.page || issue.file));
+    if (shots.length) issue.properties = { ...(issue.properties || {}), screenshot: shots[0].file, screenshots: [...new Set(shots.map(s => s.file))] };
+    if (!issue.validation) {
+      const setting = /^RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|WEB_SECURITY|CSP)$/.test(issue.id);
+      issue.validation = { status: setting ? 'confirmed' : 'observed', scope: setting ? 'configuration' : 'observation',
+        text: `${issue.description}${setting ? ' This confirms the observed configuration, not exploitability.' : ''}` };
+    }
   }
   return { issues, summary: { screenshots, started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic,
     docxCampaign: docxCases.length ? { attempted: docxCases.length, accepted: docxCases.filter(c => c.accepted).length, cases: docxCases } : undefined,

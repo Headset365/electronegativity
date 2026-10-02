@@ -342,8 +342,8 @@ export const CLIENT_COPY = {
     'Remove unsafe-eval from the policy of the affected view and replace string evaluation in the application code. Repeat the campaign case and confirm the evaluation attempt is blocked and reported as a violation.'
   ],
   'No certificate pinning': [
-    'The application relies on the operating system’s trusted certificate authorities for its backend connections and does not pin the certificates or keys of the servers it trusts. This is a hardening observation, not a certificate validation failure.',
-    'An actor who can place a trusted certificate on the device, or who obtains a certificate from a trusted authority for the backend host, could intercept the affected connections. Where a runtime capture shows an intercepting proxy was accepted, that interception is observed for the tested host.',
+    'The scanner did not identify certificate or public-key pinning in the reviewed paths. Confirm the exact backend connection before concluding pinning is absent. This is a hardening observation, not a certificate validation failure.',
+    'If the affected connection accepts an intercepting proxy’s certificate, an actor able to supply such a trusted certificate could read or alter that connection. A supplied capture alone does not establish which app accepted which certificate.',
     'Decide from the threat model whether pinning is required for the backend hosts. Where it is, verify the server certificate or public key in session.setCertificateVerifyProc against an allowlist with a rotation plan, and confirm an intercepting proxy’s certificate is rejected.'
   ],
   'Untrusted URL loaded in an app window': [
@@ -351,9 +351,9 @@ export const CLIENT_COPY = {
     'If an external party can choose that URL, their page runs inside the application window with that window’s preload, session and permissions. The consequence depends on what the window exposes to page content.',
     'Parse the incoming URL and allow only known application origins and paths before loading it; open everything else in the system browser after scheme validation. Verify that a crafted link to an unapproved origin is not loaded in the window.'
   ],
-  'Interception proxy accepted': [
-    'A traffic capture made with an intercepting proxy contains the application’s decrypted HTTPS traffic: the application accepted a certificate issued by the proxy for its backend hosts.',
-    'Anyone who can get a certificate trusted on the device, such as a corporate proxy or malware that installs a root certificate, can read and alter these connections. This was observed on a test device where the proxy’s root certificate had been installed on purpose.',
+  'HTTPS exchanges in a proxy capture': [
+    'A supplied proxy capture contains HTTPS exchanges with responses. The originating app, certificate and affected connection must be established independently.',
+    'If the test confirms the application accepted the proxy certificate for the affected backend, interception is demonstrated for that connection. Capture presence alone does not prove absence of pinning or acceptance of an invalid certificate.',
     'Where the threat model calls for it, pin the backend certificates or keys and reject connections that do not match. Repeat the capture through the proxy and confirm the application refuses the connection.'
   ],
 };

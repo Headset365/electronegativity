@@ -3,6 +3,7 @@
 // Called after the runtime findings have been merged into the static ones.
 import path from 'node:path';
 import { severity, confidence } from '../finder/attributes.js';
+import { recordValidation } from '../finder/validation.js';
 
 const DOCS = 'https://www.electronjs.org/docs/latest/tutorial/security';
 
@@ -85,6 +86,8 @@ function sameScript(file, url) {
   const b = withoutQuery(url);
   if (!a || !b) return false;
   if (a === b) return true;
+  // Identical path tails on different servers are not the same script.
+  if (/^\w+:\/\//.test(a) && /^\w+:\/\//.test(b)) return false;
   const tail = (p) => p.split(/[\\/]/).filter(Boolean).slice(-2).join('/');
   return tail(a) !== '' && tail(a) === tail(b);
 }
@@ -95,7 +98,8 @@ function sameScript(file, url) {
  */
 function linkMarkerEvidence(issues) {
   const of = (id) => issues.filter(i => i.id === id);
-  const mark = (issue, text) => { if (!issue.validation) issue.validation = { status: 'observed', text }; };
+  const mark = (issue, text, source) => recordValidation(issue, { status: 'observed', scope: 'data-flow', text,
+    evidence: [`${source.id} at ${place(source)}: ${source.description}`] });
 
   for (const sink of of('RUNTIME_MARKER_SINK')) {
     const frames = (sink.properties && sink.properties.frames) || [];
@@ -103,16 +107,20 @@ function linkMarkerEvidence(issues) {
       if (!issue.location) continue;
       // the scanned file is the script itself, or the original source its source map pointed to
       const frame = frames.find(f => (f.original && f.original.file === issue.file && f.original.line === issue.location.line) ||
-        (f.line === issue.location.line && sameScript(issue.file, f.url)));
+        (f.line === issue.location.line && sameScript(issue.file, f.url) &&
+          new Set(issues.filter(i => HTML_CODE.has(i.id) && sameScript(i.file, f.url)).map(i => i.file)).size === 1));
       if (frame) {
-        mark(issue, `Observed at runtime: marker markup reached ${sink.properties.sink} from this line (${frame.url}:${frame.line}:${frame.column}${frame.original ? `, ${frame.original.file.replace(/^.* \(source: (.*)\)$/, '$1')}:${frame.original.line}` : ''}). Script execution and exploitability remain untested.`);
+        mark(issue, `Observed at runtime: marker markup reached ${sink.properties.sink} from this line (${frame.url}:${frame.line}:${frame.column}${frame.original ? `, ${frame.original.file.replace(/^.* \(source: (.*)\)$/, '$1')}:${frame.original.line}` : ''}). Script execution and exploitability remain untested.`, sink);
         sink.properties = { ...sink.properties, staticFinding: `${issue.id} at ${issue.file}:${issue.location.line}` };
+        sink.properties.staticFindings = [...new Set([...(sink.properties.staticFindings || []), `${issue.id} at ${place(issue)}`])];
       }
     }
   }
-  const channels = new Map(of('RUNTIME_MARKER_IPC').map(r => [r.properties.channel, r.properties.sender]));
-  for (const issue of of('IPC_SENDER_VALIDATION_JS_CHECK')) {
+  for (const issue of issues.filter(i => ['IPC_SENDER_VALIDATION_JS_CHECK', 'IPC_HANDLER_JS_CHECK', 'IPC_FILE_ACCESS_JS_CHECK'].includes(i.id))) {
     const channel = issue.properties && issue.properties.channel;
-    if (channel && channels.has(channel)) mark(issue, `Seen at runtime: marker data reached '${channel}'${channels.get(channel) ? ` (sent from ${channels.get(channel)})` : ''}. The handler's sender and value checks remain unverified.`);
+    if (channel) for (const source of of('RUNTIME_MARKER_IPC').filter(r => r.properties?.channel === channel)) {
+      mark(issue, `Seen at runtime: marker data reached '${channel}'${source.properties.sender ? ` (sent from ${source.properties.sender})` : ''}. The handler's sender and value checks remain unverified.`, source);
+      source.properties.staticFindings = [...new Set([...(source.properties.staticFindings || []), `${issue.id} at ${place(issue)}`])];
+    }
   }
 }

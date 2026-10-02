@@ -4,6 +4,7 @@
 // When several scenarios share a check, the condition picks the ones the finding's data supports; a finding whose data
 // selects none of them gets the first scenario of its check.
 import { CLIENT_COPY } from './markdown_client_copy.js';
+import { validationResults } from '../finder/validation.js';
 
 const describe = i => String(i.description || '');
 const props = i => i.properties || {};
@@ -186,9 +187,9 @@ export const VARIATIONS = {
   ],
   'Certificate Pinning Not Implemented (hardening)': [
     ['No certificate pinning', /^CERTIFICATE_PINNING/,
-      'Decide whether the threat model requires pinning; an intercepting proxy in a test capture shows whether any trusted certificate is accepted.'],
-    ['Interception proxy accepted', /^CERTIFICATE_PINNING/,
-      'Identify the captured hosts and the proxy certificate the test device trusted when the capture was made.', i => i.validation?.status === 'confirmed'],
+      'Decide whether the threat model requires pinning; test the exact app connection and host with a known proxy certificate.'],
+    ['HTTPS exchanges in a proxy capture', /^CERTIFICATE_PINNING/,
+      'Establish the originating app, captured hosts and proxy certificate before treating the capture as a pinning test.', i => validationResults(i).some(r => r.scope === 'capture')],
   ],
   'Insecure Transport and Certificate Validation': [
     ['Cleartext HTTP or WebSocket', /^(HTTP_RESOURCES|RUNTIME_INSECURE_LOAD|TRAFFIC_CLEARTEXT_HTTP|TRAFFIC_WS_CLEARTEXT)/,
