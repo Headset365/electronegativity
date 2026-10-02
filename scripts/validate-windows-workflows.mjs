@@ -39,6 +39,16 @@ async function freePort() { const s = net.createServer(); await new Promise(reso
 function logs() { return fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('electronegativity-watch-')).map(n => path.join(os.tmpdir(), n, 'session.jsonl')).filter(f => fs.existsSync(f) && fs.statSync(f).mtimeMs >= Date.parse(status.startedAt)); }
 function rows() { return logs().flatMap(file => fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).flatMap(l => { try { return [JSON.parse(l)]; } catch { return []; } })); }
 function ownedMainPID() { return rows().find(r => r.kind === 'proof-listener' && r.purpose === 'certificate' && Number.isInteger(r.pid))?.pid; }
+function stopOwnedProcess(pid) {
+  try { execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { encoding: 'utf8' }); }
+  catch (error) {
+    // taskkill can terminate the main process successfully yet return 128 when
+    // a child exits during enumeration. Require that the owned main PID is gone.
+    try { process.kill(pid, 0); }
+    catch (probe) { if (probe.code === 'ESRCH') return; throw error; }
+    throw error;
+  }
+}
 async function snapshot(cdp, name) { fs.writeFileSync(path.join(out, name + '.json'), JSON.stringify(await cdp.state(), null, 2)); await cdp.screenshot(path.join(out, name + '.png')); }
 let cli, cdp, installer;
 try {
@@ -74,7 +84,7 @@ try {
       const ready = await connect(debugPort, t => t.url.includes('/stage/build/app/'), 120000);
       await snapshot(ready, 'workspace-onboarding'); ready.close();
     } else initial.close();
-    execFileSync('taskkill', ['/PID', String(setup.pid), '/T', '/F']);
+    stopOwnedProcess(setup.pid);
     await delay(3000);
     step('app-onboarding', { method: 'Shipped first-run workspace handler, without test payloads', workspace: path.join(work,'workspace') });
   }
