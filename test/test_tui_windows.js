@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex -- Assertions verify the exact VT protocol bytes. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -8,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { Dashboard, TerminalInput, cleanText, launchWorker, runDashboard } from '../src/tui/dashboard.js';
 import { createAssistant } from '../src/watch/assistant.js';
+import { pipeAppOutput } from '../src/watch/launch.js';
 
 const { inspectBody } = createRequire(import.meta.url)('../src/watch/capture.cjs');
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -91,6 +93,16 @@ describe('Windows PowerShell TUI', function () {
     assert.equal(lines.length, 24); assert.ok(lines.every(line => line.length <= 79));
     for (const tab of ['Validation', 'App output', 'Tool logs', 'Findings']) assert.ok(ui.controls.some(control => control.id === `tab:${tab}`));
     assert.equal(ui.phase, 'Session running');
+  });
+
+  it('preserves split UTF-8 app output and partial lines without mixing stdout and stderr', async () => {
+    const child = { stdout: new PassThrough(), stderr: new PassThrough() }, output = [];
+    pipeAppOutput(child, (stream, text) => output.push({ stream, text }));
+    const bytes = Buffer.from('café\n');
+    child.stdout.write(bytes.subarray(0, 4)); child.stderr.write('debug');
+    assert.equal(output.length, 0);
+    child.stdout.end(bytes.subarray(4)); child.stderr.end(' done'); await tick();
+    assert.deepEqual(output, [{ stream: 'stdout', text: 'café' }, { stream: 'stderr', text: 'debug done' }]);
   });
 
   it('parses fragmented mouse input, arrows, CRLF and bracketed paste without running pasted commands', () => {

@@ -112,7 +112,7 @@ async function main() {
     return;
   }
   tuiEvent('configuration', { target: options.app || options.watch || options.input || options.rerender,
-    autoCampaign: !!options.autoCampaign, mode: options.app ? 'guided' : options.watch ? 'watch' : 'scan' });
+    autoCampaign: !!options.autoCampaign, campaign: !!options.campaign, mode: options.app ? 'guided' : options.watch ? 'watch' : 'scan' });
   tuiEvent('phase', { text: options.rerender ? 'Rewriting reports…' : 'Checking command options…' });
   // --rerender: no scan, only the earlier scan's findings written again
   if (options.rerender) {

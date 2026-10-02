@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { createRequire } from 'node:module';
+import { StringDecoder } from 'node:string_decoder';
 import { proveRunAsNode } from './fuses.js';
 
 const { inventory: windowsInventory, observePorts } = createRequire(import.meta.url)('./windows.cjs');
@@ -12,6 +13,19 @@ const { inventory: windowsInventory, observePorts } = createRequire(import.meta.
 const HOOK = path.join(import.meta.dirname, 'hook.cjs');
 // how long an app that has quit gets to end its process before it is closed
 const QUIT_GRACE_MS = 15000;
+// Keep UTF-8 characters and partial lines together; app output is never connected to the dashboard's terminal.
+export function pipeAppOutput(child, onOutput) {
+  for (const name of ['stdout', 'stderr']) {
+    const decoder = new StringDecoder('utf8');
+    let rest = '';
+    child[name].on('data', chunk => {
+      const lines = (rest + decoder.write(chunk)).split(/\r?\n|\r/); rest = lines.pop();
+      for (const line of lines) onOutput(name, line);
+      if (rest.length > 4096) { onOutput(name, rest.slice(0, 4096)); rest = ''; }
+    });
+    child[name].on('end', () => { const tail = rest + decoder.end(); if (tail) onOutput(name, tail); });
+  }
+}
 const exists = (file) => {
   try {
     fs.accessSync(file);
@@ -109,10 +123,7 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
     const finalArgs = packaged ? [`--inspect-brk-node=127.0.0.1:${port}`, ...commandArgs] : commandArgs;
     return new Promise((resolve, reject) => {
       const child = spawn(command, finalArgs, { env, stdio: onOutput ? ['ignore', 'pipe', 'pipe'] : stdio });
-      if (onOutput) {
-        child.stdout.on('data', chunk => onOutput('stdout', chunk.toString('utf8')));
-        child.stderr.on('data', chunk => onOutput('stderr', chunk.toString('utf8')));
-      }
+      if (onOutput) pipeAppOutput(child, onOutput);
       const stopPorts = observePorts(child.pid, record, { inspectorPort: port });
       const stop = () => child.kill();
       process.once('SIGINT', stop);

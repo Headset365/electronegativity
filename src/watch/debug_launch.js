@@ -1,7 +1,7 @@
 // Owns the app process and its local renderer debugger for a single managed run.
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
-import { resolveApp, freePort } from './launch.js';
+import { resolveApp, freePort, pipeAppOutput } from './launch.js';
 import { connectDebug, watchDebug } from './debug.js';
 
 export async function watchDebugApp(target, { args = [], target: debugTarget, duration = 0, log, stdio = 'inherit', onOutput, onNote = () => {},
@@ -19,10 +19,7 @@ export async function watchDebugApp(target, { args = [], target: debugTarget, du
   fs.writeFileSync(log, '');
   // Electron's DevTools socket factory binds the renderer debug listener to 127.0.0.1.
   const child = spawnApp(app.command, [...app.args, `--remote-debugging-port=${port}`], { env: { ...process.env }, stdio: onOutput ? ['ignore', 'pipe', 'pipe'] : stdio });
-  if (onOutput) {
-    child.stdout.on('data', chunk => onOutput('stdout', chunk.toString('utf8')));
-    child.stderr.on('data', chunk => onOutput('stderr', chunk.toString('utf8')));
-  }
+  if (onOutput) pipeAppOutput(child, onOutput);
   let client, exited = false, launchError, finishing = false, finish;
   const ended = new Promise(resolve => { finish = resolve; });
   const exit = error => { exited = true; launchError = error; client?.close(); finish(); };

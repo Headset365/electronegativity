@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex -- Read VT frame coordinates to exercise real dashboard mouse hit targets. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';

@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex -- VT keyboard/mouse protocols and terminal sanitization require control bytes. */
 import { fork, spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { stripVTControlCharacters } from 'node:util';
@@ -100,6 +101,7 @@ export class Dashboard {
     switch (message.type) {
       case 'configuration':
         this.target = message.target; this.mode = message.mode;
+        this.campaignEnabled = message.autoCampaign || message.campaign;
         this.log('Validation', message.autoCampaign ? 'Save a disposable record in the app. Eligible saves appear under Campaigns; select one to review its fields and view.' : 'Session guidance and validation results appear here.');
         break;
       case 'phase': this.phase = message.text; break;
@@ -288,7 +290,8 @@ export class Dashboard {
       campaignRows.push(fit(` ${item.key}`, left));
       campaignRows.push(fit(` ${item.reason || `${item.cases || '?'} cases | ${(item.fields || []).join(', ')}`}`, left));
     }
-    if (!campaignRows.length) campaignRows.push(' No runnable campaigns yet.', this.live ? ' Save content in the app first.' : ' Start a watch session first.');
+    if (!campaignRows.length) campaignRows.push(this.campaignEnabled === false ? ' Campaigns are not enabled.' : ' No runnable campaigns yet.',
+      this.campaignEnabled === false ? ' Add --auto-campaign/--campaign.' : this.live ? ' Save content in the app first.' : ' Start a watch session first.');
     const history = this.sessions.slice(-3).map(session => ` Session ${session.number}: ${session.state}`);
     const display = [...campaignRows, '', ' Session history', ...history];
     const logWidth = Math.max(1, right);
