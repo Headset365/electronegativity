@@ -1,4 +1,5 @@
 // Client-facing findings, grouped by the security problem rather than by scanner check.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -472,6 +473,42 @@ export function renderClientFindings(issues, meta = {}) {
 
 // the client deliverables of a run: the findings and the components workbook they refer to
 export const MARKDOWN_FOLDER = 'reports';
+
+/**
+ * A finding file's parts: its header fields (Title, Consequence, Likelihood, Notes) and its sections by heading, each as
+ * written. Text before the first section heading (the # title) is not a section.
+ */
+export function parseFinding(content) {
+  const text = String(content).replace(/\r\n?/g, '\n');
+  const header = text.match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
+  let front;
+  try {
+    front = header ? YAML.parse(header[1]) || {} : {};
+  } catch {
+    front = {};
+  }
+  const body = header ? text.slice(header[0].length) : text;
+  const sections = {};
+  const parts = body.split(/^## (.+)$/m);
+  for (let i = 1; i < parts.length; i += 2) sections[parts[i].trim()] = parts[i + 1].trim();
+  return { front, sections };
+}
+
+// the same text, however an editor saved it: line endings, trailing spaces and blank lines don't count as edits
+const normalized = (value) => String(value ?? '').replace(/\r\n?/g, '\n').split('\n').map(line => line.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+const digest = (value) => crypto.createHash('sha256').update(normalized(value)).digest('hex').slice(0, 16);
+
+/** Fingerprints of a finding file's rating, notes and each section, to tell later edits from what the tool wrote. */
+export function findingFingerprints(content) {
+  const { front, sections } = parseFinding(content);
+  return {
+    title: front.Title,
+    rating: digest(`${front.Consequence ?? ''}|${front.Likelihood ?? ''}`),
+    notes: digest(JSON.stringify(front.Notes ?? [])),
+    sections: Object.fromEntries(Object.entries(sections).map(([heading, text]) => [heading, digest(text)])),
+  };
+}
+export const sectionDigest = digest;
 // a finding file this report wrote: an earlier run's, replaced by this one's (other files in the folder are left alone)
 const isFindingFile = (file) => {
   try {
@@ -494,8 +531,8 @@ const isFindingFile = (file) => {
  * Writes the client findings into <folder>/reports, one file per finding named after its title, replacing the finding
  * files an earlier run left there. Returns the files written.
  */
-export function writeClientMarkdown(folder, issues, meta = {}) {
-  const dir = path.join(folder, MARKDOWN_FOLDER);
+export function writeClientMarkdown(folder, issues, meta = {}, subfolder = MARKDOWN_FOLDER) {
+  const dir = path.join(folder, subfolder);
   fs.mkdirSync(dir, { recursive: true });
   const findings = renderClientFindings(issues, { ...meta, dir, reportRoot: folder });
   const previous = fs.readdirSync(dir).filter(name => /\.md$/i.test(name) && isFindingFile(path.join(dir, name)));

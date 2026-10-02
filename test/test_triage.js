@@ -119,6 +119,9 @@ describe('Triage', () => {
     result.reported.filter(i => i.comparison === 'new').map(i => i.id).should.include('OPEN_EXTERNAL_JS_CHECK');
     const json = JSON.parse(fs.readFileSync(out('second.json'), 'utf8'));
     json.suppressed[0].should.include({ id: 'DEVTOOLS_JS_CHECK', reason: 'dev only', owner: 'team', source: 'suppressions' });
+    // in full, so the client findings can be written again from the JSON report (--rerender)
+    json.suppressed[0].should.include.keys('sample', 'confidence', 'line', 'column', 'reference', 'suppression');
+    json.suppressed[0].suppression.should.include({ reason: 'dev only', owner: 'team' });
     const sarif = JSON.parse(fs.readFileSync(out('second.sarif'), 'utf8')).runs[0].results;
     sarif.find(r => r.ruleId === 'DEVTOOLS_JS_CHECK').suppressions[0].justification.should.include('dev only');
     sarif.find(r => r.ruleId === 'OPEN_EXTERNAL_JS_CHECK').baselineState.should.equal('new');

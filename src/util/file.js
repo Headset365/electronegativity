@@ -10,7 +10,7 @@ import { consequenceOf, validationHint, interactionOf } from '../finder/conseque
 import { remediationOf } from '../finder/remediation.js';
 import { cycloneDx } from '../report/cyclonedx.js';
 import { renderDocx } from '../report/docx.js';
-import { writeClientMarkdown, MARKDOWN_FOLDER } from '../report/markdown.js';
+import { writeClientMarkdown, findingFingerprints, MARKDOWN_FOLDER } from '../report/markdown.js';
 import { COMPONENTS_SHEET } from '../report/markdown_outdated.js';
 import { renderComponentsXlsx } from '../report/xlsx.js';
 import { scores } from '../report/scores.js';
@@ -259,9 +259,36 @@ function reportProperties(properties) {
   return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
-// a suppressed finding in the reports: what it was and why it is accepted
-const suppressedEntry = (issue, fingerprint) => ({ id: issue.id, severity: issue.severity.name, file: issue.file, line: issue.location ? issue.location.line : undefined,
-  description: issue.description, fingerprint, ...issue.suppression });
+// one finding as the JSON report stores it: everything the reports are written from, so they can be written again later
+// (--rerender) from this file alone
+const issueEntry = (issue, fingerprint) => ({
+  fingerprint,
+  comparison: issue.comparison,
+  id: issue.id,
+  severity: issue.severity.name,
+  confidence: issue.confidence.name,
+  manualReview: !!issue.manualReview,
+  file: issue.file,
+  line: issue.location ? issue.location.line : undefined,
+  column: issue.location ? issue.location.column : undefined,
+  sample: issue.sample,
+  description: issue.description,
+  // the watch session a runtime finding came from (validation results carry their own)
+  session: issue.session,
+  exploitableBy: consequenceOf(issue.id)?.label,
+  consequence: consequenceOf(issue.id)?.text,
+  interaction: interactionOf(issue.id),
+  validation: issue.validation,
+  howToValidate: issue.manualReview && !issue.validation ? validationHint(issue.id) : undefined,
+  remediation: remediationOf(issue.id)?.fix,
+  remediationExample: remediationOf(issue.id)?.example,
+  notes: issue.notes,
+  reference: issue.shortenedURL,
+  properties: reportProperties(issue.properties)
+});
+
+// an accepted risk: the finding in full, and why it is accepted (also flattened, as earlier reports had it)
+const suppressedEntry = (issue, fingerprint) => ({ ...issueEntry(issue, fingerprint), ...issue.suppression, suppression: issue.suppression });
 
 function jsonReport(result, meta) {
   const summary = {};
@@ -275,29 +302,7 @@ function jsonReport(result, meta) {
     summary,
     scores: scores(result),
     suppressed: suppressed.map((issue, i) => suppressedEntry(issue, suppressedPrints[i].fingerprint)),
-    issues: result.map((issue, i) => ({
-      fingerprint: prints[i].fingerprint,
-      comparison: issue.comparison,
-      id: issue.id,
-      severity: issue.severity.name,
-      confidence: issue.confidence.name,
-      manualReview: !!issue.manualReview,
-      file: issue.file,
-      line: issue.location ? issue.location.line : undefined,
-      column: issue.location ? issue.location.column : undefined,
-      sample: issue.sample,
-      description: issue.description,
-      exploitableBy: consequenceOf(issue.id)?.label,
-      consequence: consequenceOf(issue.id)?.text,
-      interaction: interactionOf(issue.id),
-      validation: issue.validation,
-      howToValidate: issue.manualReview && !issue.validation ? validationHint(issue.id) : undefined,
-      remediation: remediationOf(issue.id)?.fix,
-      remediationExample: remediationOf(issue.id)?.example,
-      notes: issue.notes,
-      reference: issue.shortenedURL,
-      properties: reportProperties(issue.properties)
-    }))
+    issues: result.map((issue, i) => issueEntry(issue, prints[i].fingerprint)),
   }, null, 2);
 }
 
@@ -305,12 +310,14 @@ function jsonReport(result, meta) {
  * The client deliverables of a run in <base>/reports: one Markdown file per finding and the components workbook
  * (components.xlsx) the outdated components finding refers to. Returns { dir, findings, sheet }.
  */
-export function writeReports(base, result, meta = {}) {
-  const dir = path.join(path.resolve(base), MARKDOWN_FOLDER);
-  const findings = writeClientMarkdown(path.resolve(base), result, meta);
+export function writeReports(base, result, meta = {}, subfolder = MARKDOWN_FOLDER) {
+  const dir = path.join(path.resolve(base), subfolder);
+  const findings = writeClientMarkdown(path.resolve(base), result, meta, subfolder);
   const sheet = path.join(dir, COMPONENTS_SHEET);
   fs.writeFileSync(sheet, renderComponentsXlsx(meta.dependencies, { appName: meta.app?.name }));
-  return { dir, findings, sheet };
+  // what was written, section by section: kept in report.json, so a later --rerender can tell the tester's edits apart
+  const markdown = { version: VER, findings: Object.fromEntries(findings.map(file => [path.basename(file), findingFingerprints(fs.readFileSync(file, 'utf8'))])) };
+  return { dir, findings, sheet, markdown };
 }
 
 export function writeIssues(root, isRelative, filename, result, isSarif, meta = {}){

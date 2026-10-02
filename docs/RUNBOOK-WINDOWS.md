@@ -137,7 +137,23 @@ electronegativity --watch-log "$env:TEMP\electronegativity-watch-XXXXXX\session.
 The individual options still work on their own: `-i "C:\Program Files\MyApp" -o static.html` for a static scan, and
 `--watch "C:\Program Files\MyApp" -o session.html` for one watch session. Every run also writes the client findings and
 the components workbook to a `reports` folder: in the run's report folder, next to the first `-o` file, or in the folder
-you ran it from.
+you ran it from, with `report.json` next to it: the data the findings were written from.
+
+### Updating the findings of an earlier scan to new templates
+
+After a finding template changes (a revised fuse finding, say), the findings of an earlier scan can be written again
+from that scan's `report.json`, without scanning again:
+
+```powershell
+electronegativity --rerender C:\eng-results\report.json
+```
+
+The new findings go to `reports\newReports\`, with a new `components.xlsx`. All their content comes from the scan's data;
+the earlier findings are only read and left as they are. `reports\newReports-review.md` lists what was changed by hand in
+the earlier findings (a rating, an edited, added or removed section), quoting the earlier text so you can carry it over.
+For findings written before this version, the tool can't tell a template change from a manual edit: the review then
+lists every part that differs, for you to check. Use `--old-reports <folder>` if the earlier findings are not in the
+`reports` folder next to `report.json`.
 
 ## 5. What to send back
 

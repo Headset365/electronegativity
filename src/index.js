@@ -21,6 +21,7 @@ import { loadCampaign, hostsOutsideScope } from './watch/campaign.js';
 import { isPackage, unpackTarget } from './unpack/index.js';
 import { splitOutputs, unwritableOutput } from './util/file.js';
 import { writeCombinedReport } from './report/combined.js';
+import { rerender } from './report/rerender.js';
 import { createReportFolder, reportFiles } from './util/reportdir.js';
 
 async function main() {
@@ -89,9 +90,25 @@ async function main() {
     .option('--redact <terms>', __('redactOptionDescription'))
     .option('--share <file>', __('shareOptionDescription'))
     .option('--share-code', __('shareCodeOptionDescription'))
+    .option('--rerender <report.json>', 'write the client findings of an earlier scan again with the current templates, from its report.json, into a newReports subfolder of its findings folder; manual edits in the earlier findings are listed in newReports-review.md')
+    .option('--old-reports <folder>', 'with --rerender: the folder of the earlier findings (default: the reports folder next to report.json)')
     .parse(process.argv);
 
   const options = program.opts();
+  // --rerender: no scan, only the earlier scan's findings written again
+  if (options.rerender) {
+    try {
+      const result = rerender({ dataFile: options.rerender, oldDir: options.oldReports, version: VER });
+      const edited = result.compared.filter(c => c.known && c.changes.length).length;
+      const unknown = result.compared.filter(c => !c.known && c.changes.length).length;
+      console.log(chalk.green(`${result.findings.length} finding${result.findings.length === 1 ? '' : 's'} and the components workbook written to ${result.dir}`));
+      console.log(chalk[edited || unknown ? 'yellow' : 'gray'](`${edited} earlier finding${edited === 1 ? '' : 's'} edited by hand${unknown ? `, ${unknown} that may have been (written before edits could be told apart)` : ''}: see ${result.review}`));
+    } catch (error) {
+      console.error(chalk.red(error.message));
+      process.exit(2);
+    }
+    return;
+  }
   const campaign = options.campaign ? loadCampaign(options.campaign) : undefined;
   if ((options.activeTests || campaign || options.autoCampaign) && !options.watch && !options.app && !options.debugUrl) throw new Error('Active testing requires --watch, --app or --debug-url');
   if (options.autoCampaign && campaign) throw new Error('Choose --auto-campaign or --campaign, not both');

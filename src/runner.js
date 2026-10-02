@@ -465,13 +465,20 @@ async function scan(options, forCli) {
     installer: options.installer && { kind: options.installer.kind, file: options.installer.target, sha256: options.installer.installer.sha256, size: options.installer.installer.size, nsis: options.installer.installer.nsis },
     dependencies
   };
-  for (const output of outputs.filter(o => o !== markdownOutput && !/\.md$/i.test(o)))
-    writeIssues(options.input, options.isRelative, output, reported, options.isSarif && outputs.length === 1, outputMeta);
   let reports;
+  const files = outputs.filter(o => o !== markdownOutput && !/\.md$/i.test(o));
   if (reportsBase) {
     reports = writeReports(reportsBase, reported, { version: pkg.version, generatedAt: new Date().toISOString(), input: options.input, ...outputMeta, root: options.input });
     if (forCli) console.log(chalk.gray(`Client findings and components workbook written to ${reports.dir}`));
+    // the JSON report goes with them: the data they were written from, to write them again later (--rerender), with what
+    // the tool wrote in each finding, to tell later edits apart
+    outputMeta.markdown = reports.markdown;
+    const data = path.join(path.resolve(reportsBase), 'report.json');
+    if (!files.some(o => path.resolve(o) === data)) files.push(data);
   }
+  // (the -o file a lone SARIF request named; never report.json)
+  for (const output of files)
+    writeIssues(options.input, options.isRelative, output, reported, options.isSarif && outputs.length === 1 && output === outputs[0], outputMeta);
 
   // the same findings, redacted for sharing (--share): names, hosts, paths, secrets and code removed
   // (one file, or several: --report-dir writes Markdown and JSON)

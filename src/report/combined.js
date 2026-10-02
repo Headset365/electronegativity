@@ -50,11 +50,16 @@ export async function writeCombinedReport({ outDir, results, steps, outputs = []
   // findings, accepted risks and components of every step
   const meta = { ...last.outputMeta, outputs, suppressed: combined.suppressed, dependencies, steps };
   const written = [];
-  for (const output of outputs.filter(file => !/\.md$/i.test(file))) {
-    writeIssues(root, isRelative, output, combined.reported, /\.sarif$/i.test(output) && outputs.length === 1, meta);
+  const reports = writeReports(outDir, combined.reported, { version, generatedAt: new Date().toISOString(), input: root, ...meta, root });
+  // report.json is always written: the data of the client findings (and what the tool wrote in each), for --rerender
+  meta.markdown = reports.markdown;
+  const files = outputs.filter(file => !/\.md$/i.test(file));
+  const data = path.join(path.resolve(outDir), 'report.json');
+  if (!files.some(file => path.resolve(file) === data)) files.push(data);
+  for (const output of files) {
+    writeIssues(root, isRelative, output, combined.reported, /\.sarif$/i.test(output), meta);
     written.push(output);
   }
-  const reports = writeReports(outDir, combined.reported, { version, generatedAt: new Date().toISOString(), input: root, ...meta, root });
   for (const share of shares) {
     writeShare(share, { input: root, issues: combined.reported, suppressed: combined.suppressed, electronVersion: meta.electronVersion, bundled: dependencies && dependencies.bundled,
       runtime: meta.runtime, redact, code: shareCode, reveal, version });
