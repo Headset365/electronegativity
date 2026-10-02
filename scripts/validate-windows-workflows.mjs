@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { createRequire } from 'node:module';
@@ -58,6 +58,23 @@ try {
   if (spec.id === 'trilium') { env.TRILIUM_DATA_DIR = path.join(work, 'dataset'); env.TRILIUM_NETWORK_PORT = String(apiPort); env.TRILIUM_NETWORK_HOST = '127.0.0.1'; }
   if (spec.id === 'siyuan') { appArgs.push(`--workspace=${path.join(work, 'workspace')}`, `--port=${apiPort}`); fs.mkdirSync(path.join(work, 'workspace'), { recursive: true }); }
   if (spec.id === 'notesnook') env.PORTABLE_EXECUTABLE_DIR = work;
+  // Use the app's own onboarding handler to create a disposable workspace before
+  // the measured CLI session. First-launch SiYuan ignores --workspace/--port.
+  if (spec.id === 'siyuan') {
+    const setup = spawn(installer.mainExe, appArgs, { env, stdio: ['ignore','pipe','pipe'] });
+    setup.stdout.on('data', d => fs.appendFileSync(path.join(out, 'setup-app.log'), d));
+    setup.stderr.on('data', d => fs.appendFileSync(path.join(out, 'setup-app.log'), d));
+    const initial = await connect(debugPort, t => t.url.includes('init.html') || t.url.includes('/stage/build/app/'), 90000);
+    if (initial.target.url.includes('init.html')) {
+      await initial.eval(`require('electron').ipcRenderer.send('siyuan-first-init',{workspace:${JSON.stringify(path.join(work,'workspace'))},lang:'en_US'}); true`);
+      initial.close();
+      const ready = await connect(debugPort, t => t.url.includes('/stage/build/app/'), 120000);
+      await snapshot(ready, 'workspace-onboarding'); ready.close();
+    } else initial.close();
+    execFileSync('taskkill', ['/PID', String(setup.pid), '/T', '/F']);
+    await delay(3000);
+    step('app-onboarding', { method: 'Shipped first-run workspace handler, without test payloads', workspace: path.join(work,'workspace') });
+  }
   const remote = spec.id === 'notesnook' ? 'https://app.notesnook.com/' : `http://127.0.0.1:${apiPort}/`;
   const args = ['--max-old-space-size=6144', 'src/index.js', '--app', installer.mainExe, '-o', 'report.html,report.json,components.xlsx', '--out', out,
     '--all-files', '--auto-campaign', '--user-data', 'auto', '--watch-screenshots', 'screenshots', '--remote', remote, '--remote-header', 'Cookie', '--watch-marker', marker, '--prove', '--sessions', '1', '--watch-args', appArgs.join(' '), '--no-nvd', '--no-source-maps'];
@@ -77,7 +94,10 @@ try {
     else if (/Send .*\[y\/N\]/.test(q)) answer = 'n';
     if (answer !== undefined) { promptOffset = transcript.length; step('interactive-prompt', { question: q.slice(0,1200), answer, policy: 'Only the reviewed disposable updateBlock content route may run an automatic campaign' }); terminal.write(answer + '\r'); }
   });
-  cdp = await connect(debugPort, () => true, 900000); step('renderer-debugger-connected', { url: cdp.target.url, nativeProofsAlsoEnabled: true });
+  cdp = await Promise.race([
+    connect(debugPort, t => spec.id !== 'siyuan' || t.url.includes('/stage/build/app/'), 900000),
+    finished.then(e => { throw Error('CLI exited before renderer attachment (code ' + e.exitCode + '): ' + transcript.slice(-3000)); })
+  ]); step('renderer-debugger-connected', { url: cdp.target.url, nativeProofsAlsoEnabled: true });
   await delay(4000); await snapshot(cdp, 'initial-renderer');
   if (spec.id === 'siyuan') {
     const api = async (route, data) => cdp.eval(`fetch(${JSON.stringify(route)},{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify(data)})}).then(r=>r.json())`);
@@ -99,6 +119,14 @@ try {
     if (url.includes('/setup')) { step('initialize-disposable-dataset', { result: await cdp.eval(`fetch('/api/setup/new-document',{method:'POST'}).then(r=>({status:r.status}))`) }); await cdp.eval(`location.replace('/setup'); true`); cdp.close(); await delay(5000); cdp = await connect(debugPort, t => !t.url.includes('/setup'), 90000); }
     await snapshot(cdp, 'ready-renderer');
     step('app-specific-workflow-prepared', { state: await cdp.eval(`({glob:!!window.glob,globals:Object.keys(window).filter(k=>/trilium|note|appContext/i.test(k))})`) });
+    await until(() => cdp.eval('!!window.glob?.appContext?.tabManager'), 'Trilium note UI', 90000);
+    await cdp.eval(`window.glob.appContext.triggerCommand('createNoteIntoInbox'); true`);
+    await until(() => cdp.eval(`!!document.querySelector('input.note-title')`), 'Trilium title editor');
+    await cdp.eval(`const e=document.querySelector('input.note-title'); e.focus(); e.select(); true`);
+    await cdp.send('Input.insertText', { text: 'Disposable note ' + marker });
+    await cdp.eval(`document.querySelector('input.note-title').blur(); true`); await delay(2500);
+    step('normal-note-save', { note: await cdp.eval(`({id:glob.getActiveContextNote()?.noteId,title:glob.getActiveContextNote()?.title,url:location.href})`), path: 'Shipped create-note command and title input; no custom payload' });
+    await snapshot(cdp, 'saved-note');
   } else {
     await snapshot(cdp, 'ready-renderer');
     step('app-specific-workflow-prepared', { state: await cdp.eval(`({globals:Object.keys(window).filter(k=>/db|database|store|webpack/i.test(k)),buttons:[...document.querySelectorAll('button')].map(e=>e.innerText).slice(0,30)})`) });
