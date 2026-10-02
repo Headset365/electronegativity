@@ -15,6 +15,7 @@ import { createAssistant, followLog, writeMarkerFiles } from './assistant.js';
 import { watchDebug } from './debug.js';
 import { watchDebugApp } from './debug_launch.js';
 import { inspectFeed, inspectServices } from './network-proofs.js';
+import { feedFromAppUpdate, resourcesFolder, APP_UPDATE_FILE } from './app-update.js';
 import { logoutCheck } from './logout.js';
 import { createRequire } from 'node:module';
 const { validateProfile } = createRequire(import.meta.url)('./proof-profile.cjs');
@@ -140,13 +141,18 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
   const records = readWatchLog(log);
   if (watch && prove) {
     const metadataStart = records.length;
-    const feeds = new Set(proofProfile?.feeds || []);
+    // where each feed address came from: the profile, the app setting it during the session, or its app-update.yml
+    const feeds = new Map((proofProfile?.feeds || []).map(url => [url, 'proof profile']));
     for (const feed of records.filter(r => r.kind === 'update-feed' && r.exact)) {
-      if (/(?:latest[^/]*\.ya?ml|RELEASES)$/i.test(new URL(feed.url).pathname)) feeds.add(feed.url);
+      if (/(?:latest[^/]*\.ya?ml|RELEASES)$/i.test(new URL(feed.url).pathname)) { if (!feeds.has(feed.url)) feeds.set(feed.url, 'observed at runtime'); }
       else records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'feed directory/provider requires an exact metadata URL in --proof-profile' });
     }
-    for (const url of [...feeds].slice(0, 8)) records.push({ t: Date.now(), kind: 'proof', ...await inspectFeed(url) });
-    if (!feeds.size) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'no exact metadata feed observed or configured' });
+    // an electron-builder app ships its feed in resources/app-update.yml, which the updater reads instead of setting it
+    const shipped = packagedApp ? feedFromAppUpdate(resourcesFolder({ code: staticInput, executable: packagedApp })) : undefined;
+    if (shipped?.url && !feeds.has(shipped.url)) feeds.set(shipped.url, APP_UPDATE_FILE);
+    else if (shipped?.skipped && !feeds.size) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', source: APP_UPDATE_FILE, provider: shipped.provider, reason: shipped.skipped });
+    for (const [url, source] of [...feeds].slice(0, 8)) records.push({ t: Date.now(), kind: 'proof', ...await inspectFeed(url), source });
+    if (!feeds.size && !shipped?.skipped) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'no exact metadata feed observed, configured or shipped in app-update.yml' });
     if (!proofProfile?.links?.length) records.push({ t: Date.now(), kind: 'proof', test: 'external-scheme', outcome: 'skipped', reason: 'reviewed app link route required' });
     if (!ipcProfile) records.push({ t: Date.now(), kind: 'proof', test: 'ipc', outcome: 'skipped', reason: 'separate reviewed IPC profile required' });
     for (const test of ['navigation', 'window-open', 'permission-request', 'permission-check', 'certificate']) {

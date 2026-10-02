@@ -32,6 +32,7 @@ export function analyzeProofs(records) {
       if (p.actualSender) text += ' The permission handler received the existing renderer and a foreign requesting URL; handlers that inspect the actual renderer origin may give a different answer for a real foreign renderer.';
       confirmed = ['allowed', 'blocked', 'not-configured'].includes(p.outcome);
     } else if (p.test === 'update-feed') {
+      if (p.source) text += ` Feed address source: ${p.source}.`;
       text += ' Only feed metadata was fetched; artifact hashes and publisher signature enforcement were not verified.';
       if (p.outcome === 'observed' && !p.secureTransport) { text += ' At least one feed hop used HTTP.'; sev = severity.MEDIUM; }
       if (p.outcome === 'observed' && !p.hashesPresent) text += ' Valid hashes were not present for every artifact.';

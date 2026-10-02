@@ -155,8 +155,9 @@ configuration:
 - the app's permission handlers, asked whether a foreign origin may use the camera (no camera is opened);
 - a self-signed HTTPS request through the app's sessions (does the app accept an invalid certificate?);
 - the packaged `.exe` started in Node mode with a harmless expression (the RunAsNode fuse);
-- the update feed, when the app sets an exact `latest.yml` or `RELEASES` address while you use it (metadata only:
-  nothing is downloaded or installed).
+- the update feed (metadata only: nothing is downloaded or installed), when the app sets an exact `latest.yml` or
+  `RELEASES` address while you use it, or ships one in `resources\app-update.yml` (electron-builder's generic, GitHub,
+  S3 and Spaces providers; a private repository, a token or another provider needs the address in the profile).
 
 Start with those, without a profile:
 
@@ -183,9 +184,9 @@ from what its report shows:
 2. **`origins`** (optional): the "foreign site" the handlers are asked about. 1 to 8 exact origins, scheme and host
    (and port) only, no path or trailing slash: `"https://eng-proof.invalid"`. It is never contacted. Keep the default
    unless you want another name in the evidence.
-3. **`feeds`** (optional): the update metadata to inspect, if the first run said "no exact metadata feed observed".
-   Look in the install folder for `resources\app-update.yml` (its `url`, plus `latest.yml`), or in Burp for a request
-   ending in `latest.yml` or `RELEASES`. Up to 8 exact addresses, no credentials or tokens in them:
+3. **`feeds`** (optional): the update metadata to inspect, only if the first run's update-feed result was skipped
+   (the tool already reads `resources\app-update.yml` when it can). Find the address in Burp, as a request ending in
+   `latest.yml` or `RELEASES`, or ask the client for it. Up to 8 exact addresses, no credentials or tokens in them:
    `"https://updates.example.com/win/latest.yml"`.
 4. **`links`** (only after reviewing the code): a function the app's own page exposes that opens one URL, to see whether
    non-web links (`file:`, unknown protocols) are filtered before they reach Windows. Find it in the preload script
