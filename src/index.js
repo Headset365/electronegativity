@@ -245,7 +245,8 @@ async function main() {
 
   try {
     if (options.app) {
-      await guided(options, common, { reportFolder, watchArgs, headers, remote, headerNames: remoteHeaders.names, capture, traffic, scope, screenshots, campaign, debug });
+      const result = await guided(options, common, { reportFolder, watchArgs, headers, remote, headerNames: remoteHeaders.names, capture, traffic, scope, screenshots, campaign, debug });
+      applySeverityGate(result.reported, failOn);
       return;
     }
 
@@ -313,16 +314,19 @@ async function main() {
     for (const file of [].concat(options.share || [])) if (!forCli) console.log(chalk.gray(__('shareWritten', { file })));
     if (options.campaignPlan) writeCampaignPlan(options.campaignPlan, result.issues);
     // CI gate: fail when a reported finding reaches the given severity
-    if (failOn) {
-      const failing = result.reported.filter(issue => issue.severity.value >= failOn.value);
-      if (failing.length > 0) {
-        console.error(chalk.red(__('failOnTriggered', { count: failing.length, severity: failOn.name })));
-        process.exitCode = 1;
-      }
-    }
+    applySeverityGate(result.reported, failOn);
   } catch (error) {
     console.error(chalk.red(error.stack));
     process.exit(1);
+  }
+}
+
+function applySeverityGate(reported, failOn) {
+  if (!failOn) return;
+  const failing = reported.filter(issue => issue.severity.value >= failOn.value);
+  if (failing.length > 0) {
+    console.error(chalk.red(__('failOnTriggered', { count: failing.length, severity: failOn.name })));
+    process.exitCode = 1;
   }
 }
 
@@ -482,14 +486,16 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
       extraInputs: captured.extraInputs, remoteDiagnostics: captured.remoteDiagnostics });
   }
   assistant.printSummary('Validation across all sessions');
+  const combined = combineRuns(results);
   // the client findings of the whole run: the static scan and every session, each finding once, in one file per finding
   if (markdown) {
-    const { reported, suppressed } = combineRuns(results);
+    const { reported, suppressed } = combined;
     const files = writeClientMarkdown(outDir, reported, { app: results[0].app, root: located.code, suppressed, outputs: lastOutputs });
     written.push(`${path.join(outDir, MARKDOWN_FOLDER)} (${files.length} finding${files.length === 1 ? '' : 's'}, from ${results.length} step${results.length === 1 ? '' : 's'})`);
   }
   console.log(chalk.green(__('appDone', { dir: outDir })));
   for (const file of written) console.log(`  ${file}`);
+  return combined;
 }
 
 main();

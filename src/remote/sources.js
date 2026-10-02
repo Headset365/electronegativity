@@ -6,6 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { SourceMap } from 'node:module';
+import { Parser } from '../parser/parser.js';
+import { recoverableSources, cleanSourceName, MAX_MAP, MAX_MAPS } from '../production/source_map_sources.js';
+export { originalSources } from '../production/source_map_sources.js';
 
 export const MANIFEST = 'manifest.jsonl';
 
@@ -83,8 +86,6 @@ function safeRelative(value, fallbackExtension) {
   return file;
 }
 
-const SOURCE_EXTENSIONS = /\.(m?[jt]sx?|html?|vue|coffee)$/i;
-
 /**
  * Builds `<captureDir>/scan` from the captured files listed in the manifest. Returns { dir, labels } where labels maps
  * each written file to the URL (and original source) it came from, or undefined when nothing was captured.
@@ -105,6 +106,10 @@ export function prepareScanFolder(captureDir) {
   const counts = { pages: 0, scripts: 0, templates: 0, recoveredSources: 0, bundlesReplaced: 0 };
   const maps = new Map(entries.filter(e => e.kind === 'map' && e.of).map(e => [e.of, e]));
   const written = new Set();
+  const parser = new Parser(false, true);
+  const errors = [];
+  let recoveredBytes = 0;
+  let mapCount = 0;
   const write = (relative, content, label) => {
     const target = path.join(scanDir, relative);
     if (written.has(target)) return;
@@ -127,20 +132,37 @@ export function prepareScanFolder(captureDir) {
     const extension = entry.kind === 'script' ? '.js' : '.html';
     if (entry.kind === 'script') {
       const map = maps.get(entry.url);
-      const sources = map && map.file && fs.existsSync(path.join(captureDir, map.file)) ? originalSources(fs.readFileSync(path.join(captureDir, map.file), 'utf8')) : [];
+      let sources = [];
+      if (map?.file && fs.existsSync(path.join(captureDir, map.file))) {
+        const mapFile = path.join(captureDir, map.file);
+        const recovered = ++mapCount > MAX_MAPS || fs.statSync(mapFile).size > MAX_MAP
+          ? { error: 'map count or size limit' }
+          : recoverableSources(fs.readFileSync(mapFile, 'utf8'), parser, recoveredBytes);
+        if (recovered.error) errors.push({ file: entry.url, message: `Source map recovery: ${recovered.error}; bundle retained`, tolerable: true });
+        else {
+          sources = recovered.sources;
+          recoveredBytes += recovered.bytes;
+        }
+      }
       if (sources.length > 0) {
-        // scan the original code, which the checks follow far better than a minified bundle
-        for (const source of sources) write(path.join(host, '~sources', safeRelative(source.name)), source.content, `${entry.url} (source: ${source.name})`);
-        counts.recoveredSources += sources.length;
-        counts.bundlesReplaced++;
-        continue;
+        // Each bundle owns its originals, even when chunks repeat names such as src/index.js.
+        const namespace = crypto.createHash('sha256').update(entry.url).digest('hex').slice(0, 16);
+        const paths = sources.map(source => path.join(host, '~sources', namespace, safeRelative(source.name)));
+        if (new Set(paths).size !== paths.length || paths.some(file => written.has(path.join(scanDir, file)))) {
+          errors.push({ file: entry.url, message: 'Source map recovery: output paths collide; bundle retained', tolerable: true });
+        } else {
+          sources.forEach((source, i) => write(paths[i], source.content, `${entry.url} (source: ${source.name})`));
+          counts.recoveredSources += sources.length;
+          counts.bundlesReplaced++;
+          continue;
+        }
       }
       counts.scripts++;
     } else if (entry.kind === 'page') counts.pages++;
     else counts.templates++;
     write(path.join(host, safeRelative(url.pathname + url.search, extension)), fs.readFileSync(file), entry.url);
   }
-  return labels.size > 0 ? { dir: scanDir, labels, counts } : undefined;
+  return labels.size > 0 ? { dir: scanDir, labels, counts, errors } : undefined;
 }
 
 /**
@@ -179,32 +201,4 @@ export function mapFrames(captureDir, frames) {
     frame.original = { file: `${entry.of} (source: ${cleanSourceName(found.originalSource)})`, line: found.originalLine + 1, column: found.originalColumn + 1 };
   }
   return frames;
-}
-
-// webpack://app/./src/viewer.js -> src/viewer.js
-const cleanSourceName = (name) => String(name).replace(/^(webpack|vite|rollup|ng):\/\/[^/]*\//i, '').replace(/^file:\/+/i, '').replace(/^(\.\.?\/)+/, '').replace(/\?.*$/, '');
-
-/** The original sources embedded in a source map (sourcesContent), with bundler prefixes removed. */
-export function originalSources(mapText) {
-  let map;
-  try {
-    map = JSON.parse(mapText);
-  } catch {
-    return [];
-  }
-  // index maps: { sections: [{ map }] }
-  const maps = Array.isArray(map.sections) ? map.sections.map(section => section.map).filter(Boolean) : [map];
-  const sources = [];
-  for (const m of maps) {
-    const names = Array.isArray(m.sources) ? m.sources : [];
-    const contents = Array.isArray(m.sourcesContent) ? m.sourcesContent : [];
-    names.forEach((name, i) => {
-      const content = contents[i];
-      if (typeof content !== 'string' || content.length === 0) return;
-      const clean = cleanSourceName(name);
-      if (!SOURCE_EXTENSIONS.test(clean)) return; // CSS and assets
-      sources.push({ name: clean, content });
-    });
-  }
-  return sources;
 }

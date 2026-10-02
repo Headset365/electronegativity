@@ -8,7 +8,7 @@ import { memberName, finding, literalValue, isFunction } from '../helpers.js';
 import { constantValue, enclosingFunction, untrustedSource, dependsOnParams, taintedNames, moduleBindings, programOf, callsIn, returnedValues,
   handlerFunction, paramNames, identifiersIn, hasUrlValidation, visit, isCall, isMember } from '../analysis.js';
 import { secretReference } from './StorageChecks.js';
-import { ipcDefinition, ipcContext, ipcListener, ipcObject } from '../ipc_context.js';
+import { ipcDefinition, ipcContext, ipcListener, ipcObject, operationPathControl } from '../ipc_context.js';
 
 const FS_MODULE = /^(node:)?(fs|fs\/promises|original-fs|graceful-fs|fs-extra|fs-jetpack)$/;
 const FS_OPS = {
@@ -134,12 +134,12 @@ export class IpcFileAccessJSCheck {
     const source = untrustedSource(context.ancestors, fn);
     if (!source) return null;
     const verb = { read: 'reads', write: 'writes', copy: 'copies or moves', delete: 'deletes' }[operation.op];
-    const kept = containment(fn, tainted);
-    const properties = { source, operation: operation.op, call: operation.name };
-    if (!kept.any)
+    const kept = operationPathControl(fn, astNode, context.ancestors, tainted);
+    const properties = { source, operation: operation.op, call: operation.name, pathControl: kept.status };
+    if (kept.status !== 'recognized-unverified')
       return [finding(this, astNode, { severity: severity.HIGH, confidence: confidence.FIRM, manualReview: false, properties,
         description: `${this.description} (${operation.name} ${verb} a path from ${source} with nothing keeping it inside a folder: ../ traversal, absolute paths and UNC paths such as \\\\host\\share reach the file system)` })];
-    if (kept.basenameOnly && !kept.sanitized && operation.op !== 'read')
+    if (kept.basenameOnly && !containment(fn, tainted).sanitized && operation.op !== 'read')
       return [finding(this, astNode, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true, properties: { ...properties, hygiene: true },
         description: `${this.description} (${operation.name} ${verb} a file named by ${source}; path.basename keeps it in the folder, but Windows reserved names (CON, NUL), alternate data streams (name:stream), trailing dots or spaces and double extensions are not rejected)` })];
     return [finding(this, astNode, { severity: severity.LOW, confidence: confidence.FIRM, manualReview: true, properties,

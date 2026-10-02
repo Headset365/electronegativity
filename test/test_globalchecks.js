@@ -13,16 +13,33 @@ await _i18n();
 let globalcheck_tests = "test/checks/GlobalChecks";
 
 describe('GlobalChecks', async () => {
+  const previousFetch = globalThis.fetch;
+  before(() => {
+    globalThis.fetch = async (url, options) => {
+      url.should.equal('https://api.osv.dev/v1/querybatch');
+      options.method.should.equal('POST');
+      const { queries } = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ results: queries.map(query => ({ vulns:
+        query.package.name === 'lodash' && query.version === '4.17.15' ? [{ id: 'GHSA-test-lodash' }] : [] })) }) };
+    };
+  });
+  after(() => { globalThis.fetch = previousFetch; });
   const electronVersions = '4..8';
   const globalChecker = new GlobalChecks(null, null, electronVersions);
-  // Load all test file
-  let loader = new LoaderDirectory();
+  // These are rule unit tests: fixed service data keeps them independent of connectivity and release dates.
+  const vulnerableVersions = new Set(['4.1.4', '1.0.0', '3.0.4', '4.0.7']);
+  for (const check of globalChecker._constructed_checks) {
+    if (check.id === 'AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK')
+      check.fetchAdvisories = async versions => new Map(versions.map(version => [version, vulnerableVersions.has(version) ? ['GHSA-test-electron'] : []]));
+    if (check.id === 'UNSUPPORTED_VERSION_GLOBAL_CHECK') check.getReleases = async () => ['40.1.0', '39.2.3', '38.5.0'];
+  }
   let directories = fs.readdirSync(globalcheck_tests);
   const parser = new Parser(false, true);
 
   for (let dir of directories) {
     // test the globalCheck
     it('Testing ' + dir, async () => {
+      const loader = new LoaderDirectory();
       await loader.load(path.join(globalcheck_tests, dir));
 
       let filenames = [...loader.list_files];

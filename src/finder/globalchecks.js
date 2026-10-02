@@ -1,6 +1,5 @@
 import { ELECTRON_GLOBAL_UPGRADE_CHECKS } from './checks/GlobalChecks/ElectronGlobalUpgradeChecks.js';
 import { GLOBAL_CHECKS } from './checks/GlobalChecks/index.js';
-import chalk from 'chalk';
 import { diagnostics } from '../util/diagnostics.js';
 
 export class GlobalChecks {
@@ -18,19 +17,17 @@ export class GlobalChecks {
           }
         });
       } else {
-        console.error(chalk.red(`When specifying the upgrade options please specify your current version and target version like this: x..y (eg 7..8)`));
-        process.exit(1);
+        throw new Error('When specifying the upgrade options please specify your current version and target version like this: x..y (eg 7..8)');
       }
     }
 
     // if the user is trying to start a custom check scan, we first load all the available checks (candidateChecks) and then we splice those who don't match the user-provided list
-    this._enabled_checks = candidateChecks;
+    this._enabled_checks = [...candidateChecks];
     if (customScan && customScan.length > 0) {
       var globalChecksNames = this._enabled_checks.map(globalCheck => globalCheck.name.toLowerCase());
       var customGlobals = customScan.filter(r => r.includes('globalcheck'));
-      if (customGlobals.length > 0 && !customGlobals.some(r => globalChecksNames.includes(r))) {
-        console.error(chalk.red(`You have an error in your custom checks list. Maybe you misspelt some check names?`));
-        process.exit(1);
+      if (!customGlobals.every(r => globalChecksNames.includes(r))) {
+        throw new Error('You have an error in your custom checks list. Maybe you misspelt some check names?');
       } else {
         for (let i = globalChecksNames.length - 1; i >= 0; i--) 
           if (!customGlobals.includes(globalChecksNames[i]))
@@ -40,14 +37,13 @@ export class GlobalChecks {
 
     // the exclusion list has the last word over the list of loaded checks
     if (excludeFromScan && excludeFromScan.length > 0) {
-      globalChecksNames = this._enabled_checks.map(globalCheck => globalCheck.name.toLowerCase());
+      globalChecksNames = candidateChecks.map(globalCheck => globalCheck.name.toLowerCase());
       customGlobals = excludeFromScan.filter(r => r.includes('globalcheck'));
-      if (customGlobals.length > 0 && !customGlobals.some(r => globalChecksNames.includes(r))) {
-        console.error(chalk.red(`You have an error in your custom checks list. Maybe you misspelt some check names?`));
-        process.exit(1);
+      if (!customGlobals.every(r => globalChecksNames.includes(r))) {
+        throw new Error('You have an error in your custom checks list. Maybe you misspelt some check names?');
       } else {
-        for (let i = globalChecksNames.length - 1; i >= 0; i--) 
-          if (customGlobals.includes(globalChecksNames[i]))
+        for (let i = this._enabled_checks.length - 1; i >= 0; i--)
+          if (customGlobals.includes(this._enabled_checks[i].name.toLowerCase()))
             this._enabled_checks.splice(i, 1);
       }
     }

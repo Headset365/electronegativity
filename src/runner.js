@@ -14,7 +14,7 @@ import { loadBaseline, applyBaseline, writeBaseline } from './util/baseline.js';
 import { reconcileRuntime } from './watch/reconcile.js';
 import { analyzePackagedFuses, packagedBinaryFor, readElectronVersion, fuseBinaryFor } from './watch/fuses.js';
 import { GlobalChecks, severity, confidence } from './finder/index.js';
-import { extension, input_exists, is_directory, writeIssues, getRelativePath, outputFormat } from './util/index.js';
+import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util/index.js';
 import { isSourceBuildTooling } from './util/file.js';
 import { dependencyReport, sortRows } from './util/dependencies.js';
 import { validationHint } from './finder/consequences.js';
@@ -36,6 +36,8 @@ import { loadSuppressions, applySuppressions, compareWithReport } from './util/t
 import { enrichDependencies, chromiumAdvisories, electronReleases, chromiumOf, kevCatalog } from './intel/index.js';
 
 export default async function run(options, forCli = false) {
+  // Normalization belongs to this scan, not to the caller's reusable configuration.
+  options = { ...options };
   // --offline only applies to this scan
   const previousOffline = process.env.ELECTRONEGATIVITY_OFFLINE;
   if (options.offline) process.env.ELECTRONEGATIVITY_OFFLINE = '1';
@@ -171,7 +173,7 @@ async function scan(options, forCli) {
 
   // Results' table initialization
   let issues = [];
-  let errors = [...recovered.errors];
+  let errors = [...recovered.errors, ...extraInputs.flatMap(extra => extra.errors || [])];
   let table = new Table({
     head: [__('tableCheckId'), __('tableAffectedFile'), __('tableLocation'), __('tableDescription')],
     colWidths:[undefined, undefined, undefined, 50], // necessary for wordWrap
@@ -285,11 +287,11 @@ async function scan(options, forCli) {
   for (const issue of issues) if (recovered.origins.has(issue.file)) issue.properties = { ...issue.properties, sourceMap: recovered.origins.get(issue.file) };
   for (const issue of issues) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
 
-  // the dependency table of HTML and JSON reports (online lookups of release dates, support and advisories)
+  // Security analysis is independent of the formats used to serialize its results.
   let dependencies;
   // one or more outputs: -o report.html,report.json,report.cdx.json,report.docx
   const outputs = [].concat(options.output || []).flatMap(o => String(o).split(',')).map(o => o.trim()).filter(Boolean);
-  if (options.dependencies ?? outputs.some(o => ['html', 'json', 'cyclonedx', 'docx', 'md', 'xlsx'].includes(outputFormat(o, options.isSarif)))) {
+  if (options.dependencies !== false) {
     for (const issue of inventory) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
     dependencies = await dependencyTable(inventory, filenames, loader, electronVersion, options.input);
     endPhase('dependencies');

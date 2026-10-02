@@ -191,9 +191,11 @@ function replyNodes(fn, replyCallback) {
   return nodes;
 }
 
-function pathTransforms(fn, env) {
+function pathTransforms(fn, env, before) {
   const definitions = new Map();
   withoutFunctions(fn.body, n => {
+    if (before?.loc && n.loc && (n.loc.start.line > before.loc.start.line ||
+      n.loc.start.line === before.loc.start.line && n.loc.start.column >= before.loc.start.column)) return true;
     const target = n.type === 'VariableDeclarator' ? n.id : n.type === 'AssignmentExpression' ? n.left : undefined;
     const value = n.type === 'VariableDeclarator' ? n.init : n.right;
     if (target?.type === 'Identifier') definitions.set(target.name, definitions.has(target.name) ? undefined : value);
@@ -302,7 +304,8 @@ export function predicateEvidence(test, env, depth = 0, accepted = true) {
       const prefix = literalValue(node.arguments[0]);
       const positive = !['startsWith', 'endsWith'].includes(name) || (prefix === '..' ? !accepted : accepted);
       const pattern = node.callee.object?.pattern || node.callee.object?.regex?.pattern;
-      const traversal = name === 'test' && !accepted && typeof pattern === 'string' && /\\\.\\\.|\\\.\{2/.test(pattern);
+      const traversal = !accepted && (name === 'test' && typeof pattern === 'string' && /\\\.\\\.|\\\.\{2/.test(pattern) ||
+        name === 'includes' && typeof prefix === 'string' && /^\.\.([\\/]|$)/.test(prefix));
       if (positive || traversal) add(traversal ? 'path' : guardKind(node), references(node, env));
       return false;
     }
@@ -323,6 +326,32 @@ export function inspectPredicate(test, definition, accepted = true) {
     assignments(definition.node, env);
     return predicateEvidence(test, env, 0, accepted);
   }, [definition.program, definition.node]);
+}
+
+function pathControl(pathInputs, guards) {
+  if (!pathInputs.length) return 'not-applicable';
+  return pathInputs.every(p => guards.some(g => ['path', 'path-basename'].includes(g.kind) && g.arguments.includes(p)))
+    ? 'recognized-unverified' : 'not-recognized';
+}
+
+function operandPathControl(paths, env, guards, transformed) {
+  const operands = paths.map(p => {
+    const inputs = [...references(p, env)].filter(input => input !== '$sender');
+    const basenames = [...transformed(p)];
+    return { inputs, basenames, status: pathControl(inputs, [...guards, { kind: 'path-basename', arguments: basenames }]) };
+  });
+  const relevant = operands.filter(operand => operand.inputs.length);
+  return { status: relevant.length ? (relevant.every(operand => operand.status === 'recognized-unverified') ? 'recognized-unverified' : 'not-recognized') : 'not-applicable',
+    basenameOnly: relevant.length > 0 && relevant.every(operand => operand.inputs.every(input => operand.basenames.includes(input))) && !guards.some(g => g.kind === 'path') };
+}
+
+/** The controls actually applied to these path operands before this particular operation. */
+export function operationPathControl(fn, call, ancestors, paths) {
+  const env = environment(fn, fn.params.map((param, i) => new Set([`argument${i}`])));
+  assignments(fn, env);
+  const chain = ancestors.slice(Math.max(0, ancestors.lastIndexOf(fn)));
+  const guards = guardsBefore(call, chain, env, currentAnalysisContext().file);
+  return operandPathControl(paths, env, guards, pathTransforms(fn, env, call));
 }
 
 const FS = /^(node:)?(fs|fs\/promises|original-fs|graceful-fs|fs-extra|fs-jetpack)$/;
@@ -433,7 +462,6 @@ export function ipcContext(definition, { sources } = {}) {
     inFile(ref.file, ref.program, () => {
       assignments(ref.node, env);
       const returned = reply ? replyNodes(ref.node, replyCallback) : new Set();
-      const transformed = pathTransforms(ref.node, env);
       visit(ref.node.body, (node, ancestors) => {
         if (isFunction(node)) {
           // Inline callbacks inherit captured inputs; their own parameters shadow outer bindings.
@@ -470,7 +498,11 @@ export function ipcContext(definition, { sources } = {}) {
         if (--remaining < 0) { if (remaining === -1) unresolved(node, ref.file, 'call-budget'); return false; }
         const sources = node.arguments.map(arg => references(arg, env));
         const guards = [...inherited, ...guardsBefore(node, ancestors, env, ref.file)];
-        const sanitizers = node.arguments.flatMap(arg => [...transformed(arg)]);
+        const operationGuards = [...guards];
+        const transformed = pathTransforms(ref.node, env, node);
+        // A transformation of one operand must not protect a raw use of the same input in another operand/helper argument.
+        const sanitizers = [...new Set(node.arguments.flatMap(arg => [...transformed(arg)]))]
+          .filter(input => node.arguments.every((arg, i) => !sources[i].has(input) || transformed(arg).has(input)));
         if (sanitizers.length) guards.push({ ...at(ref.file, node), kind: 'path-basename', arguments: sanitizers, status: 'recognized-unverified' });
         const fullAncestors = [ref.program, ref.node, ...ancestors];
         const target = inFile(ref.file, ref.program, () => ipcDefinition(node.callee, null, fullAncestors), fullAncestors);
@@ -481,7 +513,7 @@ export function ipcContext(definition, { sources } = {}) {
           const pathInputs = [...union(op.pathIndexes.map(i => sources[i] || new Set()))].filter(arg => arg !== '$sender');
           result.effects.push({ ...at(ref.file, node), call: nameOf(node.callee), kind: op.kind, capability: op.capability,
             arguments: inputs, pathArguments: pathInputs, guards, trace: callTrace,
-            pathControl: pathInputs.length ? (pathInputs.every(p => guards.some(g => ['path', 'path-basename'].includes(g.kind) && g.arguments.includes(p))) ? 'recognized-unverified' : 'not-recognized') : 'not-applicable',
+            pathControl: operandPathControl(op.pathIndexes.map(i => node.arguments[i]).filter(Boolean), env, operationGuards, transformed).status,
             extensionControl: pathInputs.length ? (pathInputs.every(p => guards.some(g => g.kind === 'extension' && g.arguments.includes(p))) ? 'recognized-unverified' : 'not-recognized') : 'not-applicable' });
           if (returned.has(node) && op.kind === 'credential-read') result.credentials.push({ ...at(ref.file, node), reference: nameOf(node.callee), trace: callTrace });
           return true;

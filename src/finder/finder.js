@@ -3,7 +3,6 @@ import { sourceTypes } from '../parser/types.js';
 import { ELECTRON_ATOMIC_UPGRADE_CHECKS } from './checks/AtomicChecks/ElectronAtomicUpgradeChecks.js';
 import { isDisabledByInlineComment } from "../util/exceptions.js";
 import { getSample } from "../util/file.js";
-import chalk from 'chalk';
 import { gte, compare, coerce } from 'semver';
 import { setAnalysisContext } from './checks/analysis.js';
 import { Parser } from '../parser/parser.js';
@@ -27,8 +26,7 @@ export class Finder {
           }
         });
       } else {
-        console.error(chalk.red(`When specifying the upgrade options please specify your current version and target version like this: x..y (eg 7..8)`));
-        process.exit(1);
+        throw new Error('When specifying the upgrade options please specify your current version and target version like this: x..y (eg 7..8)');
       }
     }
 
@@ -37,8 +35,7 @@ export class Finder {
     if (customScan && customScan.length > 0) {
       var checksNames = this._enabled_checks.map(check => check.name.toLowerCase());
       if (!customScan.every(r => checksNames.includes(r))) {
-        console.error(chalk.red(`You have an error in your custom checks list. Maybe you misspelt some check names?`));
-        process.exit(1);
+        throw new Error('You have an error in your custom checks list. Maybe you misspelt some check names?');
       } else {
         for (let i = this._enabled_checks.length - 1; i >= 0; i--)
           if (!customScan.includes(this._enabled_checks[i].name.toLowerCase()))
@@ -48,10 +45,9 @@ export class Finder {
 
     // the exclusion list has the last word over the list of loaded checks
     if (excludeFromScan && excludeFromScan.length > 0) {
-      checksNames = this._enabled_checks.map(check => check.name.toLowerCase());
+      checksNames = candidateChecks.map(check => check.name.toLowerCase());
       if (!excludeFromScan.every(r => checksNames.includes(r))) {
-        console.error(chalk.red(`You have an error in your custom checks list. Maybe you misspelt some check names?`));
-        process.exit(1);
+        throw new Error('You have an error in your custom checks list. Maybe you misspelt some check names?');
       } else {
         for (let i = this._enabled_checks.length - 1; i >= 0; i--)
           if (excludeFromScan.includes(this._enabled_checks[i].name.toLowerCase()))

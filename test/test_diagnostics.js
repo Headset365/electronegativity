@@ -62,7 +62,7 @@ describe('Diagnostics', () => {
       report.errors.map(e => e.file).should.include(path.join('src', 'broken.js'));
       report.findings.byCheck.NODE_INTEGRATION_JS_CHECK['HIGH/CERTAIN'].should.equal(1);
       report.checks.slowest.length.should.be.above(0);
-      report.phasesMs.should.have.keys('load', 'checks', 'globalChecks', 'secrets');
+      report.phasesMs.should.have.keys('load', 'checks', 'globalChecks', 'secrets', 'dependencies', 'intel');
     });
   });
 

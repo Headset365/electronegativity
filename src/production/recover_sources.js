@@ -2,9 +2,7 @@
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { listFiles } from './sourcemaps.js';
-import { originalSources } from '../remote/sources.js';
-const MAX_MAP = 8 * 1024 * 1024;
-const MAX_TOTAL = 32 * 1024 * 1024;
+import { recoverableSources, MAX_MAP, MAX_MAPS } from './source_map_sources.js';
 
 export function recoverPackagedSources(primary, parser, root) {
   const buffers = new Map();
@@ -37,31 +35,18 @@ export function recoverPackagedSources(primary, parser, root) {
     }
     if (!map) continue;
     const fail = message => errors.push({ file: bundle, message: `Source map recovery: ${message}; bundle retained`, tolerable: true });
-    if (++maps > 100 || map.length > MAX_MAP) { fail('map count or size limit'); continue; }
-    let json;
-    try { json = JSON.parse(map); } catch { fail('invalid JSON'); continue; }
-    if (json.version !== 3) { fail('unsupported map version'); continue; }
-    const parts = Array.isArray(json.sections) ? json.sections.map(section => section.map).filter(Boolean) : [json];
-    if (!parts.length || parts.some(part => !Array.isArray(part.sources) || !Array.isArray(part.sourcesContent) ||
-      part.sources.some((name, i) => /\.[cm]?[jt]sx?$/i.test(String(name).split('?')[0]) && typeof part.sourcesContent[i] !== 'string'))) {
-      fail('original JavaScript/TypeScript sources are incomplete'); continue;
-    }
-    const sources = originalSources(map.toString());
+    if (++maps > MAX_MAPS || map.length > MAX_MAP) { fail('map count or size limit'); continue; }
+    const recovered = recoverableSources(map.toString(), parser, total);
+    if (recovered.error) { fail(recovered.error); continue; }
+    const sources = recovered.sources;
     if (!sources.length) continue;
     const namespace = crypto.createHash('sha256').update(path.relative(root, bundle)).digest('hex').slice(0, 12);
     const staged = new Map();
-    let valid = true;
-    let stagedBytes = 0;
     for (const source of sources) {
-      const parts = source.name.replaceAll('\\', '/').split('/');
-      if (parts.some(part => part === '..' || part === '') || /^[a-z]:/i.test(source.name) || source.name.includes('\0')) { valid = false; break; }
-      const file = path.join(root, '~sources', namespace, ...parts);
+      const file = path.join(root, '~sources', namespace, ...source.name.split('/'));
       const data = Buffer.from(source.content);
-      if (sources.length > 2000 || data.length > 1024 * 1024 || total + stagedBytes + data.length > MAX_TOTAL || staged.has(file)) { valid = false; break; }
-      try { if (!parser.parse(file, data)[1]) { valid = false; break; } } catch { valid = false; break; }
-      staged.set(file, data); stagedBytes += data.length;
+      staged.set(file, data);
     }
-    if (!valid) { fail('unsafe names, duplicate sources, parse failure or source budget exceeded'); continue; }
     for (const [file, data] of staged) {
       total += data.length;
       buffers.set(file, data); loaded.add(file);
