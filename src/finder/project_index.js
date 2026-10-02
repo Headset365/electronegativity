@@ -9,6 +9,9 @@ import { diagnostics } from '../util/diagnostics.js';
 
 // How many calls deep untrusted data is followed from a handler into helpers
 const MAX_CALL_DEPTH = 6;
+// limits of the dispatch-table resolution: entries a table may have, functions one call may resolve to
+const MAX_DISPATCH = 64;
+const MAX_TARGETS = 32;
 // Files that may register handlers for untrusted input (see UNTRUSTED_SOURCES in analysis.js)
 const SOURCE_HINT = /ipcMain|setWindowOpenHandler|will-navigate|will-frame-navigate|did-start-navigation|new-window|will-redirect|open-url|open-file|second-instance|['"`](ipc-)?message['"`]/;
 const functionKey = (file, fn) => fn && fn.loc ? `${file}:${fn.loc.start.line}:${fn.loc.start.column}` : undefined;
@@ -212,9 +215,19 @@ export class ProjectIndex {
         addDispatch(node.callee.object.name, keyName(node.arguments[0]), node.arguments[1]);
       return true;
     });
+    // a real dispatch table names a few handlers; in minified code every `e.x = …` of a one-letter variable lands here,
+    // and following those fans out exponentially (Notesnook's bundle ran out of memory): such names are not tables
+    for (const [name, entries] of dispatch) if (entries.length > MAX_DISPATCH) dispatch.delete(name);
     const names = new Map();
     for (const [name, fns] of local) for (const fn of fns) names.set(functionKey(file, fn), name);
+    const resolved = new Map();
     const resolve = (callee, depth = 0) => {
+      if (depth === 0 && callee && resolved.has(callee)) return resolved.get(callee);
+      const keys = [...new Set(resolveAll(callee, depth))].slice(0, MAX_TARGETS);
+      if (depth === 0 && callee) resolved.set(callee, keys);
+      return keys;
+    };
+    const resolveAll = (callee, depth = 0) => {
       if (depth > MAX_CALL_DEPTH) return [];
       // handlers.get(name)(...args), with known Map entries and later .set() calls.
       if (callee?.type === 'CallExpression' && isMember(callee.callee) && keyName(callee.callee.property) === 'get' && callee.callee.object.type === 'Identifier') {
@@ -254,7 +267,10 @@ export class ProjectIndex {
         for (const fn of ancestors) {
           if (!isFunction(fn) || !node.arguments.some(argument => dependsOnParams(argument, fn))) continue;
           const key = functionKey(file, fn);
-          this.edges.set(key, [...(this.edges.get(key) || []), ...callees]);
+          // a set, added to in place: copying an array per call is quadratic in the huge wrapper functions of bundles
+          if (!this.edges.has(key)) this.edges.set(key, new Set());
+          const targets = this.edges.get(key);
+          for (const callee of callees) targets.add(callee);
         }
       }
       return true;

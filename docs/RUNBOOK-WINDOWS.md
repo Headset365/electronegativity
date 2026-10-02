@@ -120,7 +120,9 @@ the console says how many.
   (`IPC_RPC_PROCEDURE_JS_CHECK`, e.g. `osIntegrationRouter.deleteFile`), under "Insufficient Validation of
   Inter-Process Messages".
 - **HTML built from strings**: a template literal with tags and unescaped `${…}` values (titles, tags, names) is
-  reported (`HTML_TEMPLATE_JS_CHECK`), as are the sinks such HTML usually ends in: `iframe.srcdoc`, `srcDoc` in compiled
+  reported (`HTML_TEMPLATE_JS_CHECK`) when the markup goes somewhere HTML is parsed or built: an HTML sink or jQuery
+  insertion, a variable or property named for markup (or, in minified code, a variable that collects several pieces
+  of markup), a function that renders, or a whole document. The app's own translation tables are not counted as values, as are the sinks such HTML usually ends in: `iframe.srcdoc`, `srcDoc` in compiled
   React, `contentDocument.write` and `createContextualFragment`. Iframes created in compiled code without `sandbox` are
   reported too, HIGH when the frame shows generated HTML in a window with `nodeIntegration` and no context isolation.
   To check one, put the marker in the listed value (a note title, a tag), then use the feature that builds the HTML:

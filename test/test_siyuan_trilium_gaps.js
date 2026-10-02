@@ -106,6 +106,20 @@ describe('Gaps from the SiYuan and Trilium reviews', () => {
     });
   });
 
+  describe('scan cost', () => {
+    it('does not follow the assignments of a minified variable as a dispatch table', async function () {
+      this.timeout(30000);
+      // e[a] = e[b] for a hundred keys: followed as a table, one computed call fans out exponentially
+      const lines = Array.from({ length: 100 }, (_, i) => `e[k${i}] = e[k${(i + 1) % 100}];`).join('\n');
+      const app = write(path.join(root, 'bundle'), { 'package.json': JSON.stringify({ name: 'bundle', main: 'main.js' }),
+        'main.js': `const { shell } = require('electron');\nconst e = {};\n${lines}\nfunction go(url) { e[url](url); shell.openExternal(url); }\nfunction later(t) { go(t); }\ngo('https://example.com');` });
+      const started = Date.now();
+      const { issues } = await run({ input: app, offline: true, customScan: ['openexternaljscheck'] });
+      assert.ok(Date.now() - started < 20000);
+      assert.ok(issues.some(issue => issue.id === 'OPEN_EXTERNAL_JS_CHECK'));
+    });
+  });
+
   describe('runtime', () => {
     it('reports a local service that other origins can read, or that listens on every interface', () => {
       const { issues } = analyzeProofs([

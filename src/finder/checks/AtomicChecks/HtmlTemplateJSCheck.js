@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, keyName, finding } from '../helpers.js';
-import { onlyConstantParts } from '../analysis.js';
+import { onlyConstantParts, visit } from '../analysis.js';
 
 // HTML assembled from a template literal, with values put into element text or attribute values unescaped:
 //   `<title>${note.title}</title><meta name="description" content="${note.headline}">`
@@ -14,6 +14,8 @@ const TAG = /<\/?[a-z][a-z0-9-]*(?=[\s>/])/gi;
 const NOT_TEXT = /^(?:i|j|k|n|idx|index|count|total|len|length|width|height|size|top|left|right|bottom|x|y|z|id|uid|key|px|em|zIndex|level|depth|page|offset|scale|ratio|opacity|version|year|month|day|hour|minute|second|ms|timestamp|time|date|color|colour|theme|lang|dir)$/i;
 
 
+const TRANSLATIONS = /(?:^|\.)(?:languages|language|i18n|l10n|lang|locale|locales|translations|translation|messages|strings|texts)\./i;
+
 // the interpolated values worth flagging: names of the data put into the markup as is
 function unescapedValues(expression, scope) {
   if (!expression || onlyConstantParts(expression, scope)) return [];
@@ -24,7 +26,10 @@ function unescapedValues(expression, scope) {
     case 'MemberExpression':
     case 'OptionalMemberExpression': {
       const name = memberName(expression);
-      return name && !NOT_TEXT.test(name) && !/^\d+$/.test(name) ? [describe(expression)] : [];
+      const described = describe(expression);
+      // the app's own translated strings (window.siyuan.languages.title, i18n.messages.save) are not user content
+      if (TRANSLATIONS.test(described)) return [];
+      return name && !NOT_TEXT.test(name) && !/^\d+$/.test(name) ? [described] : [];
     }
     case 'ConditionalExpression':
       return [...unescapedValues(expression.consequent, scope), ...unescapedValues(expression.alternate, scope)];
@@ -62,6 +67,82 @@ function contextOf(before) {
   return undefined;
 }
 
+// names that say a value holds markup, or a function that produces it
+const HTML_NAME = /html|markup|template|tpl|snippet/i;
+const RENDER_NAME = /html|markup|template|tpl|render|build|view|toast|tooltip|popup|item|row|cell/i;
+const HTML_CALLS = new Set(['html', 'append', 'prepend', 'before', 'after', 'replaceWith', 'insertAdjacentHTML', 'write', 'writeln',
+  'createContextualFragment', 'parseFromString', 'setContent', 'setData', 'showError', 'showMessage', 'show', 'toast']);
+const DOCUMENT = /<!doctype|<html[\s>]|<body[\s>]|<head[\s>]/i;
+const PASS_THROUGH = new Set(['ConditionalExpression', 'LogicalExpression', 'BinaryExpression', 'ParenthesizedExpression', 'TemplateLiteral',
+  'SequenceExpression', 'AwaitExpression', 'ArrayExpression', 'SpreadElement', 'TSAsExpression']);
+
+const nameOf = (node) => !node ? undefined : node.type === 'Identifier' ? node.name : (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') ? memberName(node) : keyName(node);
+
+// The function a node is returned from, and that function's name (declared, assigned or a property)
+function functionName(fn, parent) {
+  if (fn.id && fn.id.name) return fn.id.name;
+  if (!parent) return undefined;
+  if (parent.type === 'VariableDeclarator') return nameOf(parent.id);
+  if (parent.type === 'AssignmentExpression') return nameOf(parent.left);
+  if (parent.type === 'ObjectProperty' || parent.type === 'Property' || parent.type === 'ClassMethod' || parent.type === 'MethodDefinition') return nameOf(parent.key);
+  return undefined;
+}
+
+/**
+ * Whether the markup goes somewhere HTML is parsed or built: an HTML sink or a jQuery insertion, a variable or property
+ * named for markup (itemHtml, template, html +=), or a value returned by a function that renders (renderItem, toHtml).
+ * Markup in message tables, titles and other constants that never reach the DOM as HTML is left out.
+ */
+function reachesHtml(ancestors) {
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const node = ancestors[i];
+    if (PASS_THROUGH.has(node.type)) continue;
+    if (node.type === 'AssignmentExpression') return HTML_NAME.test(nameOf(node.left) || '') || ['innerHTML', 'outerHTML', 'srcdoc'].includes(nameOf(node.left))
+      || (node.left.type === 'Identifier' && markupVariable(node.left.name, ancestors.slice(0, i)));
+    if (node.type === 'VariableDeclarator') return HTML_NAME.test(nameOf(node.id) || '') || (node.id.type === 'Identifier' && markupVariable(node.id.name, ancestors.slice(0, i)));
+    if (node.type === 'ObjectProperty' || node.type === 'Property') return /html|template|content|body|srcdoc|message/i.test(nameOf(node.key) || '');
+    if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression') {
+      const callee = node.callee;
+      const name = callee.type === 'Identifier' ? callee.name : nameOf(callee);
+      return HTML_CALLS.has(name) || name === '$' || name === 'jQuery' || HTML_NAME.test(name || '') || /render/i.test(name || '');
+    }
+    if (node.type === 'ReturnStatement') continue;
+    if (node.type === 'BlockStatement') continue;
+    if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression' || node.type === 'FunctionDeclaration' || node.type === 'ObjectMethod' || node.type === 'ClassMethod')
+      return RENDER_NAME.test(functionName(node, ancestors[i - 1]) || '');
+    return false;
+  }
+  return false;
+}
+
+// whether a value holds markup: a string or template with a tag in it
+const holdsMarkup = (node) => !!node && ((node.type === 'TemplateLiteral' && node.quasis.some(q => TAG_ONCE.test(q.value.cooked ?? q.value.raw)))
+  || ((node.type === 'StringLiteral' || node.type === 'Literal') && typeof node.value === 'string' && TAG_ONCE.test(node.value)));
+const TAG_ONCE = /<\/?[a-z][a-z0-9-]*(?=[\s>/])/i;
+
+/**
+ * A variable that builds HTML whatever it is called (minified: u = `<div …>`; u += `<span …>`; return u): two or more
+ * pieces of markup put into it, or the variable handed to an HTML sink, in the function that holds it.
+ */
+function markupVariable(name, ancestors) {
+  const scope = [...ancestors].reverse().find(node => /Function|Program/.test(node.type));
+  if (!scope) return false;
+  let pieces = 0;
+  let sink = false;
+  visit(scope.body || scope, (node) => {
+    if (sink || pieces >= 2) return false;
+    if (node.type === 'AssignmentExpression' && node.left.type === 'Identifier' && node.left.name === name && holdsMarkup(node.right)) pieces++;
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.id.name === name && holdsMarkup(node.init)) pieces++;
+    if ((node.type === 'CallExpression' || node.type === 'OptionalCallExpression') && node.arguments.some(arg => arg.type === 'Identifier' && arg.name === name)) {
+      const callee = node.callee.type === 'Identifier' ? node.callee.name : nameOf(node.callee);
+      if (HTML_CALLS.has(callee) || callee === '$' || callee === 'jQuery') sink = true;
+    }
+    if (node.type === 'AssignmentExpression' && ['innerHTML', 'outerHTML'].includes(nameOf(node.left)) && node.right.type === 'Identifier' && node.right.name === name) sink = true;
+    return true;
+  });
+  return sink || pieces >= 2;
+}
+
 export default class HtmlTemplateJSCheck {
   constructor() {
     this.id = "HTML_TEMPLATE_JS_CHECK";
@@ -77,6 +158,8 @@ export default class HtmlTemplateJSCheck {
     if (parent && parent.type === 'TaggedTemplateExpression' && parent.quasi === astNode) return null;
     const markup = astNode.quasis.map(q => q.value.cooked ?? q.value.raw).join('');
     if (!(markup.match(TAG) || []).length) return null;
+    // a whole document is HTML wherever it goes; a fragment counts where it is parsed or built as markup
+    if (!DOCUMENT.test(markup) && !reachesHtml(context && context.ancestors || [])) return null;
 
     const values = [];
     let before = '';
