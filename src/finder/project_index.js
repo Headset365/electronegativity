@@ -226,10 +226,20 @@ export class ProjectIndex {
       cache.set(depth, result);
       return result;
     };
+    // Distinct member expressions often select the same immutable dispatch table.
+    // Expression caching alone still walks a large minified table at every site.
+    const dispatchResults = new WeakMap();
     const resolveEntries = (entries, key, depth) => {
+      if (!entries) return [];
+      if (!dispatchResults.has(entries)) dispatchResults.set(entries, new Map());
+      const keys = dispatchResults.get(entries);
+      if (!keys.has(key)) keys.set(key, new Map());
+      const depths = keys.get(key);
+      if (depths.has(depth)) return depths.get(depth);
       const targets = new Set();
       for (const entry of entries || []) if (key === undefined || entry.key === undefined || key === entry.key)
         for (const target of resolve(entry.value, depth + 1)) targets.add(target);
+      depths.set(depth, targets);
       return targets;
     };
     const resolveExpression = (callee, depth) => {

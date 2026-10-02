@@ -61,6 +61,19 @@ describe('Real-app benchmark regressions', () => {
     assert.ok(index.findTaintedFunctions().has(sink), 'IPC data must still reach the sink');
     for (const targets of index.edges.values()) assert.equal([...targets].filter(key => key === sink).length, 1);
   });
+  it('retains distinct fixed and dynamic targets across many cyclic dispatch call sites', function () {
+    this.timeout(5000);
+    const entries = Array.from({ length: 512 }, (_, i) => `p${i}: table[name]`).join(',');
+    const calls = Array.from({ length: 128 }, () => 'table.first(value); table.second(value); table[name](value);').join('');
+    const code = `const table = { ${entries}, first, second }; function first(value) { return value; } function second(value) { return value; } ipcMain.handle('route', (event, name, value) => { ${calls} });`;
+    const index = new ProjectIndex({ list_files: new Set(['main.js']), load_buffer: () => code }, new Parser());
+    const summary = index.summarize('main.js');
+    for (const name of ['first', 'second']) {
+      const key = [...summary.names].find(([, n]) => n === name)[0];
+      assert.equal(index.callSites.get(key).count, 256, 'fixed and dynamic sites must both be preserved');
+      assert.ok(index.findTaintedFunctions().has(key), 'both targets receive the IPC arguments');
+    }
+  });
   describe('HTML sanitizer provenance', () => {
     for (const mutation of ['DOMPurify.sanitize = x => x;', 'DOMPurify["sanitize"] = x => x;', 'const alias = DOMPurify; alias.sanitize = x => x;', 'Object.assign(DOMPurify, { sanitize: x => x });', 'Object.defineProperty(DOMPurify, "sanitize", { value: x => x });']) {
       for (const prefix of ['', 'import DOMPurify from "dompurify";', 'const DOMPurify = require("dompurify");']) {
