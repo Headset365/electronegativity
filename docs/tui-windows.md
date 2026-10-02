@@ -17,3 +17,23 @@ The automated tests cover prompt identity, cancellation, stale/repeated input, m
 11. Open a campaign's details, including an unavailable capture with a long reason. Scroll long dialog text, and verify that clicking behind a dialog cannot activate a campaign or tab. At 80 by 24, session review and text input controls must stay within the window. Repeat with a target path containing accented and wide characters.
 
 `node scripts/preview-tui-windows.mjs` captures six representative screens from the actual renderer on Windows. CI includes these captures for visual review; they represent the terminal cell layout rather than a browser mockup.
+
+## Visual previews
+
+These examples use cell data captured on Windows CI. Text size and glyph shapes depend on your Windows Terminal font; the layout, colours and controls come from the application's renderer.
+
+The default Obsidian theme keeps campaign readiness and your next action visible beside the workspace:
+
+![Obsidian dashboard](resources/img/tui/obsidian-live.png)
+
+Campaign setup puts input in a focused dialog:
+
+![Content field dialog](resources/img/tui/content-fields.png)
+
+Session review waits for an explicit choice:
+
+![Session review dialog](resources/img/tui/session-review.png)
+
+The same controls remain usable in an 80-column PowerShell window:
+
+![Compact session review](resources/img/tui/compact-review.png)
