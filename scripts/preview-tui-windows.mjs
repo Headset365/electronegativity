@@ -56,5 +56,7 @@ ui.themeIndex = 2; capture('porcelain-live');
 ui.themeIndex = 0;
 ui.receive({ type: 'prompt', id: 9, kind: 'text', question: '[validate] Fields to test, comma-separated [content]: ' });
 ui.focus = 'input'; capture('content-fields');
+ui.receive({ type: 'session-ended' });
+ui.receive({ type: 'phase', text: 'Session 1 complete · evidence ready for review' });
 ui.prompts = [{ id: 10, kind: 'session', question: 'Next session?' }]; ui.transition();
 capture('session-review'); capture('compact-review', 80, 24);

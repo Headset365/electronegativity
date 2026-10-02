@@ -16,7 +16,7 @@ export function renderDashboard(ui, columns, rows, { color = true } = {}) {
   };
   const button = (id, label, x, y, { primary = false, enabled = true, reason, width: size = textWidth(label) + 4, height: tall = 1 } = {}) => {
     const focused = ui.focus === id, hover = ui.hover === id;
-    const bg = !enabled ? p.raised : primary || focused ? p.accent : hover ? p.border : p.raised;
+    const bg = !enabled ? p.raised : primary ? hover ? p.text : p.accent : focused ? p.accent : hover ? p.border : p.raised;
     const fg = !enabled ? p.subtle : primary || focused ? p.onAccent : p.text;
     screen.fill(x, y, size, tall, bg);
     if (tall === 3) screen.panel(x, y, size, tall, { bg, border: focused ? p.text : bg });
@@ -125,7 +125,22 @@ export function renderDashboard(ui, columns, rows, { color = true } = {}) {
     screen.text(tabX, top + 3, selected ? '─'.repeat(w) : ' '.repeat(w), { fg: p.accent });
     region(`tab:${tab}`, tabX, top + 1, w, 3); tabX += w + 1;
   }
-  const logX = mainX + 3, logY = top + 5, logWidth = mainWidth - 6, logHeight = Math.max(1, bodyHeight - 7);
+  const logX = mainX + 3, logWidth = mainWidth - 6;
+  let logY = top + 5, logHeight = Math.max(1, bodyHeight - 7);
+  if (ui.tab === 'Validation' && logHeight >= 10) {
+    screen.fill(logX, logY, logWidth, 4, p.raised);
+    for (let n = 0; n < 4; n++) screen.text(logX, logY + n, '▎', { fg: p.accent });
+    const title = ui.finished ? 'Assessment complete' : ui.activeCampaign ? 'Campaign in progress' : ready ? `${ready} campaign${ready === 1 ? '' : 's'} ready to review`
+      : ui.live ? ui.campaignEnabled ? 'Capture a content save' : 'Observe the app' : 'Analysis in progress';
+    const hint = ui.finished ? 'Review your findings, then open the results folder.' : ui.activeCampaign ? 'Follow the active campaign in the sidebar. Other captures will wait.'
+      : ready ? 'Choose Review & run in the sidebar. You will review fields and the saved view before approving.'
+        : ui.live ? ui.campaignEnabled ? 'Save a disposable record in the app. Eligible captures appear in the sidebar.' : 'Use the app normally. Runtime evidence is collected as you work.'
+          : 'Progress and findings appear as the tool examines your application.';
+    screen.text(logX + 2, logY, title, { fg: p.accent, bold: true, width: logWidth - 4 });
+    wrapText(hint, logWidth - 4).slice(0, 2).forEach((line, index) => screen.text(logX + 2, logY + 1 + index, line, { fg: p.muted }));
+    screen.text(logX, logY + 5, 'VALIDATION ACTIVITY', { fg: p.subtle });
+    logY += 7; logHeight -= 7;
+  }
   const logLines = ui.logs[ui.tab].flatMap(line => wrapText(line, logWidth));
   ui.logWidths[ui.tab] = logWidth; ui.logCounts[ui.tab] = logLines.length;
   const logEnd = Math.max(0, logLines.length - ui.scroll[ui.tab]);
