@@ -74,7 +74,7 @@ export async function connectDebug(endpoint, { target, fetchImpl = fetch, Socket
 }
 
 export async function watchDebug(endpoint, { target, duration = 0, marker, active = false, campaign = false, scope = [], traffic = true,
-  reveal = false, screenshots, log, commands, remoteHosts = [], headerNames = [], headersFile, connect = connectDebug } = {}) {
+  reveal = false, screenshots, log, commands, remoteHosts = [], headerNames = [], headersFile, onReady = () => {}, connect = connectDebug } = {}) {
   if (!Number.isInteger(duration) || duration < 0 || duration > 86400) throw new Error('Debug duration must be 0–86400 seconds');
   const client = await connect(endpoint, { target });
   const id = client.target.id, key = `__eng_debug_${crypto.randomBytes(8).toString('hex')}`;
@@ -295,6 +295,8 @@ export async function watchDebug(endpoint, { target, duration = 0, marker, activ
   const stop = () => finish();
   client.events.once('closed', stop);
   process.once('SIGINT', stop);
+  // The TUI enables End session only after the stop handler exists.
+  onReady();
   try {
     await client.send('Runtime.enable');
     await client.send('Page.enable');
