@@ -91,7 +91,9 @@ What happens:
      be are named in its "Links to validate manually" column);
    - `testerNotes\`: for each finding, your working notes: how it was rated, every instance with its recorded evidence
      (including those left out of the client finding), how to check each one by hand, and what the sessions covered.
-     They are not for the client;
+     Each ends with a **Before release** checklist (mask secrets, review tentative instances, check the rating...) whose
+     items link to `How to Prepare Findings for Release.md` in the same folder, a step-by-step guide to each check.
+     Findings whose evidence can show a secret also say so in their `Notes`. They are not for the client;
    - `diagnostics.json`, with a section per step;
    - `steps\`: each step's own reports (`static-report.html`, `session-1-report.html`, ...), kept as backups.
 

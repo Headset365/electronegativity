@@ -52,13 +52,13 @@ describe('Outdated Software Components', () => {
     front.Likelihood.should.equal('N/A');
     const section = (heading) => md.split(`## ${heading}\n`)[1].split(/^## /m)[0].trim();
     section('Issue Description').should.include('Testing identified the use of outdated software components in Example, including its Electron runtime (version 22.3.27; the latest release is 44.5.1)');
-    section('Affected').should.equal('Refer to the attached spreadsheet - `components.xlsx` for a list of affected components.');
+    section('Affected').should.equal('Refer to the attached spreadsheet (`components.xlsx`) for a list of affected components.');
     section('Implication').should.include('- **Cross-Site Scripting** (jquery 1.12.4):');
     section('Implication').should.include('*Note:* An application that uses a library or framework with a known security issue is not necessarily vulnerable to that issue.');
     section('Implication').should.match(/\*Note:\* This issue was rated as Informational because the known vulnerabilities could not be exploited during the engagement\. However, it could be indicative of weaknesses within the patch management process\.$/);
-    section('Reproduction and Evidence').should.equal('Refer to the Support status column and the advisory links for each identified component in the attached spreadsheet - `components.xlsx`.');
+    section('Reproduction and Evidence').should.equal('Refer to the Support status column and the advisory links for each identified component in the attached spreadsheet (`components.xlsx`).');
     section('Recommendations').should.include('Recommended action column').and.include('patch management process');
-    section('References').should.include('- Refer to the attached spreadsheet - `components.xlsx` for a list of affected components.\n\n  Refer to the Latest version column for each component for the latest identified version. Follow vendor guidance when upgrading.');
+    section('References').should.include('- Refer to the attached spreadsheet (`components.xlsx`) for a list of affected components.\n\n  Refer to the Latest version column for each component for the latest identified version. Follow vendor guidance when upgrading.');
     section('References').should.include('CWE-1104');
     // the advisory ids are in the workbook, not the finding
     md.should.not.include('GHSA-j1');

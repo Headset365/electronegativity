@@ -216,7 +216,7 @@ describe('Markdown validation evidence', () => {
     ]);
     for (const value of ['expected: aaa', 'actual: bbb', 'enforced: false', 'verifiedBy: os', 'store: Local Storage', 'basis: canary']) assert.ok(md.includes(value), value);
     // advisories are listed in the components workbook, which the outdated components finding refers to
-    assert.ok(md.includes('# Outdated Software Components') && md.includes('the attached spreadsheet - `components.xlsx`'));
+    assert.ok(md.includes('# Outdated Software Components') && md.includes('the attached spreadsheet (`components.xlsx`)'));
     assert.ok(!md.includes('<script>evil()'));
     assert.ok(!md.includes('<img src=x>'));
   });

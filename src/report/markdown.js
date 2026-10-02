@@ -12,6 +12,7 @@ import { executionConfirmed, mergeFindingEvidence, validationResults } from '../
 import { OUTDATED_TITLE, outdatedSections } from './markdown_outdated.js';
 import { LEADS, NOTES, runtimeFact, staticFact, referenceTitle } from './markdown_style.js';
 import { CLIENT_LABELS } from './markdown_client_copy.js';
+import { RELEASE_GUIDE_TITLE, RELEASE_GUIDE_FILE, SECRET_CHECKS, secretsNote, releaseChecklist, releaseGuide } from './markdown_release.js';
 
 const definitions = [
   ['Insufficient Renderer Process Isolation', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|PRELOAD|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX)|RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$)/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
@@ -62,7 +63,7 @@ const consequenceScale = ['Very Low', 'Low', 'Medium', 'High', 'Critical'];
 const likelihoodScale = ['Rare', 'Unlikely', 'Possible', 'Likely', 'Very Likely'];
 const definitionOf = title => definitions.find(d => d[0] === title);
 // how much of the app's own text and code one report entry shows (a minified bundle is one line of megabytes)
-const SAMPLE_LIMIT = 600;
+const SAMPLE_LIMIT = 1200;
 const TEXT_LIMIT = 500;
 const MAX_LOCATIONS = 60;
 // commands that check a finding by hand, per group
@@ -212,7 +213,7 @@ function context(meta) {
   };
   // what the scanned folder is: the archive of an installed app, its unpacked app folder, or the app's source
   const layout = !root ? undefined : /[\\/]resources[\\/]app\.asar$/i.test(root) ? 'archive' : /[\\/]resources[\\/]app$/i.test(root) ? 'folder' : 'source';
-  return { app: meta.app?.name || 'the application', bases, scrub, layout, outputFile: meta.outputFile, dependencies: meta.dependencies,
+  return { app: meta.app?.name || 'the application', bases, scrub, layout, notesFolder: meta.notesFolder || 'testerNotes', findingsFolder: meta.findingsFolder || 'reports', outputFile: meta.outputFile, dependencies: meta.dependencies,
     reportRoot: meta.reportRoot || (meta.outputFile && path.dirname(path.resolve(meta.outputFile))), outputs: meta.outputs || [] };
 }
 
@@ -434,6 +435,9 @@ function renderOutdated(g, ctx) {
 
 // how many reproduction steps a finding shows; the rest are named under Affected
 const MAX_STEPS = 10;
+// a file with this many locations is one row under Affected, naming up to MAX_LINES_LISTED of its lines
+const GROUP_LOCATIONS = 4;
+const MAX_LINES_LISTED = 10;
 
 /** The parts of one finding both its client document and its tester notes are written from. */
 function findingParts(g, ctx) {
@@ -451,6 +455,33 @@ function findingParts(g, ctx) {
     validationResults(i).some(r => r.status === 'confirmed')) && (!validatedOnly || !unvalidated(i)));
   return { title, variations, labelOf, validatedOnly, blocked, shown, supporting };
 }
+
+// the code of one or more nearby findings in one file, with line numbers: the lines around each recorded at scan time
+// (merged into one block, without their common indentation), or (a report written before they were) the finding's own line
+const hasContext = i => Array.isArray(i.context?.lines) && i.context.lines.length > 0 && Number.isInteger(i.context.start);
+function numberedCode(members, ctx) {
+  const byLine = new Map();
+  for (const i of members.filter(hasContext)) i.context.lines.forEach((line, k) => byLine.set(i.context.start + k, String(line)));
+  if (!byLine.size) {
+    const first = members.find(i => i.sample);
+    if (!first) return undefined;
+    if (!first.location?.line) return ctx.scrub(first.sample);
+    byLine.set(first.location.line, first.sample);
+  }
+  const numbers = [...byLine.keys()].sort((a, b) => a - b);
+  const rows = [];
+  for (let n = numbers[0]; n <= numbers.at(-1); n++) rows.push([n, (byLine.get(n) ?? '').trimEnd()]);
+  // no blank lines at the ends of the block
+  while (rows.length > 1 && !rows[0][1].trim()) rows.shift();
+  while (rows.length > 1 && !rows.at(-1)[1].trim()) rows.pop();
+  const indent = Math.min(...rows.filter(([, line]) => line.trim()).map(([, line]) => line.match(/^\s*/)[0].length));
+  const width = String(rows.at(-1)[0]).length;
+  return rows.map(([n, line]) => `${String(n).padStart(width)} | ${ctx.scrub(line.slice(indent))}`.trimEnd()).join('\n');
+}
+// "line 26", "lines 26 and 27", "lines 3, 8 and 12"
+const lineList = lines => lines.length === 1 ? `line ${lines[0]}` : `lines ${lines.slice(0, -1).join(', ')} and ${lines.at(-1)}`;
+// locations this close in one file share a block of code: their two lines of context either side meet
+const NEARBY = 5;
 
 // a screenshot in a reproduction step: shown when it is next to the report, named otherwise
 function image(file, ctx) {
@@ -479,29 +510,58 @@ function reproductionSteps(g, ctx, parts) {
   }[ctx.layout];
   if (orientation) steps.push(orientation);
   const facts = [];
-  // code shown in an earlier step is not shown again
-  const shownCode = new Set();
+  // nearby locations in one file are one step with one block of code, in the order of the most severe
+  const clusters = [];
   for (const [where, issues] of locations) {
     const first = issues[0];
+    const line = first.location?.line || 0;
+    const near = where && line && hasContext(first) && !first.context.excerpt &&
+      clusters.find(c => c.file === first.file && c.near && c.members.some(m => Math.abs(m.line - line) <= NEARBY));
+    if (near) near.members.push({ where, issues, line });
+    else clusters.push({ file: first.file, near: !!(where && line && hasContext(first) && !first.context.excerpt), members: [{ where, issues, line }] });
+  }
+  // what one location shows: its facts, what testing saw there, and whether it is an accepted risk
+  const findings = issues => {
     const found = unique(issues.map(i => safeFact(ctx.scrub(staticFact(i, normalId)))).filter(Boolean));
-    const validated = unique(issues.flatMap(validatedFacts));
+    const during = unique(issues.flatMap(validatedFacts)).map(fact => `During testing, ${text(fact, ctx, 1000)}.`).join(' ');
+    const accepted = issues.every(i => i.suppression) ? 'This instance has been accepted as a risk.' : '';
+    return { found, extra: [during, accepted].filter(Boolean).join(' ') };
+  };
+  // code shown in an earlier step is not shown again
+  const shownCode = new Set();
+  for (const cluster of clusters) {
+    const members = cluster.members.sort((a, b) => a.line - b.line);
+    const all = members.flatMap(m => m.issues);
+    const first = members[0].issues[0];
+    const images = unique(all.flatMap(screenshotsOf)).map(file => image(file, ctx));
+    const pictures = images.length ? `\n\n${images.join('\n\n')}` : '';
+    if (members.length > 1) {
+      const code = numberedCode(members.map(m => m.issues[0]), ctx);
+      shownCode.add(code);
+      const each = members.map(m => {
+        const { found, extra } = findings(m.issues);
+        return `${found.length ? `Line ${m.line} shows ${thatList(found)}.` : ''}${extra ? ` ${extra}` : ''}`.trim();
+      }).filter(Boolean).join(' ');
+      facts.push(`Open ${codeSpan(shownFile(first.file, ctx))} and review ${lineList(members.map(m => m.line))}:\n\n${codeBlock(code, language(first.file), '')}\n\n${each}${pictures}`);
+      continue;
+    }
+    const { where, issues } = members[0];
+    const { found, extra } = findings(issues);
     const shows = found.length ? `This shows ${thatList(found)}.` : '';
-    const during = validated.map(fact => `During testing, ${text(fact, ctx, 1000)}.`).join(' ');
-    const accepted = issues.every(i => i.suppression) ? ' This instance has been accepted as a risk.' : '';
     const file = where && shownFile(first.file, ctx);
     const inspect = INSPECT[normalId(first.id)];
-    const samples = unique(issues.map(i => i.sample && ctx.scrub(i.sample)));
+    const code = where ? numberedCode([first], ctx) : undefined;
+    const lineRef = first.context?.excerpt && first.location?.column != null ? `line ${first.location?.line || 1} (column ${first.location.column + 1})` : `line ${first.location?.line || 1}`;
     let step;
     if (!where) step = found.length ? `Review the configuration of ${app}, which shows ${thatList(found)}.` : `Review the configuration of ${app}.`;
-    else if (inspect && !samples.length) step = `${inspect(file)} ${shows}`;
-    else if (samples.length && shownCode.has(samples[0])) step = `Open ${codeSpan(file)} and review line ${first.location?.line || 1}, which holds the same code as above. ${shows}`;
-    else if (samples.length) {
-      shownCode.add(samples[0]);
-      step = `Open ${codeSpan(file)} and review line ${first.location?.line || 1}:\n\n${codeBlock(samples[0], language(first.file), '')}\n\n${shows}`;
+    else if (inspect && !code) step = `${inspect(file)} ${shows}`;
+    else if (code && shownCode.has(code)) step = `Open ${codeSpan(file)} and review ${lineRef}, which holds the same code as above. ${shows}`;
+    else if (code) {
+      shownCode.add(code);
+      step = `Open ${codeSpan(file)} and review ${lineRef}:\n\n${codeBlock(code, language(first.file), '')}\n\n${shows}`;
     }
     else step = `Open ${codeSpan(file)}${first.location?.line > 1 ? ` and review line ${first.location.line}` : ''}. ${shows}`;
-    const images = unique(issues.flatMap(screenshotsOf)).map(file => image(file, ctx));
-    facts.push(`${`${step.trim()}${during ? ` ${during}` : ''}${accepted}`.trim()}${images.length ? `\n\n${images.join('\n\n')}` : ''}`);
+    facts.push(`${`${step.trim()}${extra ? ` ${extra}` : ''}`.trim()}${pictures}`);
   }
   const runtime = [...shown.filter(isRuntime), ...supporting];
   const seen = new Set();
@@ -524,12 +584,28 @@ function renderGroup(g, ctx) {
   const { variations, labelOf, validatedOnly, blocked } = parts;
   const app = text(ctx.app, ctx);
   const notes = field => noteValues(g.issues, field).map(value => text(value, ctx));
-  const accepted = g.issues.filter(x => x.suppression).map(s => acceptedRisk(s, labelOf(variations.find(v => v.issues.includes(s)) || { label: s.id }), ctx));
+  // the Notes: a reminder to mask secrets where the evidence can show one, then the accepted risks
+  const accepted = [...(holdsSecrets(g) ? [secretsNote(ctx.notesFolder)] : []),
+    ...g.issues.filter(x => x.suppression).map(s => acceptedRisk(s, labelOf(variations.find(v => v.issues.includes(s)) || { label: s.id }), ctx))];
 
-  // each location once, with the scenarios it supports
+  // each location once, with the scenarios it supports; a file with many locations (a bundle) is one row
+  const fileOf = i => place(i, ctx) && !isRuntime(i) ? shownFile(i.file, ctx) : undefined;
+  const linesIn = new Map();
+  for (const i of g.issues) {
+    const file = fileOf(i);
+    if (!file) continue;
+    if (!linesIn.has(file)) linesIn.set(file, new Set());
+    linesIn.get(file).add(i.location?.line || 0);
+  }
+  const rowOf = i => {
+    const lines = [...(linesIn.get(fileOf(i)) || [])].filter(Boolean).sort((a, b) => a - b);
+    if (lines.length < GROUP_LOCATIONS) return details(i, ctx);
+    const shown = lines.slice(0, MAX_LINES_LISTED).join(', ');
+    return `${codeSpan(fileOf(i))} — ${lines.length} locations (lines ${shown}${lines.length > MAX_LINES_LISTED ? ` and ${lines.length - MAX_LINES_LISTED} more, listed in the tester notes` : ''})`;
+  };
   const affected = new Map();
   for (const i of g.issues) {
-    const where = details(i, ctx);
+    const where = rowOf(i);
     const entry = affected.get(where) || { labels: [], accepted: true };
     entry.labels.push(...variations.filter(v => v.issues.includes(i)).map(labelOf));
     entry.accepted = entry.accepted && !!i.suppression;
@@ -592,14 +668,35 @@ function renderGroup(g, ctx) {
         : [`The locations listed under Affected were identified through review of ${app}.`]),
     ...(more ? ['Further instances are listed under Affected.'] : []),
     '## Recommendations', bullets(recommendations),
-    ...(examples.length ? [`The following example${examples.length === 1 ? ' illustrates' : 's illustrate'} the recommended approach:`,
-      ...examples.map(example => codeBlock(example, exampleLanguage(example), ''))] : []),
+    ...(examples.length ? [examples.length === 1 ? 'The following illustrative example shows the recommended approach. It should be adapted to the application’s own code:'
+      : 'The following illustrative examples show the recommended approach. They should be adapted to the application’s own code:',
+    ...examples.map(example => codeBlock(example, exampleLanguage(example), ''))] : []),
     '## References', ...references];
   return joinBlocks(lines);
 }
 
 // the tester's companion to a finding: how it was rated, every instance with its recorded facts (including those left out
 // of the client document) and how to check each by hand
+// a finding whose evidence can show a secret: a key, token, password or cookie
+const holdsSecrets = g => [...g.issues, ...g.evidence].some(i => SECRET_CHECKS.test(normalId(i.id)));
+
+// what the release checklist of a finding asks the tester to do
+function releaseFacts(g, parts) {
+  const title = g.definition[0];
+  const open = g.issues.filter(i => !i.suppression);
+  return {
+    secrets: holdsSecrets(g),
+    screenshots: parts ? unique([...parts.shown, ...parts.supporting].flatMap(screenshotsOf)).length : 0,
+    liveCredential: open.some(i => normalId(i.id) === 'HARDCODED_SECRET'),
+    review: open.filter(i => (i.manualReview || nameOf(i.confidence) === 'TENTATIVE') && !isConfirmed(i)).length,
+    unvalidated: parts && parts.validatedOnly ? g.issues.filter(i => !parts.shown.includes(i) && !parts.blocked.includes(i)).length : 0,
+    interaction: title !== OUTDATED_TITLE && victimAction(g.basis),
+    hosts: title === 'Sensitive Data Exposed in Network Traffic',
+    accepted: g.issues.filter(i => i.suppression).length,
+    outdated: title === OUTDATED_TITLE,
+  };
+}
+
 function testerNotesDocument(g, ctx, file) {
   const title = g.definition[0];
   const parts = title === OUTDATED_TITLE ? undefined : findingParts(g, ctx);
@@ -628,6 +725,7 @@ function testerNotesDocument(g, ctx, file) {
   lines.push('## Recorded evidence (all instances)',
     ...g.issues.map(i => `${recordedEvidence(i, ctx)}\n  - Description: ${text(i.description, ctx)}`),
     ...(g.evidence.length ? ['### Supporting observations', ...g.evidence.map(i => `${recordedEvidence(i, ctx)}\n  - Description: ${text(i.description, ctx)}`)] : []));
+  lines.push('## Before release', 'Do these before the finding goes to the client, and tick each one when it is done.', ...releaseChecklist(releaseFacts(g, parts)));
   return joinBlocks(lines);
 }
 
@@ -678,6 +776,9 @@ export function renderTesterNotes(issues, meta = {}) {
   const file = findingFileName(COVERAGE_TITLE);
   const coverage = coverageDocument(all, context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile }));
   if (coverage) notes.push({ title: COVERAGE_TITLE, file, content: australian(coverage) });
+  // the guide the checklists link to
+  if (notes.length) notes.push({ title: RELEASE_GUIDE_TITLE, file: RELEASE_GUIDE_FILE,
+    content: releaseGuide(TESTER_NOTES_MARKER, { findingsFolder: meta.findingsFolder, notesFolder: meta.notesFolder }) });
   return notes;
 }
 
@@ -754,8 +855,9 @@ const isFindingFile = (file) => {
 export function writeClientMarkdown(folder, issues, meta = {}, subfolder = MARKDOWN_FOLDER, notesSubfolder = TESTER_NOTES_FOLDER) {
   const dir = path.join(folder, subfolder);
   const notesDir = path.join(folder, notesSubfolder);
-  const findings = renderClientFindings(issues, { ...meta, dir, reportRoot: folder });
-  const notes = renderTesterNotes(issues, { ...meta, dir: notesDir, reportRoot: folder });
+  const folders = { findingsFolder: subfolder, notesFolder: notesSubfolder };
+  const findings = renderClientFindings(issues, { ...meta, ...folders, dir, reportRoot: folder });
+  const notes = renderTesterNotes(issues, { ...meta, ...folders, dir: notesDir, reportRoot: folder });
   // nothing is written until every file is known to be the tool's own
   for (const [where, documents, owned] of [[dir, findings, isFindingFile], [notesDir, notes, isNotesFile]])
     for (const document of documents) {

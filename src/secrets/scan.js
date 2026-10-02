@@ -11,7 +11,7 @@ import { severity, confidence } from '../finder/attributes.js';
 import { isNonAppFile } from '../util/file.js';
 
 const require = createRequire(import.meta.url);
-const { findSecrets, redact } = require('../traffic/secrets.cjs');
+const { findSecrets, redact, redactText, looksRandomSecret } = require('../traffic/secrets.cjs');
 
 const CODE = /\.([cm]?[jt]sx?|html?|vue|svelte)$/i;
 const CONFIG = /(^\.env(\..*)?$|\.(env|ini|ya?ml|properties|toml|conf|cfg|config|json|plist|xml)$)/i;
@@ -122,6 +122,16 @@ export function secretSources(input, codeFiles, readLoaded, { allFiles = false }
     }
   }
   return sources;
+}
+
+/**
+ * A line of code shown around a finding, with the secrets in it redacted as everywhere else in the reports: provider
+ * patterns, secret-named assignments, and string literals that look like random keys or tokens.
+ */
+export function redactCodeLine(line) {
+  let out = redactText(String(line));
+  for (const hit of findSecrets(out)) out = out.split(hit.value).join(redact(hit.value));
+  return out.replace(/(['"`])([^'"`\s]{24,})\1/g, (match, quote, value) => looksRandomSecret(value) ? `${quote}${redact(value)}${quote}` : match);
 }
 
 /**

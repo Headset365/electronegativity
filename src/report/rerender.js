@@ -34,6 +34,7 @@ export function issueFromReport(entry) {
     file: entry.file,
     location: { line: entry.line ?? 0, column: entry.column ?? 0 },
     sample: entry.sample ?? '',
+    ...(entry.context ? { context: entry.context } : {}),
     description: entry.description ?? '',
     shortenedURL: entry.reference,
     ...(entry.session !== undefined ? { session: entry.session } : {}),

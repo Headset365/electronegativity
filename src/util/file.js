@@ -32,6 +32,28 @@ export function getSample(fileLines, index) {
   return sample;
 }
 
+// how much of a minified line is kept around the finding's column, and how long a line of context may be
+const EXCERPT = 150;
+const CONTEXT_LINE = 200;
+/**
+ * The code around a finding, for its evidence: { start, lines } with start the number of the first line, and two lines
+ * either side. On a minified line (longer than a screen), an excerpt around the
+ * column instead: { start, lines: [excerpt], excerpt: true }.
+ */
+export function getContext(fileLines, index, column = 0) {
+  const line = String(fileLines[index] ?? '').replace(/\r$/, '');
+  if (!line.trim()) return undefined;
+  if (line.length > 2 * EXCERPT) {
+    const from = Math.max(0, column - EXCERPT);
+    const to = Math.min(line.length, column + EXCERPT);
+    return { start: index + 1, lines: [`${from > 0 ? '…' : ''}${line.slice(from, to).trim()}${to < line.length ? '…' : ''}`], excerpt: true };
+  }
+  const first = Math.max(0, index - 2);
+  const lines = fileLines.slice(first, index + 3).map(l => String(l).replace(/\r$/, '').trimEnd())
+    .map(l => l.length > CONTEXT_LINE ? `${l.slice(0, CONTEXT_LINE)}…` : l);
+  return { start: first + 1, lines };
+}
+
 export function getRelativePath(targetFolder, filePath) {
   // "N/A", and files served remotely, which are reported by URL
   if (filePath === "N/A" || /^[a-z][a-z0-9+.-]*:\/\//i.test(filePath))
@@ -272,6 +294,7 @@ const issueEntry = (issue, fingerprint) => ({
   line: issue.location ? issue.location.line : undefined,
   column: issue.location ? issue.location.column : undefined,
   sample: issue.sample,
+  context: issue.context,
   description: issue.description,
   // the watch session a runtime finding came from (validation results carry their own)
   session: issue.session,

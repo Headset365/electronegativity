@@ -25,7 +25,7 @@ import { detectLibraries } from './util/libraries.js';
 import { analyzeCaptures } from './traffic/ingest.js';
 import { reconcileTraffic } from './traffic/reconcile.js';
 import { reviewDataAtRest, appNames } from './storage/index.js';
-import { secretSources, scanSecrets } from './secrets/scan.js';
+import { secretSources, scanSecrets, redactCodeLine } from './secrets/scan.js';
 import { linkCredentialStores } from './finder/checks/AtomicChecks/StorageChecks.js';
 import { analyzeBinary } from './binary/index.js';
 import { recoverPackagedSources } from './production/recover_sources.js';
@@ -367,6 +367,18 @@ async function scan(options, forCli) {
     issues.push(...atRest.issues);
     for (const note of atRest.notes) errors.push({ file: 'data at rest', message: note, tolerable: true });
     if (forCli) for (const note of atRest.notes) console.log(chalk.yellow(note));
+  }
+
+  // the code shown around a finding: the tester's own test passwords (--canary) never reach a report, and the secrets in
+  // the lines next to the finding's own are redacted as everywhere else (unless --show-secrets)
+  const canaries = (options.canaries || []).filter(value => typeof value === 'string' && value.length > 0);
+  const scrubCanaries = value => canaries.reduce((out, canary) => out.split(canary).join('[test password removed]'), String(value));
+  for (const issue of issues) {
+    if (canaries.length && typeof issue.sample === 'string') issue.sample = scrubCanaries(issue.sample);
+    if (issue.context && Array.isArray(issue.context.lines)) issue.context = { ...issue.context, lines: issue.context.lines.map((line, k) => {
+      const own = issue.context.start + k === issue.location?.line;
+      return scrubCanaries(own || options.reveal ? line : redactCodeLine(line));
+    }) };
   }
 
   // Baseline: accepted findings are not reported again

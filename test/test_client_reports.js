@@ -57,7 +57,7 @@ describe('Client report outputs', () => {
       const one = renderClientMarkdown(group.issues, { app: { name: 'Example App' } });
       // the outdated components finding refers to the components workbook instead of listing its scenarios
       if (group.definition[0] === 'Outdated Software Components') {
-        for (const heading of ['Affected', 'Reproduction and Evidence', 'References']) one.split(`## ${heading}\n`)[1].should.include('the attached spreadsheet - `components.xlsx`');
+        for (const heading of ['Affected', 'Reproduction and Evidence', 'References']) one.split(`## ${heading}\n`)[1].should.include('the attached spreadsheet (`components.xlsx`)');
         continue;
       }
       // each scenario under its client label where the finding describes it, and its advice under Recommendations
@@ -129,7 +129,7 @@ describe('Client report outputs', () => {
     findings.should.include('Client: Example #1');
     findings.should.include('/client/app/main.js:8');
     blocks.map(block => YAML.parse(block)).flatMap(front => front.Notes).join(' ').should.include('Approved: #42');
-    findings.should.include('Refer to the attached spreadsheet - `components.xlsx` for a list of affected components.');
+    findings.should.include('Refer to the attached spreadsheet (`components.xlsx`) for a list of affected components.');
     findings.should.include('https://cwe.mitre.org/data/definitions/');
   });
 
@@ -473,9 +473,9 @@ describe('Client report outputs', () => {
         (text.match(/^---$/gm) || []).length.should.equal(2);
         YAML.parse(text.split(/^---$/m)[1]).Title.should.equal(path.basename(file, '.md'));
       }
-      fs.readFileSync(path.join(dir, 'reports', 'Outdated Software Components.md'), 'utf8').should.include('the attached spreadsheet - `components.xlsx`');
+      fs.readFileSync(path.join(dir, 'reports', 'Outdated Software Components.md'), 'utf8').should.include('the attached spreadsheet (`components.xlsx`)');
       // the tester's notes for each finding, next to the client findings
-      fs.readdirSync(path.join(dir, 'testerNotes')).sort().should.deep.equal(['Insufficient Renderer Process Isolation - tester notes.md',
+      fs.readdirSync(path.join(dir, 'testerNotes')).sort().should.deep.equal(['How to Prepare Findings for Release.md', 'Insufficient Renderer Process Isolation - tester notes.md',
         'Missing or Insufficient Content Security Policy - tester notes.md', 'Outdated Software Components - tester notes.md']);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     findingFileName('A/B: C?').should.equal('A-B- C-.md');

@@ -93,7 +93,7 @@ const list = (components) => components.length > MAX_COMPONENTS
 export function outdatedSections({ app, dependencies, sheet = COMPONENTS_SHEET }) {
   // names and versions come from package metadata: escaped for Markdown (a version is not a numbered list)
   const text = (value) => String(value).replace(/\s+/g, ' ').replace(/[\\`*_[\]<>]/g, '\\$&');
-  const attached = `the attached spreadsheet - \`${sheet}\``;
+  const attached = `the attached spreadsheet (\`${sheet}\`)`;
   const rows = ((dependencies && dependencies.rows) || []).filter(needsAction);
   const electron = rows.find(row => row.name === 'electron');
   const runtime = electron ? `, including its Electron runtime (version ${text(electron.version)}${electron.latest ? `; the latest release is ${text(electron.latest)}` : ''})` : '';

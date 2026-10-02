@@ -8,6 +8,9 @@ import { renderClientFindings, renderTesterNotes, groupClientFindings } from '..
 import { VARIATIONS } from '../src/report/markdown_variations.js';
 import { CLIENT_LABELS } from '../src/report/markdown_client_copy.js';
 import { TITLES, LEADS, NOTES } from '../src/report/markdown_style.js';
+import { secretsNote, RELEASE_GUIDE_FILE } from '../src/report/markdown_release.js';
+import { getContext } from '../src/util/file.js';
+import { redactCodeLine } from '../src/secrets/scan.js';
 import _i18n from '../src/locales/i18n.js';
 import run from '../src/runner.js';
 
@@ -172,13 +175,18 @@ describe('Client findings in house style', () => {
     }
   });
 
-  it('records accepted risks in Notes only, and limits shown by the application in the note', () => {
+  it('records the secrets reminder and accepted risks in Notes only, and limits shown by the application in the note', () => {
     const debugging = findings.find(f => f.title === 'Debugging Features Enabled in Production').content;
-    YAML.parse(debugging.split(/^---$/m)[1]).Notes.should.deep.equal(['Accepted risk: Developer tools or test functions available at src/main.js:99. Only in the internal build Owner: Client security.']);
+    // (a secret written to the console is evidence that can show it)
+    YAML.parse(debugging.split(/^---$/m)[1]).Notes.should.deep.equal([secretsNote('testerNotes'),
+      'Accepted risk: Developer tools or test functions available at src/main.js:99. Only in the internal build Owner: Client security.']);
+    const withSecrets = ['Hard-coded Secrets in the Application Package', 'Sensitive Data Stored Without Adequate Protection', 'Sensitive Data Exposed in Network Traffic',
+      'Insecure Network Transport and Certificate Validation', 'Debugging Features Enabled in Production'];
+    for (const title of withSecrets) YAML.parse(findings.find(f => f.title === title).content.split(/^---$/m)[1]).Notes[0].should.include('mask them as needed', title);
     const navigation = findings.find(f => f.title === 'Insufficient Navigation and New Window Restrictions').content;
     navigation.should.include('and the application blocked it.');
     navigation.split('## Reproduction and Evidence')[1].should.not.include('blocked it');
-    for (const { content } of findings.filter(f => f.title !== 'Debugging Features Enabled in Production')) YAML.parse(content.split(/^---$/m)[1]).should.not.have.property('Notes');
+    for (const { content } of findings.filter(f => !withSecrets.includes(f.title))) YAML.parse(content.split(/^---$/m)[1]).should.not.have.property('Notes');
   });
 
   it('describes the certificate bypass switch with the certificate findings, and npm scripts as development only', () => {
@@ -202,7 +210,9 @@ describe('Client findings in house style', () => {
     const all = notes.map(n => n.content).join('\n');
     for (const value of ['**EXOTIC_NEW_CHECK**', 'src/other.js', 'This establishes rendering of markup', 'and the app blocked it', 'Script execution and exploitability remain untested'])
       all.should.include(value);
-    notes.length.should.equal(groupClientFindings(ISSUES).length);
+    // one per finding, the coverage of the sessions when there is one, and the guide to preparing them for release
+    notes.length.should.equal(groupClientFindings(ISSUES).length + 1);
+    notes.at(-1).file.should.equal(RELEASE_GUIDE_FILE);
     for (const { content } of notes) content.should.match(/^<!-- Electronegativity tester notes/);
   });
 
@@ -220,5 +230,63 @@ describe('Client findings in house style', () => {
       JSON.parse(fs.readFileSync(path.join(out, 'report.json'), 'utf8')).app.name.should.equal('MyApp');
       fs.readFileSync(path.join(out, 'reports', 'Insufficient Renderer Process Isolation.md'), 'utf8').should.include('windows in MyApp run web content');
     } finally { fs.rmSync(folder, { recursive: true, force: true }); }
+  });
+
+  it('shows the code around each location with line numbers, one block for nearby lines', () => {
+    const source = ['function setup() {', '  const win = new BrowserWindow();', '', '  ipcMain.handle(\'run\', (e, c) => exec(c));', '  ipcMain.on(\'open\', (e, f) => shell.openPath(f));', '});', '', ''];
+    const at = (line, id, channel) => issue(id, { file: '/client/src/main.js', location: { line, column: 2 }, sample: source[line - 1].trim(), context: getContext(source, line - 1, 2), properties: { channel } });
+    const [ipc] = renderClientFindings([at(4, 'IPC_SENDER_VALIDATION_JS_CHECK', 'run'), at(5, 'IPC_SENDER_VALIDATION_JS_CHECK', 'open')], { root: '/client/src', app: { name: 'Client' } });
+    const evidence = ipc.content.split('## Reproduction and Evidence')[1].split('## Recommendations')[0];
+    evidence.should.include('- Open `main.js` and review lines 4 and 5:');
+    evidence.should.include(['  ```javascript', '  2 |   const win = new BrowserWindow();', '  3 |', "  4 |   ipcMain.handle('run', (e, c) => exec(c));",
+      "  5 |   ipcMain.on('open', (e, f) => shell.openPath(f));", '  6 | });', '  ```'].join('\n'));
+    evidence.should.include('Line 4 shows that the handler for the `run` channel').and.include('Line 5 shows that the handler for the `open` channel');
+    // a minified line: an excerpt around the column
+    const minified = getContext([`${'a'.repeat(1000)}el.innerHTML=x;${'b'.repeat(1000)}`], 0, 1000);
+    minified.should.include({ start: 1, excerpt: true });
+    minified.lines[0].should.match(/^…a+el\.innerHTML=x;b+…$/).and.have.length.below(310);
+    // secrets in the lines around a finding are redacted as everywhere else; ordinary code is not
+    redactCodeLine("const TOKEN = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';").should.not.include('A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8');
+    redactCodeLine("const password = 'Hunter2-Secret-Value!';").should.not.include('Hunter2-Secret-Value!');
+    redactCodeLine("  ipcMain.on('open', (event, file) => shell.openPath(file));").should.equal("  ipcMain.on('open', (event, file) => shell.openPath(file));");
+    // a report written before the context was recorded: the line alone, numbered
+    const [old] = renderClientFindings([issue('NODE_INTEGRATION_JS_CHECK', { file: '/client/src/main.js', sample: 'nodeIntegration: true' })], { root: '/client/src', app: { name: 'Client' } });
+    old.content.should.include('  12 | nodeIntegration: true');
+  });
+
+  it('lists a file with many locations as one row under Affected', () => {
+    const bundle = Array.from({ length: 14 }, (_, n) => issue('XSS_SINK_JS_CHECK', { file: '/client/src/bundle.js', location: { line: n * 10 + 1, column: 0 },
+      validation: { status: 'observed' } }));
+    const [xss] = renderClientFindings([...bundle, issue('XSS_SINK_JS_CHECK', { file: '/client/src/view.js' })], { root: '/client/src', app: { name: 'Client' } });
+    const affected = xss.content.split('## Affected\n')[1].split('## ')[0];
+    affected.should.include('- `bundle.js` — 14 locations (lines 1, 11, 21, 31, 41, 51, 61, 71, 81, 91 and 4 more, listed in the tester notes) — Dynamic content inserted as HTML');
+    affected.should.include('- `view.js:12` — Dynamic content inserted as HTML');
+    renderTesterNotes(bundle, { root: '/client/src', app: { name: 'Client' } })[0].content.should.include('`bundle.js:131`');
+  });
+
+  it('ends each tester notes file with a checklist whose links reach the sections of the release guide', () => {
+    const notes = renderTesterNotes(ISSUES, META);
+    const guide = notes.find(n => n.file === RELEASE_GUIDE_FILE).content;
+    const anchors = new Set([...guide.matchAll(/^## (.+)$/gm)].map(m => m[1].toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/ /g, '-')));
+    const secrets = notes.find(n => n.title === 'Hard-coded Secrets in the Application Package').content.split('## Before release')[1];
+    secrets.should.include('- [ ] Find every secret in the finding and mask it.').and.include('- [ ] Find out, with the client, whether the embedded credential still works.');
+    notes.find(n => n.title === 'Outdated Software Components').content.should.include('Links to validate manually');
+    notes.find(n => n.title === 'Sensitive Data Exposed in Network Traffic').content.should.include('which of the hosts named in the finding are theirs');
+    notes.find(n => n.title === 'Debugging Features Enabled in Production').content.should.include('Check that the 1 accepted risk is still accepted');
+    for (const { title, content } of notes.filter(n => n.file !== RELEASE_GUIDE_FILE && n.title !== 'Validation Coverage and Test Outcomes')) {
+      const checklist = content.split('## Before release')[1];
+      checklist.should.be.a('string', title);
+      for (const [, target] of checklist.matchAll(/\]\(([^)]+)\)/g)) {
+        const [file, hash] = target.split('#');
+        decodeURIComponent(file).should.equal(RELEASE_GUIDE_FILE);
+        anchors.has(hash).should.equal(true, `${title}: #${hash}`);
+      }
+    }
+    guide.should.include('## Mask secrets').and.include('Ctrl+F');
+  });
+
+  it('labels example code as illustrative', () => {
+    const isolation = findings.find(f => f.title === 'Insufficient Renderer Process Isolation').content;
+    isolation.should.match(/The following illustrative examples? shows? the recommended approach\. (It|They) should be adapted to the application’s own code:/);
   });
 });
