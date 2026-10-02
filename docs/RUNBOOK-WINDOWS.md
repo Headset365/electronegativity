@@ -170,7 +170,7 @@ from what its report shows:
 1. Copy the template next to your results and open it:
 
    ```powershell
-   Copy-Item "$(npm root -g)\electronegativity\docs\proof.example.json" C:\eng\proof.json
+   Copy-Item "$(npm root -g)\@doyensec\electronegativity\docs\proof.example.json" C:\eng\proof.json
    notepad C:\eng\proof.json
    ```
 
@@ -218,7 +218,7 @@ from what its report shows:
    ```
 
 Each result says what it establishes and what it does not; errors and timeouts are listed as coverage limits, not as
-safe. `docs\PROOF-WATCH-WINDOWS.md` in the installed package has the details, including the separate `--ipc-profile`
+safe. `docs\PROOF-WATCH-WINDOWS.md` in the installed package (`$(npm root -g)\@doyensec\electronegativity`) has the details, including the separate `--ipc-profile`
 and `--logout-check` opt-ins (run `--logout-check` in its own session, without `--auto-campaign`).
 
 ### Updating the findings of an earlier scan to new templates
