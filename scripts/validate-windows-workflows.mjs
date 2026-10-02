@@ -27,7 +27,14 @@ const status = { app: spec.name, version: spec.version, advisory: spec.advisory,
   limits: ['Hosted Windows Server is the actual test OS.', 'Packages are extracted rather than installed; ACLs describe the extraction folder.', 'Only generated local test data is used; no live client credentials are validated.', 'Advisory reproduction requires a payload execution signal; static findings alone do not reproduce a CVE.'] };
 const persist = () => fs.writeFileSync(path.join(out, 'validation.json'), JSON.stringify(status, null, 2));
 const step = (name, data) => { status.steps.push({ name, at: new Date().toISOString(), ...data }); persist(); console.log(name + ': ' + JSON.stringify(data).slice(0,600)); };
-async function hash(file) { const h = crypto.createHash('sha256'); for await (const chunk of fs.createReadStream(file)) h.update(chunk); return h.digest('hex'); }
+async function hash(file) {
+  const h = crypto.createHash('sha256');
+  if (fs.statSync(file).isDirectory()) {
+    const names = fs.readdirSync(file, { recursive: true }).filter(n => fs.statSync(path.join(file,n)).isFile()).sort();
+    for (const name of names) { h.update(name.replaceAll('\\','/')); h.update(await hash(path.join(file,name))); }
+  } else for await (const chunk of fs.createReadStream(file)) h.update(chunk);
+  return h.digest('hex');
+}
 async function freePort() { const s = net.createServer(); await new Promise(resolve => s.listen(0, '127.0.0.1', resolve)); const port = s.address().port; await new Promise(resolve => s.close(resolve)); return port; }
 function logs() { return fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('electronegativity-watch-')).map(n => path.join(os.tmpdir(), n, 'session.jsonl')).filter(f => fs.existsSync(f) && fs.statSync(f).mtimeMs >= Date.parse(status.startedAt)); }
 function rows() { return logs().flatMap(file => fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).flatMap(l => { try { return [JSON.parse(l)]; } catch { return []; } })); }
@@ -53,9 +60,8 @@ try {
   if (spec.id === 'notesnook') env.PORTABLE_EXECUTABLE_DIR = work;
   const remote = spec.id === 'notesnook' ? 'https://app.notesnook.com/' : `http://127.0.0.1:${apiPort}/`;
   const args = ['--max-old-space-size=6144', 'src/index.js', '--app', installer.mainExe, '-o', 'report.html,report.json,components.xlsx', '--out', out,
-    '--all-files', '--user-data', 'auto', '--watch-screenshots', 'screenshots', '--remote', remote, '--remote-header', 'Cookie', '--show-secrets', '--share-code', '--watch-marker', marker, '--prove', '--sessions', '1', '--watch-args', appArgs.join(' '), '--no-nvd', '--no-source-maps', '--active-tests'];
-  if (spec.id === 'siyuan') args.push('--auto-campaign');
-  status.command = { executable: 'node', args, effectiveCLI: args.slice(1), remote, headerNames: ['Cookie'], addedOptions: ['--sessions 1', '--active-tests', '--no-nvd', '--no-source-maps', '--watch-args (local renderer debug port and isolated app data)'] }; persist();
+    '--all-files', '--auto-campaign', '--user-data', 'auto', '--watch-screenshots', 'screenshots', '--remote', remote, '--remote-header', 'Cookie', '--watch-marker', marker, '--prove', '--sessions', '1', '--watch-args', appArgs.join(' '), '--no-nvd', '--no-source-maps'];
+  status.command = { executable: 'node', args, effectiveCLI: args.slice(1), remote, headerNames: ['Cookie'], addedOptions: ['--sessions 1', '--no-nvd', '--no-source-maps', '--watch-args (local renderer debug port and isolated app data)'], customExploits: false }; persist();
   const terminal = pty.spawn(process.execPath, args, { name: 'xterm-color', cols: 180, rows: 45, cwd: repo, env, useConpty: true }); cli = terminal;
   let transcript = '', promptOffset = 0, exited = false, exitCode;
   const finished = new Promise(resolve => terminal.onExit(e => { exited = true; exitCode = e.exitCode; resolve(e); }));
