@@ -48,8 +48,10 @@ try {
   await pipeline(Readable.fromWeb(r.body), fs.createWriteStream(packageFile));
   status.package = { url: spec.url, sha256: await hash(packageFile), expectedSha256: spec.sha256 }; persist();
   if (status.package.sha256 !== spec.sha256) throw Error('Release digest mismatch');
+  step('release-downloaded', { digestMatched: true, bytes: fs.statSync(packageFile).size });
   installer = unpackTarget(packageFile, { workDir: path.join(work, 'extracted') });
   if (!installer.code || !installer.mainExe) throw Error('Shipped Electron layout not found');
+  step('release-extracted', { code: installer.code, executable: installer.mainExe });
   const manifest = readManifest(installer.code);
   status.shipped = { executable: installer.mainExe, manifestVersion: manifest.version, codeHashBefore: await hash(installer.code), exeHashBefore: await hash(installer.mainExe) };
   if (String(manifest.version) !== spec.version) throw Error('Shipped version mismatch ' + manifest.version);
@@ -139,7 +141,7 @@ try {
     await cdp.eval(`location.hash='/notes/create/1'; true`); await delay(4000);
     await snapshot(cdp, 'ready-renderer');
     step('app-specific-workflow-prepared', { state: await cdp.eval(`({globals:Object.keys(window).filter(k=>/db|database|store|webpack/i.test(k)),buttons:[...document.querySelectorAll('button')].map(e=>e.innerText).slice(0,30)})`) });
-    const titleSelector = await cdp.eval(`const e=[...document.querySelectorAll('input,textarea')].find(e=>/title|untitled/i.test([e.placeholder,e.getAttribute('aria-label')].join(' '))); if(e){e.setAttribute('data-eng-title-input','1');e.focus();e.select();returnValue=true;} typeof returnValue!=='undefined'`);
+    const titleSelector = await cdp.eval(`const e=[...document.querySelectorAll('input,textarea')].find(e=>/title|untitled/i.test([e.placeholder,e.getAttribute('aria-label')].join(' '))); if(e){e.setAttribute('data-eng-title-input','1');e.focus();e.select();} !!e`);
     if (titleSelector) {
       await cdp.send('Input.insertText', { text: 'Disposable note ' + marker });
       await cdp.eval(`document.querySelector('[data-eng-title-input]').blur(); true`); await delay(3000);

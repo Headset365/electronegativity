@@ -16,7 +16,7 @@ jobs:
         with:
           script: |
             // Only these attempts from this validation task, never other workflows.
-            for (const run_id of [37015607140, 37016737108, 37017658872, 37017990349, 37018332152, 37018654612]) {
+            for (const run_id of [37015607140, 37016737108, 37017658872, 37017990349, 37018332152, 37018654612, 37019732127]) {
               try {
                 const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id});
                 if (run.head_branch === 'validation/windows-workflows-20261002' && run.status !== 'completed') {
@@ -44,38 +44,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm install --no-save --package-lock=false node-pty@1.1.0
-      - name: Start the real CLI and Windows workflow driver
+      - name: Run the real CLI and interact with the pinned Windows app
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force workflow-results/${{ matrix.app }} | Out-Null
-          $engArgs = @('--max-old-space-size=6144', 'scripts/validate-windows-workflows.mjs', '${{ matrix.app }}')
-          $engProcess = Start-Process -FilePath (Get-Command node).Source -ArgumentList $engArgs -PassThru -RedirectStandardOutput 'workflow-results/${{ matrix.app }}/driver-stdout.log' -RedirectStandardError 'workflow-results/${{ matrix.app }}/driver-stderr.log'
-          $engProcess.Id | Set-Content 'workflow-results/${{ matrix.app }}/driver.pid'
-      - name: Wait for initial renderer or diagnostic evidence
-        shell: pwsh
-        run: |
-          for ($engTick = 0; $engTick -lt 45; $engTick++) {
-            if ((Test-Path 'workflow-results/${{ matrix.app }}/initial-renderer.json') -or (Test-Path 'workflow-results/${{ matrix.app }}/exit-status.json')) { break }
-            Start-Sleep -Seconds 4
-          }
-      - name: Upload intermediate evidence for live review
-        uses: actions/upload-artifact@v4
-        with:
-          name: checkpoint-${{ matrix.app }}
-          path: workflow-results/${{ matrix.app }}
-          retention-days: 1
-      - name: Wait for the workflow and verify its exit status
-        shell: pwsh
-        run: |
-          $engDeadline = (Get-Date).AddMinutes(40)
-          while (-not (Test-Path 'workflow-results/${{ matrix.app }}/exit-status.json')) {
-            if ((Get-Date) -gt $engDeadline) { throw 'Windows workflow driver timed out' }
-            Start-Sleep -Seconds 3
-          }
-          Get-Content 'workflow-results/${{ matrix.app }}/driver-stdout.log'
-          Get-Content 'workflow-results/${{ matrix.app }}/driver-stderr.log'
-          $engExit = Get-Content 'workflow-results/${{ matrix.app }}/exit-status.json' | ConvertFrom-Json
-          exit $engExit.exitCode
+        run: node --max-old-space-size=6144 scripts/validate-windows-workflows.mjs ${{ matrix.app }}
       - name: Upload reports and workflow evidence
         if: always()
         uses: actions/upload-artifact@v4
