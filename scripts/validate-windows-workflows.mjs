@@ -38,6 +38,7 @@ async function hash(file) {
 async function freePort() { const s = net.createServer(); await new Promise(resolve => s.listen(0, '127.0.0.1', resolve)); const port = s.address().port; await new Promise(resolve => s.close(resolve)); return port; }
 function logs() { return fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('electronegativity-watch-')).map(n => path.join(os.tmpdir(), n, 'session.jsonl')).filter(f => fs.existsSync(f) && fs.statSync(f).mtimeMs >= Date.parse(status.startedAt)); }
 function rows() { return logs().flatMap(file => fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).flatMap(l => { try { return [JSON.parse(l)]; } catch { return []; } })); }
+function ownedMainPID() { return rows().find(r => r.kind === 'proof-listener' && r.purpose === 'certificate' && Number.isInteger(r.pid))?.pid; }
 async function snapshot(cdp, name) { fs.writeFileSync(path.join(out, name + '.json'), JSON.stringify(await cdp.state(), null, 2)); await cdp.screenshot(path.join(out, name + '.png')); }
 let cli, cdp, installer;
 try {
@@ -95,7 +96,7 @@ try {
     if (answer !== undefined) { promptOffset = transcript.length; step('interactive-prompt', { question: q.slice(0,1200), answer, policy: 'Only the reviewed disposable updateBlock content route may run an automatic campaign' }); terminal.write(answer + '\r'); }
   });
   cdp = await Promise.race([
-    connect(debugPort, t => spec.id !== 'siyuan' || t.url.includes('/stage/build/app/'), 900000),
+    connect(debugPort, t => spec.id !== 'siyuan' || t.url.includes('/stage/build/app/'), 900000, () => exited),
     finished.then(e => { throw Error('CLI exited before renderer attachment (code ' + e.exitCode + '): ' + transcript.slice(-3000)); })
   ]); step('renderer-debugger-connected', { url: cdp.target.url, nativeProofsAlsoEnabled: true });
   await delay(4000); await snapshot(cdp, 'initial-renderer');
@@ -134,11 +135,13 @@ try {
   await delay(5000);
   step('native-proof-results', { proofs: rows().filter(r => r.kind === 'proof') });
   await snapshot(cdp, 'final-renderer');
-  const start = rows().find(r => r.kind === 'start' && Number.isInteger(r.pid));
-  if (start) { try { execFileSync('taskkill', ['/PID', String(start.pid), '/T', '/F'], { encoding: 'utf8' }); } catch {} }
+  const pid = ownedMainPID();
+  if (pid) { try { execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { encoding: 'utf8' }); } catch {} }
   else { try { await cdp.send('Browser.close'); } catch {} }
   cdp.close(); cdp = undefined;
-  await Promise.race([finished, delay(600000).then(() => { if (!exited) throw Error('Final report generation timed out'); })]);
+  let reportTimer;
+  try { await Promise.race([finished, new Promise((_,reject) => { reportTimer = setTimeout(() => reject(Error('Final report generation timed out')), 600000); reportTimer.unref(); })]); }
+  finally { clearTimeout(reportTimer); }
   status.cliExitCode = exitCode;
   for (const [i,file] of logs().entries()) fs.copyFileSync(file, path.join(out, `session-${i+1}.jsonl`));
   status.runtimeCounts = Object.fromEntries([...new Set(rows().map(r=>r.kind))].map(k=>[k,rows().filter(r=>r.kind===k).length]));
@@ -150,8 +153,8 @@ try {
 } catch (error) {
   status.error = { message: error.message, stack: error.stack }; persist(); console.error(error);
   if (cdp) { try { await snapshot(cdp, 'failure-renderer'); } catch {} cdp.close(); }
-  const start = rows().find(r => r.kind === 'start' && Number.isInteger(r.pid));
-  if (start) { try { execFileSync('taskkill', ['/PID', String(start.pid), '/T', '/F']); } catch {} }
+  const pid = ownedMainPID();
+  if (pid) { try { execFileSync('taskkill', ['/PID', String(pid), '/T', '/F']); } catch {} }
   if (cli) { await delay(15000); cli.kill(); }
   for (const [i,file] of logs().entries()) fs.copyFileSync(file, path.join(out, `session-${i+1}.jsonl`));
   process.exitCode = 1;

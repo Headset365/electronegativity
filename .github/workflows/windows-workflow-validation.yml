@@ -4,6 +4,9 @@ on:
     branches: [validation/windows-workflows-20261002]
 permissions:
   contents: read
+concurrency:
+  group: windows-workflows-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   applications:
     name: ${{ matrix.app }} interactive Windows workflow

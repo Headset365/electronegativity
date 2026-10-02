@@ -1,15 +1,15 @@
 import fs from 'node:fs';
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-export async function until(fn, label, timeout = 90000) {
+export async function until(fn, label, timeout = 90000, cancelled = () => false) {
   const end = Date.now() + timeout; let last;
-  while (Date.now() < end) { try { const value = await fn(); if (value) return value; } catch (e) { last = e; } await delay(500); }
+  while (Date.now() < end) { if (cancelled()) throw Error(label + ' cancelled because its process exited'); try { const value = await fn(); if (value) return value; } catch (e) { last = e; } await delay(500); }
   throw Error(label + ' timed out' + (last ? ': ' + last.message : ''));
 }
-export async function connect(port, match = () => true, timeout) {
+export async function connect(port, match = () => true, timeout, cancelled) {
   const target = await until(async () => {
     const r = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2000) });
     return (await r.json()).find(t => t.type === 'page' && t.webSocketDebuggerUrl && match(t));
-  }, 'Renderer debugger target', timeout);
+  }, 'Renderer debugger target', timeout, cancelled);
   const ws = new WebSocket(target.webSocketDebuggerUrl); const pending = new Map(); let serial = 0;
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
   ws.onmessage = event => { const msg = JSON.parse(event.data); const p = pending.get(msg.id); if (p) { pending.delete(msg.id); clearTimeout(p.timer); msg.error ? p.reject(Error(JSON.stringify(msg.error))) : p.resolve(msg.result); } };
