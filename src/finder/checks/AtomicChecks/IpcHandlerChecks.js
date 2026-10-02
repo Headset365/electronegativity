@@ -281,6 +281,15 @@ export class IpcHandlerJSCheck {
     if (secret || details.credentials.length)
       results.push(finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true, properties: { ...properties, issue: 'credential', credential: secret },
         description: `${this.description}: ${label} returns a credential-like value (${secret || details.credentials[0].reference}) to the page; inspect the returned fields and intended callers` }));
+    // write, then open: a file whose name and content the page chooses, handed to the operating system to open with
+    // its default program (a .bat, .lnk or .hta runs) — code execution in one message
+    const writes = details.effects.filter(effect => effect.kind === 'file-write');
+    const opens = details.effects.filter(effect => /^shell-(openPath|openExternal)$/.test(effect.kind));
+    const opensDirect = callsIn(fn, (call, name) => ['openPath', 'openExternal'].includes(name)).length > 0;
+    const writesDirect = callsIn(fn, (call, name) => /^(writeFile|writeFileSync|createWriteStream|copyFile|copyFileSync|rename|renameSync|outputFile)$/.test(name || '')).length > 0;
+    if (used.length > 0 && !validated && (writes.length || writesDirect) && (opens.length || opensDirect))
+      results.unshift(finding(this, astNode, { severity: severity.HIGH, confidence: confidence.FIRM, manualReview: true, properties: { ...properties, issue: 'write-then-open' },
+        description: `${this.description}: ${label} writes a file at a path built from the page's arguments (${used.join(', ')}), then opens it with its default program; a page that sends a script or shortcut file name runs code on the user's computer` }));
     if (results.length === 0)
       results.push(finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, properties,
         description: `${this.description}: ${label}${caps.length ? ` (${caps.join(', ')})` : ''}${used.length ? (validated ? ', contains a validation-like guard (effectiveness unverified)' : ', uses page arguments (validation unverified)') : ''}${details.status === 'incomplete' ? '; helper analysis is incomplete' : ''}` }));

@@ -70,6 +70,9 @@ import PackagedBinaryCheck from './PackagedBinaryCheck.js';
 import { IpcFileAccessJSCheck, IpcHandlerJSCheck, IpcRendererChannelJSCheck } from './IpcHandlerChecks.js';
 import IpcRpcProcedureJSCheck from './IpcRpcProcedureJSCheck.js';
 import AuthModeBypassJSCheck from './AuthModeBypassJSCheck.js';
+import SqlInjectionJSCheck from './SqlInjectionJSCheck.js';
+import RelativeExecutablePathJSCheck from './RelativeExecutablePathJSCheck.js';
+import IpcStateDestinationJSCheck from './IpcStateDestinationJSCheck.js';
 import NavigationRedirectJSCheck from './NavigationRedirectJSCheck.js';
 import SourceMapsCheck from './SourceMapsCheck.js';
 import { DevelopmentCodeJSCheck, DebugLoggingJSCheck, WordLaunchJSCheck, DocumentPipelineJSCheck } from './ProductionChecks.js';
@@ -170,6 +173,9 @@ const CHECKS = [
   IpcHandlerJSCheck,
   IpcRpcProcedureJSCheck,
   AuthModeBypassJSCheck,
+  SqlInjectionJSCheck,
+  RelativeExecutablePathJSCheck,
+  IpcStateDestinationJSCheck,
   IpcRendererChannelJSCheck,
   NavigationRedirectJSCheck,
   DevelopmentCodeJSCheck,

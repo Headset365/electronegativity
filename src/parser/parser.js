@@ -12,6 +12,32 @@ import { sourceTypes, sourceExtensions } from './types.js';
 import { LexicalScope } from '../finder/checks/analysis.js';
 import { EsprimaAst, BabelAst, ESLintAst, TreeSettings, Scope } from '../finder/ast.js';
 
+// TypeScript, Babel and esbuild call an imported function as (0, module_1.fn)(args), so `this` is not the module: the
+// callee is a sequence expression the checks would not recognise as fs.writeFile, child_process.exec or shell.openPath.
+// It is rewritten to the member it evaluates to (module_1.fn), in place, before any check or scope analysis sees it.
+const SEQUENCE_CALL = /\(\s*0\s*,/;
+const isZero = node => !!node && ((node.type === 'Literal' || node.type === 'NumericLiteral') && node.value === 0);
+export function unwrapCompiledCalls(ast) {
+  const stack = [ast];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || typeof node !== 'object') continue;
+    if (Array.isArray(node)) { for (let i = node.length - 1; i >= 0; i--) stack.push(node[i]); continue; }
+    if (typeof node.type !== 'string') continue;
+    for (const key of ['callee', 'tag']) {
+      const target = node[key];
+      if ((node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression' || node.type === 'TaggedTemplateExpression')
+        && target && target.type === 'SequenceExpression' && target.expressions.length === 2 && isZero(target.expressions[0])) node[key] = target.expressions[1];
+    }
+    for (const key in node) {
+      if (key === 'loc' || key === 'range' || key === 'start' || key === 'end' || key === 'parent' || key === 'leadingComments' || key === 'trailingComments' || key === 'astParser' || key === 'Scope' || key === 'tokens' || key === 'comments') continue;
+      const value = node[key];
+      if (value && typeof value === 'object') stack.push(value);
+    }
+  }
+  return ast;
+}
+
 export class Parser {
   constructor(babelFirst, typescriptBabelFirst) {
     this.esLintESTreeAst = new ESLintAst(new TreeSettings());
@@ -50,6 +76,7 @@ export class Parser {
     } catch {
       data = espree.parse(content, { ecmaVersion: 'latest', sourceType: 'script', loc: true, range: true, ecmaFeatures: { jsx: true, globalReturn: true } });
     }
+    if (SEQUENCE_CALL.test(content)) unwrapCompiledCalls(data);
     data.astParser = this.esprimaAst;
     data.Scope = new Scope(data);
     return data;
@@ -64,6 +91,7 @@ export class Parser {
     });
     let data = file.program;
     if (file.errors && file.errors.length > 0) data.errors = file.errors;
+    if (SEQUENCE_CALL.test(content)) unwrapCompiledCalls(data);
 
     data.astParser = this.esprimaAst;
     data.Scope = new Scope(data);
@@ -77,6 +105,7 @@ export class Parser {
       plugins: jsx ? this.tsPlugins : this.tsPlugins.filter(p => p !== 'jsx')
     });
 
+    if (SEQUENCE_CALL.test(content)) unwrapCompiledCalls(data);
     data.astParser = this.esLintBabelTreeAst;
     data.Scope = new LexicalScope(); // eslint-scope doesn't understand TypeScript nodes
     return data;
@@ -91,6 +120,7 @@ export class Parser {
       jsx,
     });
 
+    if (SEQUENCE_CALL.test(content)) unwrapCompiledCalls(data);
     data.astParser = this.esLintESTreeAst;
     data.Scope = new LexicalScope(); // eslint-scope doesn't understand TypeScript nodes
     return data;

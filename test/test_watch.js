@@ -488,7 +488,17 @@ describe('Watch mode', () => {
       } finally {
         delete process.env.ELECTRONEGATIVITY_TRACE;
         seedClient?.close(); child.kill(); if (running) await running.catch(() => {});
-        stop(); assistant.clearChannel(); fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
+        // Electron's helper processes can still be writing the profile after the main one is gone: wait for it to exit,
+        // and retry the removal while they finish
+        if (child.exitCode === null && child.signalCode === null) await new Promise(resolve => { child.once('exit', resolve); setTimeout(resolve, 10000); });
+        stop(); assistant.clearChannel();
+        for (let attempt = 0; ; attempt++) {
+          try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 }); break; } catch (error) {
+            // a temporary folder left behind is not a test failure
+            if (attempt >= 5 || !['ENOTEMPTY', 'EBUSY', 'EPERM'].includes(error.code)) break;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
       }
     });
 

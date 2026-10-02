@@ -2,7 +2,7 @@ import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { electronAtLeast, ELECTRON_CHANGES } from '../versions.js';
 import { memberName, findProperty, literalValue, visit } from '../helpers.js';
-import { handlerFunction, callsIn, isConditional, hasUrlValidation, returnedValues, paramNames } from '../analysis.js';
+import { handlerFunction, callsIn, isConditional, hasUrlValidation, returnedValues, paramNames, functionDefinition } from '../analysis.js';
 
 const NAVIGATION_EVENTS = ['will-navigate', 'will-frame-navigate', 'new-window'];
 
@@ -48,12 +48,19 @@ export default class LimitNavigationJSCheck {
         return report(`${event}-noop`, severity.HIGH, confidence.CERTAIN, `the ${event} handler never calls event.preventDefault(), so it blocks nothing`, false);
       if (blocks.some(({ call, ancestors }) => !isConditional(call, ancestors, fn)))
         return report(event, severity.INFORMATIONAL, confidence.CERTAIN, `the ${event} handler blocks every navigation`, false);
-      if (hasUrlValidation(fn)) {
+      // the decision may sit in a helper: if (!isAllowedUrl(url)) event.preventDefault()
+      const helpers = urlHelpers(fn, scope);
+      if (hasUrlValidation(fn) || helpers.length) {
+        const facts = allowlistFacts([fn, ...helpers.map(h => h.node)], context.ancestors.find(node => node.type === 'Program'));
+        const hosts = facts.hosts.length ? ` (${facts.hosts.slice(0, 5).join(', ')}${facts.hosts.length > 5 ? ', …' : ''}${facts.subdomains ? ', and every subdomain of each' : ''})` : '';
+        const properties = { event, hostOnly: facts.hostOnly, subdomains: facts.subdomains, hosts: facts.hosts, helper: helpers.map(h => h.name).filter(Boolean)[0] };
         // an allowlist of host names that never looks at the scheme lets http:// (or another scheme) on an allowed host
         // through: the page then loads unencrypted, with the window's privileges
-        if (hostOnly(fn))
-          return [{ ...report(event, severity.MEDIUM, confidence.FIRM, `the ${event} handler compares host names only, so any scheme on an allowed host passes (http:// loads the page unencrypted with the window's privileges)`)[0], properties: { event, hostOnly: true } }];
-        return report(event, severity.LOW, confidence.FIRM, `the ${event} handler allows some URLs; review the allowlist`);
+        if (facts.hostOnly)
+          return [{ ...report(event, severity.MEDIUM, confidence.FIRM, `the ${event} handler compares host names only${hosts}, so any scheme on an allowed host passes (http:// loads the page unencrypted with the window's privileges)${facts.subdomains ? '; any subdomain, including one taken over or hosting user content, is trusted too' : ''}`)[0], properties }];
+        if (facts.subdomains)
+          return [{ ...report(event, severity.LOW, confidence.FIRM, `the ${event} handler trusts every subdomain of the allowed hosts${hosts}; a subdomain taken over or hosting user content gets the window's privileges`)[0], properties }];
+        return [{ ...report(event, severity.LOW, confidence.FIRM, `the ${event} handler allows some URLs${hosts}; review the allowlist`)[0], properties }];
       }
       return report(event, severity.MEDIUM, confidence.FIRM, `the ${event} handler allows navigation without inspecting the URL`);
     }
@@ -95,19 +102,64 @@ function delegatesEvent(fn, scope, ancestors, depth = 0) {
   return result;
 }
 
-// Whether a handler's URL check reads the host name but never the scheme: url.hostname / url.host compared, with no
-// url.protocol, url.origin or "https:" anywhere in it
-function hostOnly(fn) {
+// Functions a handler hands the URL to for the decision: isAllowedUrl(url), checkUrl(details.url)
+function urlHelpers(fn, scope) {
+  const params = new Set(paramNames(fn));
+  const helpers = [];
+  for (const { call } of callsIn(fn, (call) => call.callee.type === 'Identifier')) {
+    if (!call.arguments.some(arg => [...identifierNames(arg)].some(name => params.has(name)))) continue;
+    const definition = functionDefinition(call.callee, scope);
+    if (definition && definition.node && definition.node.body && !helpers.some(h => h.node === definition.node))
+      helpers.push({ node: definition.node, name: call.callee.name });
+  }
+  return helpers.slice(0, 4);
+}
+function identifierNames(node) {
+  const names = new Set();
+  visit(node, n => { if (n.type === 'Identifier') names.add(n.name); return true; });
+  return names;
+}
+
+// What an allowlist checks: host names without the scheme, every subdomain (host.endsWith('.' + allowed)), and the
+// hosts it names (string literals that look like domains, in the functions or in arrays they read)
+function allowlistFacts(fns, program) {
+  const facts = { hostOnly: false, subdomains: false, hosts: [] };
   let host = false;
   let scheme = false;
-  visit(fn.body || fn, (node) => {
-    if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
-      const name = memberName(node);
-      if (name === 'hostname' || name === 'host') host = true;
-      if (name === 'protocol' || name === 'origin' || name === 'href') scheme = true;
+  const programArrays = new Set();
+  for (const fn of fns) {
+    visit(fn.body || fn, (node) => {
+      if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+        const name = memberName(node);
+        if (name === 'hostname' || name === 'host') host = true;
+        if (name === 'protocol' || name === 'origin' || name === 'href') scheme = true;
+      }
+      if ((node.type === 'CallExpression' || node.type === 'OptionalCallExpression') && memberName(node.callee) === 'endsWith') {
+        const arg = node.arguments[0];
+        const text = arg && (literalValue(arg) ?? (arg.type === 'TemplateLiteral' ? arg.quasis.map(q => q.value.cooked).join('') : arg.type === 'BinaryExpression' ? literalValue(arg.left) : undefined));
+        if (typeof text === 'string' && text.startsWith('.')) facts.subdomains = true;
+      }
+      const literal = literalValue(node);
+      if (typeof literal === 'string') {
+        if (/^(https?|file|app|wss?):?(\/\/)?/i.test(literal)) scheme = true;
+        if (/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(literal) && !facts.hosts.includes(literal)) facts.hosts.push(literal);
+      }
+      if (node.type === 'Identifier') programArrays.add(node.name);
+      return true;
+    });
+  }
+  // allowlists kept in a constant next to the function: const whitelistHosts = ['app.example.com', …]
+  if (program) for (const statement of program.body || []) {
+    if (statement.type !== 'VariableDeclaration') continue;
+    for (const declarator of statement.declarations) {
+      if (declarator.id.type !== 'Identifier' || !programArrays.has(declarator.id.name) || !declarator.init || declarator.init.type !== 'ArrayExpression') continue;
+      for (const element of declarator.init.elements) {
+        const value = element && literalValue(element);
+        if (typeof value === 'string' && /^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(value) && !facts.hosts.includes(value)) facts.hosts.push(value);
+      }
     }
-    const literal = literalValue(node);
-    if (typeof literal === 'string' && /^(https?|file|app|wss?):?(\/\/)?/i.test(literal)) scheme = true;
-  });
-  return host && !scheme;
+  }
+  facts.hostOnly = host && !scheme;
+  return facts;
 }
+

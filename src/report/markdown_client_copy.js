@@ -172,6 +172,26 @@ export const CLIENT_COPY = {
     'A web page or extension the user opens could call the service in the background and read the data it returns, and possibly act on the user’s behalf.',
     'Allow cross-origin requests only from the application’s own origins, bind the service to the loopback interface, and require authentication. Verify that a request with a foreign Origin header is refused.'
   ],
+  'Page-chosen destination': [
+    'The main process stores an address sent by a page and later uses it to decide which address application windows load and where requests carrying the user’s access token are sent.',
+    'A page that can send the message, for example through a cross-site scripting flaw or a less trusted site opened in an application window, could load its own content into windows that have privileged functions and receive the user’s token.',
+    'Keep the application’s addresses in the main process, or accept only addresses on the application’s own domains over HTTPS. Verify that an address on another domain is rejected.'
+  ],
+  'Program found through the working directory': [
+    'The application starts a program or script named by a path relative to the folder it was started from, rather than its installation folder.',
+    'If the application is started from a folder an attacker can write to, for example by opening a document from a download or shared folder, a file planted there could run instead of the shipped one.',
+    'Build the path from the installation folder (process.resourcesPath or __dirname). Verify that starting the application from another folder still runs the shipped file.'
+  ],
+  'Values from the user interface in a query': [
+    'The application builds a database query by inserting a value received from the user interface into the statement text.',
+    'Script running in an application window could read or change other records in the database through this query, beyond what the interface allows.',
+    'Pass the value as a query parameter, or reject anything other than the expected type (for example, an integer identifier). Verify that a value containing a quote is treated as data.'
+  ],
+  'Values from other data in a query': [
+    'The application builds a database query by inserting values from other data, such as stored records, into the statement text.',
+    'A stored value containing SQL syntax could change the query when it is read back (second-order injection).',
+    'Pass every value as a query parameter. Verify with a stored value that contains a quote.'
+  ],
   'Embedded content': [
     'The application allows embedded content, through `<webview>` tags or iframes, without restricting its source and privileges.',
     'Less trusted embedded content could gain privileges, such as Node.js access or the parent window’s preload script, that should be limited to the application’s own pages.',
@@ -420,6 +440,10 @@ export const CLIENT_LABELS = {
   'Top-level navigation or redirect': 'Navigation and redirects not restricted',
   'Popup or middle-click': 'New windows not restricted',
   'Embedded content': 'Embedded content not restricted',
+  'Page-chosen destination': 'Page decides where windows load and credentials go',
+  'Program found through the working directory': 'Program started from the working directory',
+  'Values from the user interface in a query': 'Query built from user interface values',
+  'Values from other data in a query': 'Query built from stored values',
   'Authentication skipped in one mode': 'Authentication skipped in the desktop build',
   'Cross-origin reads allowed': 'Local service readable from other origins',
   'Privileged procedure exposed': 'Privileged procedures exposed over IPC',

@@ -51,6 +51,8 @@ export const VARIATIONS = {
       'Trace the channel to its handler and check event.senderFrame.url against a live sender.'],
     ['Arguments or file paths trusted', /^(IPC_HANDLER|IPC_FILE_ACCESS)/,
       'Inspect the handler body and exercise a benign out-of-scope argument in an authorised test.'],
+    ['Page-chosen destination', /^IPC_STATE_DESTINATION/,
+      'Trace the stored value to each window load and request, and check whether the handler accepts an address outside the application’s own domains.'],
     ['Privileged procedure exposed', /^IPC_RPC_PROCEDURE/,
       'List the procedures behind the RPC channel, and call one with a benign out-of-scope input from an authorised test page.'],
     ['Unused or unexpected channel', /^IPC_CHANNEL_MAP/,
@@ -73,6 +75,8 @@ export const VARIATIONS = {
       'Inspect the final target path and whether the input originates from a page or fixed app configuration.'],
   ],
   'Command or Code Execution from Variable Input': [
+    ['Program found through the working directory', /^RELATIVE_EXECUTABLE_PATH/,
+      'Start the application from another folder (a shortcut’s Start in, a document) and check which copy of the program or script runs.'],
     ['Shell command construction', /^(COMMAND_INJECTION|RUNTIME_MARKER_COMMAND)/,
       'Trace the value to the process API; use a harmless marker to separate data flow from actual command execution.'],
     ['Dynamic code evaluation', /^DANGEROUS_FUNCTIONS/,
@@ -169,6 +173,12 @@ export const VARIATIONS = {
       'Call each listed route on the running desktop build without credentials, from the same computer, and record the response.'],
     ['Cross-origin reads allowed', /^RUNTIME_LOCAL_SERVICE/,
       'Repeat the request with a foreign Origin header and compare the Access-Control-Allow-Origin answer and the bound address.'],
+  ],
+  'SQL Injection in Local Database Queries': [
+    ['Values from the user interface in a query', /^SQL_INJECTION/,
+      'Send a value containing a quote or a SQL comment through the listed message in an authorised test, and compare the result with a normal value.', i => !!i.properties?.source],
+    ['Values from other data in a query', /^SQL_INJECTION/,
+      'Trace where the inserted values come from (stored records, files) and whether another user can set them.', i => !i.properties?.source],
   ],
   'Insecure Software Update Mechanism': [
     ['Update files fetched during testing', /^RUNTIME_UPDATE_DOWNLOAD/,

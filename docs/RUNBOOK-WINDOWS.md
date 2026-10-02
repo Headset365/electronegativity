@@ -163,6 +163,19 @@ the console says how many.
   labels, table captions, database or column names, icons, and a value the app rejects, as the assistant now suggests.
 - **After a session**, the app's own local server (127.0.0.1) is not crawled again: it stopped with the app.
 
+- **TypeScript and Babel builds**: calls compiled as `(0, module_1.fn)(…)` are read as `module_1.fn(…)`, so checks see
+  `exec`, `writeFile` and `shell.openPath` in compiled CommonJS code too.
+- **SQL built from values** (`` `SELECT … WHERE FileID = ${fileID}` ``) is reported, HIGH when the value comes from an
+  IPC message, under "SQL Injection in Local Database Queries".
+- **Programs started from the working directory** (`ADODB.PATH = './resources/adodb.js'`, `spawn('./bin/tool.exe')`).
+- **A page choosing the app's destinations**: an IPC handler that stores what a page sends (`setLoginModel(model)`) in
+  state that later decides which address windows load, or where requests carrying the token go.
+- **Write, then open**: an IPC handler that writes a file at a page-chosen path and then opens it with
+  `shell.openPath` is HIGH.
+- **Allowlists in helpers** (`if (!isAllowedUrl(url)) event.preventDefault()`) are read: the hosts, host-name-only
+  comparisons and subdomain wildcards are reported. A `setWindowOpenHandler` that allows windows without
+  `overrideBrowserWindowOptions` is MEDIUM when the app uses a preload: the new window inherits it.
+
 Less noise than before: timers given a callback are not code evaluation; paste, drop, file-picker, FileReader and
 `message` handlers are their own check (`RENDERER_INPUT_JS_CHECK`, not "Deep Links") and are informational unless the
 input reaches an operation; template credentials (`username:password@…`), routes, selectors and constant names are not
@@ -171,7 +184,8 @@ tool's own debugging port is left out and UDP endpoints are summarised once; a s
 checking (`Unknown`) is informational, to verify on a connected workstation; translated text, grammar tokens
 (`variable-2`), protocol method names and regular expressions are not secrets; product licence keys shipped as JWTs and
 Firebase web API keys are informational (public by design); default permission checks are one finding per origin; and a
-window moving from the app's boot page to its own local server is not reported as navigation away.
+window moving from the app's boot page to its own local server is not reported as navigation away; a shortcut to the
+app itself with fixed arguments, and a `second-instance` handler that only looks for a fixed switch, are informational.
 
 ## 4. Useful variations
 
