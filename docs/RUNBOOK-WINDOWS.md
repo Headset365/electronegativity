@@ -156,7 +156,9 @@ electronegativity --rerender "C:\eng-results\report.json"
 ```
 
 The new findings go to `reports\newReports\`, with a new `components.xlsx`, and their tester notes to
-`reports\newTesterNotes\`. All their content comes from the scan's data; the earlier findings are only read and left as
+`reports\newTesterNotes\`. The links of the new workbook are checked again (add `--offline` to skip that); its column
+"Changes since the earlier workbook" says, for each component, which links are now found or no longer found, and
+`newReports-review.md` lists the components whose links changed. All their content comes from the scan's data; the earlier findings are only read and left as
 they are. `reports\newReports-review.md` lists what was changed by hand in the earlier findings (a rating, an edited,
 added or removed section), quoting the earlier text so you can carry it over. A finding since renamed (such as "Renderer
 Isolation Weakened", now "Insufficient Renderer Process Isolation") is compared with its new file. For findings written

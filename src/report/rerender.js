@@ -10,6 +10,9 @@ import { parseFinding, sectionDigest, findingFingerprints } from './markdown.js'
 import { writeReports } from '../util/index.js';
 import { TITLES } from './markdown_style.js';
 import { findingFileName } from './markdown.js';
+import { needsAction, LINK_NAMES } from './xlsx.js';
+import { checkComponentLinks } from '../util/link_check.js';
+import { isOffline } from '../util/network.js';
 
 export const NEW_REPORTS = 'newReports';
 export const NEW_TESTER_NOTES = 'newTesterNotes';
@@ -58,6 +61,15 @@ function readFindings(dir) {
   return found;
 }
 
+// what checking a component's links again changed, for the workbook's "Changes since the earlier workbook" column
+function linkChanges(before, after, { checked, on }) {
+  if (!checked) return 'Links not checked again (offline): the results are those of the earlier workbook.';
+  const missing = LINK_NAMES.filter((name, i) => after[i] !== true);
+  if (!Array.isArray(before)) return `Links checked for the first time on ${on}. ${missing.length ? `Not found: ${missing.join(', ')}.` : 'All links found.'}`;
+  const changed = LINK_NAMES.map((name, i) => before[i] === after[i] ? undefined : `${name} ${after[i] ? 'now found' : 'no longer found'}`).filter(Boolean);
+  return changed.length ? `Links checked again on ${on}: ${changed.join('; ')}.` : `Links checked again on ${on}: no change.`;
+}
+
 const quote = (text) => String(text).trim().split('\n').map(line => `> ${line}`.trimEnd()).join('\n');
 
 /**
@@ -90,7 +102,7 @@ export function compareFinding(old, recorded, fresh) {
   return { known: false, changes };
 }
 
-function reviewDocument({ data, dataFile, oldDir, outDir, compared, gone, added, version }) {
+function reviewDocument({ data, dataFile, oldDir, outDir, compared, gone, added, version, workbook }) {
   const lines = ['# Review of the re-rendered findings', '',
     `The findings in \`${outDir}\` were written again from \`${dataFile}\` (the scan of ${data.app?.name || 'the application'}${data.generatedAt ? ` on ${data.generatedAt.slice(0, 10)}` : ''}, Electronegativity ${data.version || 'unknown'}) with the templates of Electronegativity ${version}. All their content comes from that scan's data.`,
     '', `The earlier findings in \`${oldDir}\` were compared with what the tool wrote, to find manual changes. Carry over the ones you want to keep: the earlier text is quoted below.`, ''];
@@ -123,6 +135,17 @@ function reviewDocument({ data, dataFile, oldDir, outDir, compared, gone, added,
     for (const file of added) lines.push(`- \`${file}\``);
     lines.push('');
   }
+  if (workbook) {
+    lines.push('## Components workbook', '');
+    if (!workbook.checked) lines.push('The links were not checked again (offline). The new workbook keeps the results of the earlier one.', '');
+    else {
+      lines.push(`The links of the ${workbook.rows.length} component${workbook.rows.length === 1 ? '' : 's'} needing action were checked again on ${workbook.on}. The column "Changes since the earlier workbook" of the new workbook says what changed for each.`, '');
+      const changed = workbook.rows.filter(r => !/no change\.$/.test(r.text));
+      if (changed.length) for (const r of changed) lines.push(`- ${r.name} ${r.version}: ${r.text}`);
+      else lines.push('No link changed.');
+      lines.push('');
+    }
+  }
   const untouched = compared.filter(c => c.known && !c.changes.length).map(c => `\`${c.file}\``);
   if (untouched.length) lines.push('## Unchanged since the tool wrote them', '', untouched.join(', '), '');
   const same = compared.filter(c => !c.known && !c.changes.length).map(c => `\`${c.file}\``);
@@ -136,7 +159,7 @@ function reviewDocument({ data, dataFile, oldDir, outDir, compared, gone, added,
  * of the manual changes found in `oldDir` next to it (<oldDir>/newReports-review.md). `oldDir` defaults to the reports
  * folder next to report.json (or, for an earlier layout, its markdown folder, or report.json's own folder).
  */
-export function rerender({ dataFile, oldDir, version }) {
+export async function rerender({ dataFile, oldDir, version, checkLinks = !isOffline(), fetchImpl }) {
   const data = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
   if (data.tool !== 'Electronegativity' || !Array.isArray(data.issues)) throw new Error(`${dataFile} is not an Electronegativity JSON report`);
   const base = path.dirname(path.resolve(dataFile));
@@ -144,7 +167,15 @@ export function rerender({ dataFile, oldDir, version }) {
   if (!fs.existsSync(folder)) throw new Error(`The earlier findings folder ${folder} does not exist`);
   const issues = data.issues.map(issueFromReport);
   const suppressed = (data.suppressed || []).map(issueFromReport);
-  const meta = { ...data, version, generatedAt: new Date().toISOString(), suppressed, root: data.input, app: data.app, dependencies: data.dependencies };
+  // the workbook's links, checked again: what changed goes in a column of the new workbook
+  const rows = ((data.dependencies && data.dependencies.rows) || []).filter(needsAction);
+  const before = new Map(rows.map(row => [row, Array.isArray(row.linkChecks) ? [...row.linkChecks] : undefined]));
+  const on = new Date().toISOString().slice(0, 10);
+  if (checkLinks && rows.length) await checkComponentLinks(data.dependencies, fetchImpl ? { fetchImpl } : {});
+  const changes = new Map(rows.map(row => [row, linkChanges(before.get(row), row.linkChecks || [], { checked: checkLinks, on })]));
+  const workbook = rows.length ? { checked: checkLinks, on, rows: rows.map(row => ({ name: row.name, version: row.version, text: changes.get(row) })) } : undefined;
+  const meta = { ...data, version, generatedAt: new Date().toISOString(), suppressed, root: data.input, app: data.app, dependencies: data.dependencies,
+    workbookChanges: rows.length ? row => changes.get(row) || '' : undefined };
   const old = readFindings(folder);
   const reports = writeReports(folder, issues, meta, NEW_REPORTS, NEW_TESTER_NOTES);
   const fresh = readFindings(reports.dir);
@@ -172,8 +203,8 @@ export function rerender({ dataFile, oldDir, version }) {
   }
   const added = [...fresh.keys()].filter(file => !old.has(file) && !Object.entries(RENAMED).some(([from, to]) => to === file && old.has(from)));
   const review = path.join(folder, `${NEW_REPORTS}-review.md`);
-  fs.writeFileSync(review, reviewDocument({ data, dataFile: path.resolve(dataFile), oldDir: folder, outDir: reports.dir, compared, gone, added, version }));
-  return { dir: reports.dir, notesDir: path.join(folder, NEW_TESTER_NOTES), review, findings: reports.findings, compared, gone, added };
+  fs.writeFileSync(review, reviewDocument({ data, dataFile: path.resolve(dataFile), oldDir: folder, outDir: reports.dir, compared, gone, added, version, workbook }));
+  return { workbook, dir: reports.dir, notesDir: path.join(folder, NEW_TESTER_NOTES), review, findings: reports.findings, compared, gone, added };
 }
 
 export { findingFingerprints };

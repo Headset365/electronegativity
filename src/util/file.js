@@ -337,7 +337,7 @@ export function writeReports(base, result, meta = {}, subfolder = MARKDOWN_FOLDE
   const dir = path.join(path.resolve(base), subfolder);
   const findings = writeClientMarkdown(path.resolve(base), result, meta, subfolder, notesSubfolder);
   const sheet = path.join(dir, COMPONENTS_SHEET);
-  fs.writeFileSync(sheet, renderComponentsXlsx(meta.dependencies, { appName: meta.app?.name }));
+  fs.writeFileSync(sheet, renderComponentsXlsx(meta.dependencies, { appName: meta.app?.name, changes: meta.workbookChanges }));
   // what was written, section by section: kept in report.json, so a later --rerender can tell the tester's edits apart
   const markdown = { version: VER, findings: Object.fromEntries(findings.map(file => [path.basename(file), findingFingerprints(fs.readFileSync(file, 'utf8'))])) };
   return { dir, findings, sheet, markdown };

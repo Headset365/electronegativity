@@ -8,9 +8,23 @@ import run from '../src/runner.js';
 import { severity } from '../src/finder/attributes.js';
 import { issueFromReport, compareFinding, rerender } from '../src/report/rerender.js';
 import { parseFinding, findingFingerprints } from '../src/report/markdown.js';
+import zlib from 'node:zlib';
 
 chaiShould();
 await _i18n();
+
+// the first sheet of a workbook, as XML
+function sheetXml(file) {
+  const buffer = fs.readFileSync(file);
+  let offset = 0;
+  while (buffer.readUInt32LE(offset) === 0x04034b50) {
+    const size = buffer.readUInt32LE(offset + 18);
+    const start = offset + 30 + buffer.readUInt16LE(offset + 26) + buffer.readUInt16LE(offset + 28);
+    if (buffer.toString('utf8', offset + 30, offset + 30 + buffer.readUInt16LE(offset + 26)) === 'xl/worksheets/sheet1.xml') return zlib.inflateRawSync(buffer.subarray(start, start + size)).toString();
+    offset = start + size;
+  }
+  throw new Error('no sheet1');
+}
 
 const CLI = path.join(import.meta.dirname, '..', 'src', 'index.js');
 const APP = path.join(import.meta.dirname, 'apps', 'vulnerable-app');
@@ -35,7 +49,7 @@ describe('Re-rendering the client findings of an earlier scan (--rerender)', fun
     for (const name of written) data.markdown.findings[name].should.deep.equal(findingFingerprints(fs.readFileSync(findingFile(name), 'utf8')));
   });
 
-  it('writes the findings again from report.json into newReports and lists the manual edits to carry over', () => {
+  it('writes the findings again from report.json into newReports and lists the manual edits to carry over', async () => {
     const name = 'Insufficient Renderer Process Isolation.md';
     const original = fs.readFileSync(findingFile(name), 'utf8');
     // the tester raised the rating, added a sentence, added a section and deleted References; saved with Windows line endings
@@ -47,7 +61,7 @@ describe('Re-rendering the client findings of an earlier scan (--rerender)', fun
     fs.writeFileSync(findingFile(other), fs.readFileSync(findingFile(other), 'utf8').replace(/\n/g, '\r\n'));
     fs.writeFileSync(findingFile('my notes.md'), 'tester notes, not a finding');
 
-    const cli = spawnSync(process.execPath, [CLI, '--rerender', path.join(dir, 'report.json')], { encoding: 'utf8' });
+    const cli = spawnSync(process.execPath, [CLI, '--rerender', path.join(dir, 'report.json'), '--offline'], { encoding: 'utf8' });
     cli.status.should.equal(0, cli.stderr);
     cli.stdout.should.include('1 earlier finding edited by hand');
     const out = path.join(reports(), 'newReports');
@@ -71,12 +85,12 @@ describe('Re-rendering the client findings of an earlier scan (--rerender)', fun
     review.split('## Unchanged since the tool wrote them')[1].should.include(other);
 
     // the new findings carry their own fingerprints: they can be re-rendered again in turn
-    const again = rerender({ dataFile: path.join(out, 'report.json'), version: 'test' });
+    const again = await rerender({ dataFile: path.join(out, 'report.json'), version: 'test', checkLinks: false });
     again.dir.should.equal(path.join(out, 'newReports'));
     again.compared.every(c => c.known && c.changes.length === 0).should.equal(true);
   });
 
-  it('flags every difference for a report written before fingerprints, and maps merged findings', () => {
+  it('flags every difference for a report written before fingerprints, and maps merged findings', async () => {
     const data = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
     delete data.markdown;
     // an earlier layout: findings in markdown/, two outdated findings since merged into one
@@ -91,7 +105,7 @@ describe('Re-rendering the client findings of an earlier scan (--rerender)', fun
     fs.rmSync(path.join(old, name));
     fs.writeFileSync(path.join(old, 'Renderer Isolation Weakened.md'), earlier);
 
-    const result = rerender({ dataFile: path.join(dir, 'report.json'), version: 'test' });
+    const result = await rerender({ dataFile: path.join(dir, 'report.json'), version: 'test', checkLinks: false });
     result.dir.should.equal(path.join(old, 'newReports'));
     fs.readdirSync(path.join(old, 'newTesterNotes')).should.include('Insufficient Renderer Process Isolation - tester notes.md');
     const review = fs.readFileSync(result.review, 'utf8');
@@ -125,8 +139,39 @@ describe('Re-rendering the client findings of an earlier scan (--rerender)', fun
     compareFinding(parseFinding(text.replace('\n\ny\n', '\n\n\n\ny   \n')), recorded).changes.should.deep.equal([]);
   });
 
-  it('refuses a file that is not an Electronegativity JSON report', () => {
+  it('checks the workbook links again and says in the new workbook what changed', async () => {
+    const data = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
+    // two components needing action: one whose Snyk page was missing at the scan and is there now, one never checked
+    data.dependencies = { rows: [
+      { name: 'lodash', version: '4.17.15', latest: '4.17.21', kinds: ['node_modules'], advisories: [{ id: 'GHSA-1', severity: 'HIGH' }], linkChecks: [true, true, true, false, true] },
+      { name: 'left-pad', version: '1.0.0', latest: '1.3.0', kinds: ['node_modules'] },
+    ] };
+    fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(data));
+    const fetchImpl = async () => ({ ok: true, status: 200, body: null });
+    const result = await rerender({ dataFile: path.join(dir, 'report.json'), version: 'test', checkLinks: true, fetchImpl });
+    result.workbook.checked.should.equal(true);
+    const texts = Object.fromEntries(result.workbook.rows.map(r => [r.name, r.text]));
+    texts.lodash.should.match(/^Links checked again on \d{4}-\d{2}-\d{2}: Snyk now found\.$/);
+    texts['left-pad'].should.match(/^Links checked for the first time on \d{4}-\d{2}-\d{2}\. All links found\.$/);
+    // the column in the new workbook, and the review
+    const sheet = sheetXml(path.join(result.dir, 'components.xlsx'));
+    sheet.should.include('Changes since the earlier workbook').and.include('Snyk now found');
+    fs.readFileSync(result.review, 'utf8').should.include('## Components workbook').and.include('- lodash 4.17.15: Links checked again on');
+    // the new report.json holds the new results, so a later rerender compares against them
+    JSON.parse(fs.readFileSync(path.join(result.dir, 'report.json'), 'utf8')).dependencies.rows[0].linkChecks.should.deep.equal([true, true, true, true, true]);
+    // offline: nothing checked, and the column says so
+    const offline = await rerender({ dataFile: path.join(dir, 'report.json'), version: 'test', checkLinks: false });
+    offline.workbook.rows.every(r => /not checked again/.test(r.text)).should.equal(true);
+  });
+
+  it('refuses a file that is not an Electronegativity JSON report', async () => {
     fs.writeFileSync(path.join(dir, 'other.json'), '{"a":1}');
-    (() => rerender({ dataFile: path.join(dir, 'other.json'), version: 'test' })).should.throw(/not an Electronegativity JSON report/);
+    let error;
+    try {
+      await rerender({ dataFile: path.join(dir, 'other.json'), version: 'test', checkLinks: false });
+    } catch (e) {
+      error = e;
+    }
+    error.message.should.match(/not an Electronegativity JSON report/);
   });
 });

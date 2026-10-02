@@ -104,10 +104,16 @@ async function main() {
   // --rerender: no scan, only the earlier scan's findings written again
   if (options.rerender) {
     try {
-      const result = rerender({ dataFile: options.rerender, oldDir: options.oldReports, version: VER });
+      if (!options.offline) console.log(chalk.gray('Checking the links of the components workbook again...'));
+      const result = await rerender({ dataFile: options.rerender, oldDir: options.oldReports, version: VER, checkLinks: !options.offline });
       const edited = result.compared.filter(c => c.known && c.changes.length).length;
       const unknown = result.compared.filter(c => !c.known && c.changes.length).length;
       console.log(chalk.green(`${result.findings.length} finding${result.findings.length === 1 ? '' : 's'} and the components workbook written to ${result.dir}, the tester notes to ${result.notesDir}`));
+      if (result.workbook) {
+        const changedLinks = result.workbook.rows.filter(r => !/no change\.$/.test(r.text)).length;
+        console.log(chalk.gray(result.workbook.checked ? `Workbook links checked again: ${changedLinks} of ${result.workbook.rows.length} component${result.workbook.rows.length === 1 ? '' : 's'} changed (see the "Changes since the earlier workbook" column)`
+          : 'Workbook links not checked again (--offline)'));
+      }
       console.log(chalk[edited || unknown ? 'yellow' : 'gray'](`${edited} earlier finding${edited === 1 ? '' : 's'} edited by hand${unknown ? `, ${unknown} that may have been (written before edits could be told apart)` : ''}: see ${result.review}`));
     } catch (error) {
       console.error(chalk.red(error.message));
