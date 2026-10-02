@@ -9,7 +9,7 @@ export function campaignPlan(issues) {
     const context = issue.properties?.context;
     const capabilities = [...new Set((context?.effects || []).filter(e => e.arguments.length).map(e => e.capability))];
     if (!capabilities.length && !['XSS_SINK_JS_CHECK', 'DOCUMENT_PIPELINE_JS_CHECK'].includes(issue.id)) continue;
-    if (!['IPC_CHANNEL_MAP_GLOBAL_CHECK', 'FILE_HANDLER_JS_CHECK', 'PROTOCOL_HANDLER_JS_CHECK', 'DOWNLOAD_JS_CHECK', 'XSS_SINK_JS_CHECK', 'DOCUMENT_PIPELINE_JS_CHECK'].includes(issue.id)) continue;
+    if (!['IPC_CHANNEL_MAP_GLOBAL_CHECK', 'FILE_HANDLER_JS_CHECK', 'RENDERER_INPUT_JS_CHECK', 'PROTOCOL_HANDLER_JS_CHECK', 'DOWNLOAD_JS_CHECK', 'XSS_SINK_JS_CHECK', 'DOCUMENT_PIPELINE_JS_CHECK'].includes(issue.id)) continue;
     const api = issue.properties?.exposedAPIs?.find(api => API_PATH.test(api.api));
     const key = `${issue.id}:${issue.properties?.channel || issue.file + ':' + issue.location?.line}`;
     if (seen.has(key)) continue;

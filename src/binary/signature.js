@@ -64,6 +64,14 @@ export function signerOf(blob) {
 const SIGNATURE_COMMAND = '$s = Get-AuthenticodeSignature -LiteralPath $env:ELECTRONEGATIVITY_SIGNED_FILE; [pscustomobject]@{Status=[string]$s.Status; Message=$s.StatusMessage; Signer=$(if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { $null })} | ConvertTo-Json -Compress';
 
 /**
+ * A signature the file carries but the OS could not finish judging: Windows reports Unknown or UnknownError when the chain
+ * or revocation check cannot complete (an offline or locked-down machine). Neither valid nor broken.
+ */
+export function inconclusiveSignature(signature) {
+  return !!(signature && signature.verifiedBy === 'windows' && signature.signer && /^Unknown(Error)?$/i.test(String(signature.status)));
+}
+
+/**
  * { status, message, signer, verifiedBy: 'windows'|'macos'|'none', format: 'pe'|'macho'|undefined }
  * status: Valid | NotSigned | HashMismatch | NotTrusted | ... (verified by the OS), Present (seen, not verified), Unknown
  */

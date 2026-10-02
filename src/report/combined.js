@@ -26,7 +26,7 @@ export function mergeDependencies(reports) {
     }
     // the step that could look the component up wins over one that could not
     const base = !earlier.latest && row.latest ? { ...row } : earlier;
-    const shipmentRank = s => ({ 'present-in-package': 4, 'present-in-scanned-code': 3, unverified: 2, 'development-metadata-only': 1 })[s?.status] || 0;
+    const shipmentRank = s => ({ 'present-in-package': 5, 'present-in-scanned-code': 4, 'loaded-from-server': 3, unverified: 2, 'development-metadata-only': 1 })[s?.status] || 0;
     byKey.set(key, { ...base, shipment: shipmentRank(row.shipment) > shipmentRank(earlier.shipment) ? row.shipment : earlier.shipment,
       kinds: unique([...(earlier.kinds || []), ...(row.kinds || [])]), files: unique([...(earlier.files || []), ...(row.files || [])]).slice(0, 5),
       locations: unique([...(earlier.locations || []), ...(row.locations || [])]), dev: earlier.dev !== false && row.dev !== false,

@@ -97,6 +97,9 @@ async function scan(options, forCli) {
       for (const [file, label] of extra.labels || []) remoteLabels.set(file, label);
     }
     loader = new LoaderCombined(loader, extras);
+    // pages the app serves from its own files (protocol.handle('https'), app://) were captured as remote code
+    if (forCli && loader.duplicatesOfPackage.length)
+      console.log(chalk.gray(`${loader.duplicatesOfPackage.length} captured file(s) are identical to files in the package (the app serves them itself): scanned once, as package files`));
   }
   endPhase('load');
   // a packaged app's app.asar rarely names its Electron version: read it from the executable next to it, or use the
@@ -246,12 +249,26 @@ async function scan(options, forCli) {
           confidence: confidence.CERTAIN, manualReview: false, shortenedURL: 'https://osv.dev', visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false },
           constructorName: 'DependencyInventoryLockCheck' });
       }
+    }
+    // a packaged app names its Electron version only in the executable (or the run watch mode saw): the end-of-life,
+    // security-fix and Chromium checks need it as much as a package.json version
+    if (finder._enabled_checks.some(check => check.name === 'ElectronVersionJSONCheck') && (binaryVersion || options.runtimeElectronVersion)
+      && !loader.electronVersion && !options.electronVersionOverride && !issues.some(issue => issue.id === 'ELECTRON_VERSION_JSON_CHECK')) {
+      const version = binaryVersion || options.runtimeElectronVersion;
+      issues.push({ file: binaryFile && binaryVersion ? binaryFile : 'runtime', sample: '', location: { line: 1, column: 0 }, id: 'ELECTRON_VERSION_JSON_CHECK',
+        description: `${__('ELECTRON_VERSION_JSON_CHECK')} (Electron ${version}, read from the ${binaryVersion ? 'packaged executable' : 'running app'})`,
+        properties: { versionNumber: version, versionSpec: version, source: binaryVersion ? 'packaged executable' : 'observed at runtime' },
+        severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, manualReview: false,
+        shortenedURL: 'https://www.electronjs.org/docs/latest/tutorial/security#16-use-a-current-version-of-electron',
+        visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: 'ElectronVersionJSONCheck' });
+    }
+    if (finder._enabled_checks.some(check => check.name === 'DependencyInventoryLockCheck')) {
       const listed = new Set();
-      for (const { name, version, file } of [...(loader.vendoredLibraries || []), ...detectedLibraries]) {
+      for (const { name, version, file, note } of [...(loader.vendoredLibraries || []), ...detectedLibraries]) {
         if (!version || listed.has(`${name}@${version}@${file}`)) continue;
         listed.add(`${name}@${version}@${file}`);
         issues.push({ file, sample: '', location: { line: 1, column: 0 }, id: 'DEPENDENCY_INVENTORY_LOCK_CHECK', description: `${__('DEPENDENCY_INVENTORY_LOCK_CHECK')} (${name}@${version})`,
-          properties: { packages: [{ name, version, dev: false, line: 1, vendored: true }] }, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
+          properties: { packages: [{ name, version, dev: false, line: 1, vendored: true, ...(note ? { note } : {}) }] }, severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN,
           manualReview: false, shortenedURL: 'https://osv.dev', visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false },
           constructorName: 'DependencyInventoryLockCheck' });
       }
@@ -551,7 +568,7 @@ async function scan(options, forCli) {
           .map(r => `${r.name}@${r.version} (${r.support.status}, ${r.advisories.length} advisories)`).slice(0, 50),
         lookupErrors: dependencies.errors.map(e => `${e.source}: ${e.message}`).filter((m, i, all) => all.indexOf(m) === i).slice(0, 10) },
       watch: options.watchDiagnostics,
-      remote: options.remoteDiagnostics,
+      remote: options.remoteDiagnostics && { ...options.remoteDiagnostics, sameAsPackage: (loader.duplicatesOfPackage || []).length || undefined },
       // how much traffic the captures held (hosts are left out: they identify the app)
       traffic: traffic && { files: traffic.summary.files, http: traffic.summary.http, ws: traffic.summary.ws, hosts: traffic.summary.hosts, errors: traffic.summary.errors.length },
     }, { redact: options.redact || [], version: pkg.version });
@@ -662,13 +679,14 @@ async function dependencyTable(issues, filenames, loader, electronVersion, input
   direct = { ...Object.fromEntries(Object.keys(json.dependencies || {}).map(n => [n, 'dependency'])), ...Object.fromEntries(Object.keys(json.devDependencies || {}).map(n => [n, 'dev'])) };
   const byKey = new Map();
   // every place a package was found; `files` keeps the first few library copies (the HTML and Word reports show them)
-  const add = (name, version, kind, file, dev, where) => {
+  const add = (name, version, kind, file, dev, where, note) => {
     const key = `${name}@${version}`;
     const row = byKey.get(key) || { name, version, kinds: [], files: [], locations: [], dev: true, direct: Object.hasOwn(direct, name) };
     if (!row.kinds.includes(kind)) row.kinds.push(kind);
     if (file && !row.files.includes(file) && row.files.length < 5) row.files.push(file);
     if (where && !row.locations.includes(where)) row.locations.push(where);
     row.dev = row.dev && !!dev;
+    if (note && !(row.notes || []).includes(note)) row.notes = [...(row.notes || []), note];
     byKey.set(key, row);
   };
   const relative = (file) => file && path.isAbsolute(file) ? getRelativePath(input, file) : file;
@@ -677,12 +695,13 @@ async function dependencyTable(issues, filenames, loader, electronVersion, input
     if (issue.id !== 'DEPENDENCY_INVENTORY_LOCK_CHECK') continue;
     for (const pkg of (issue.properties && issue.properties.packages) || []) {
       if (!pkg.name || !pkg.version) continue;
-      const kind = pkg.vendored ? 'bundled library' : pkg.installed ? 'node_modules' : 'lockfile';
+      // a library seen only in front-end code fetched from the app's server (--remote) is not in the installed package
+      const kind = pkg.vendored ? (/^https?:\/\//i.test(issue.file || '') ? 'served by the app server' : 'bundled library') : pkg.installed ? 'node_modules' : 'lockfile';
       const file = pkg.vendored ? relative(issue.file) : undefined;
       // the library file, the package's folder in node_modules, or the lockfile and its line
       const where = pkg.vendored ? file : pkg.installed ? (pkg.file ? path.dirname(relative(pkg.file)) : 'node_modules')
         : `${relative(issue.file)}${pkg.line > 1 ? ` (line ${pkg.line})` : ''}`;
-      add(pkg.name, pkg.version, kind, file, pkg.dev || (pkg.name !== 'electron' && direct[pkg.name] === 'dev'), where);
+      add(pkg.name, pkg.version, kind, file, pkg.dev || (pkg.name !== 'electron' && direct[pkg.name] === 'dev'), where, pkg.note);
     }
   }
   const report = await dependencyReport([...byKey.values()]);

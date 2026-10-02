@@ -124,7 +124,8 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
     return new Promise((resolve, reject) => {
       const child = spawn(command, finalArgs, { env, stdio: onOutput ? ['ignore', 'pipe', 'pipe'] : stdio });
       if (onOutput) pipeAppOutput(child, onOutput);
-      const stopPorts = observePorts(child.pid, record, { inspectorPort: port });
+      const debugPorts = finalArgs.map(arg => String(arg).match(/^--remote-debugging-port=(\d+)$/)).filter(Boolean).map(m => Number(m[1]));
+      const stopPorts = observePorts(child.pid, record, { inspectorPort: port, toolPorts: debugPorts });
       const stop = () => child.kill();
       process.once('SIGINT', stop);
       onReady();

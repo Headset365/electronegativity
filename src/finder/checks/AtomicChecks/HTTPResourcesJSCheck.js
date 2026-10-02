@@ -1,6 +1,8 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 
+const CLEARTEXT_APIS = new Set(['loadURL', 'setSpellCheckerDictionaryDownloadURL', 'downloadURL', 'request']);
+
 export default class HTTPResourcesJavascriptCheck {
   constructor() {
     this.id = "HTTP_RESOURCES_JS_CHECK";
@@ -11,7 +13,11 @@ export default class HTTPResourcesJavascriptCheck {
 
   match(astNode, astHelper){
     if (astNode.type !== 'CallExpression') return null;
-    if (!(astNode.callee.property && astNode.callee.property.name === "loadURL")) return null;
+    const method = astNode.callee.property && astNode.callee.property.name;
+    // Electron APIs that fetch what they are given: pages, and files the app or Chromium then uses (spell-check
+    // dictionaries, downloads)
+    if (!CLEARTEXT_APIS.has(method) || !astNode.arguments[0]) return null;
+    if (method === 'request' && !/^net$/.test((astNode.callee.object && (astNode.callee.object.name || (astNode.callee.object.property && astNode.callee.object.property.name))) || '')) return null;
 
     switch (astNode.arguments[0].type) {
       case astHelper.StringLiteral:
@@ -28,6 +34,8 @@ export default class HTTPResourcesJavascriptCheck {
         return undefined;
     }
 
-    return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: this.description, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false }];
+    const url = astNode.arguments[0].type === "TemplateLiteral" ? astNode.arguments[0].quasis[0].value.cooked.trim() : astNode.arguments[0].value.trim();
+    const what = method === 'loadURL' ? '' : ` (${method}(): ${url} is fetched over unencrypted HTTP${method === 'setSpellCheckerDictionaryDownloadURL' ? ', so someone on the network can replace the dictionaries Chromium loads' : ''})`;
+    return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: `${this.description}${what}`, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false, properties: { api: method, url } }];
   }
 }

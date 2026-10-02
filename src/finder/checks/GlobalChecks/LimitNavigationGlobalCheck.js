@@ -35,6 +35,7 @@ export default class LimitNavigationGlobalCheck {
 
     // when both are there, the handlers are still worth a manual review unless the global check is explicitly disabled
     if (result.length === removedEvents.length) return [...result, ...reviewable.filter(i => !removedEvents.includes(i))];
-    return result;
+    // a missing limit is reported on its own; an allowlist that ignores the scheme is a separate weakness, kept
+    return [...result, ...reviewable.filter(i => i.properties.hostOnly && !removedEvents.includes(i))];
   }
 }

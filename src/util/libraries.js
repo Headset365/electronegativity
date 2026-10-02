@@ -25,7 +25,6 @@ const BANNERS = [
   ['angular-ui-bootstrap', /\bangular-ui-bootstrap\b[\s\S]{0,200}?Version: (\d+\.\d+\.\d+)/],
   ['angular-ui-router', /\bState-based routing for AngularJS[\s\S]{0,800}?@version v(\d+\.\d+\.\d+)/],
   ['vue', /\bVue\.js v(\d+\.\d+\.\d+(?:-[\w.]+)?)/],
-  ['react', /@license React v(\d+\.\d+\.\d+)/],
   ['select2', /\bSelect2 (\d+\.\d+\.\d+)/],
   ['chart.js', /\bChart\.js v(\d+\.\d+\.\d+)/],
   ['popper.js', /\bPopper\.js v(1\.\d+\.\d+)/],
@@ -64,7 +63,17 @@ const SIGNATURES = [
   ['bootstrap', /\.VERSION\s*=\s*["'](3\.\d+\.\d+)["']\s*[,;]\s*\w+\.(?:TRANSITION_DURATION|DEFAULTS)\b/],
   ['bootstrap', /(?:key\s*:\s*["']VERSION["']\s*,\s*get\s*:\s*function\s*\(\)\s*\{|get VERSION\s*\(\)\s*\{)\s*return\s*["']?(?:\w+\s*\})?["']?(\d+\.\d+\.\d+)["'][\s\S]*?\.bs\./],
   ['underscore', /exports\._\s*=\s*\w+\)?\s*[,;]\s*\w+\.VERSION\s*=\s*["'](\d+\.\d+\.\d+)["']/],
+  // pdf.js, its version in the document-loading call (getDocument) and the build constants, which minification keeps
+  ['pdfjs-dist', /\bdocId\s*:\s*[\w$]+\s*,\s*apiVersion\s*:\s*["'](\d+\.\d+\.\d+)["']/],
+  ['pdfjs-dist', /\bpdfjsVersion\s*=\s*["'](\d+\.\d+\.\d+)["']/],
 ];
+
+// the package of a React banner: " * react-is.production.min.js" → react-is; react-jsx-runtime is part of react
+function reactPackage(comment) {
+  const file = comment.match(/\b([a-z][\w-]*)\.(?:production|development|profiling)(?:\.min)?\.js\b/);
+  if (!file) return 'react';
+  return /^react(?:-jsx-runtime|-jsx-dev-runtime)?$/.test(file[1]) ? 'react' : file[1];
+}
 
 const COMMENTS = /\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n\s*\/\/[^\n]*)*/g;
 
@@ -81,10 +90,17 @@ export function detectLibraries(text) {
       const match = comment.match(pattern);
       if (match) add(name, match.slice(1).find(Boolean));
     }
+    // React's banners name the file they head: react-is, scheduler and react-dom carry their own versions
+    const react = comment.match(/@license React v(\d+\.\d+\.\d+)/);
+    if (react) add(reactPackage(comment), react[1]);
   }
   for (const [name, pattern, version = (m) => m[1]] of SIGNATURES) {
     const match = text.match(pattern);
     if (match) add(name, version(match));
   }
+  // pdf.js before 4.2.67 runs a crafted font's code (CVE-2024-4367) unless the app turns isEvalSupported off
+  for (const library of found.values())
+    if (library.name === 'pdfjs-dist' && /\bisEvalSupported\s*[:=]\s*(?:!1|false)\b/.test(text))
+      library.note = 'isEvalSupported is turned off in this file, which mitigates CVE-2024-4367 if it applies to every document the app opens; verify';
   return [...found.values()];
 }

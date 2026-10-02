@@ -307,11 +307,43 @@ export function analyzeWatchLog(records) {
       else add('RUNTIME_MARKER', r.url, severity.INFORMATIONAL, confidence.CERTAIN, `Planted marker appeared as text (escaped) at ${where}`, { marker: r.detail, live: false, frame: r.frame });
       continue;
     }
+    // frames the page showed: a frame in the page's origin (srcdoc, or a same-origin src) without an effective sandbox
+    // can reach everything the page can, including parent.require() when the window has Node.js integration and no
+    // context isolation; a srcdoc document that loads a third-party script hands that script the same access
+    if (r.event === 'iframe') {
+      let frame;
+      try { frame = JSON.parse(r.detail || '{}'); } catch { continue; }
+      const sandbox = frame.sandbox;
+      const effective = typeof sandbox === 'string' && !(/\ballow-scripts\b/i.test(sandbox) && /\ballow-same-origin\b/i.test(sandbox));
+      // another origin's frame is held apart by its origin: only one with no sandbox at all is worth a note
+      if (effective || (!frame.sameOrigin && typeof sandbox === 'string')) continue;
+      const page = pages.filter(p => p.id === r.id).at(-1);
+      const prefs = (page && page.prefs) || {};
+      const node = prefs.nodeIntegration === true && prefs.contextIsolation === false;
+      const key = `iframe:${origin(r.url)}:${frame.content}:${frame.origin}:${sandbox}:${(frame.scripts || []).join(',')}`;
+      if (!first(key)) continue;
+      const how = sandbox === null || sandbox === undefined ? 'without a sandbox' : `with a sandbox that allows both scripts and same-origin access (${sandbox})`;
+      const scripts = (frame.scripts || []).length ? `; its document loads script from ${frame.scripts.join(', ')}, which runs in the page's origin` : '';
+      if (frame.sameOrigin) {
+        add('RUNTIME_IFRAME', r.url, node ? severity.HIGH : severity.MEDIUM, confidence.CERTAIN,
+          `A frame in the page's own origin (${frame.content}) was shown ${how} at ${r.url}${scripts}${node ? '. The window has Node.js integration without context isolation, so script in the frame can reach Node.js through parent.require()' : ''}`,
+          { content: frame.content, sameOrigin: true, sandbox, scripts: frame.scripts || [], nodeIntegration: node }, 'https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox');
+      } else {
+        add('RUNTIME_IFRAME', r.url, severity.LOW, confidence.CERTAIN, `A frame showing ${frame.origin || 'another origin'} was embedded ${how} at ${r.url}`,
+          { content: frame.content, sameOrigin: false, origin: frame.origin, sandbox }, 'https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox');
+      }
+      continue;
+    }
     // script-bearing insertions: on* handlers and javascript: URLs are strong injection signals; plain <script> tags
     // are too common in normal apps (code splitting) to report on their own
     if ((r.event === 'event-handler' || r.event === 'javascript-url') && first(`dom:${origin(r.url)}:${r.event}:${r.detail}`))
       add('RUNTIME_DOM_INJECTION', r.url, severity.LOW, confidence.FIRM, `Script was inserted into the page at runtime (${r.event}${r.detail ? ' ' + r.detail : ''}) at ${r.url}; check that untrusted input cannot reach this sink`, { event: r.event, detail: r.detail }, `${DOCS}#7-define-a-content-security-policy`);
   }
+  // the app updating itself during the session: later sessions (or the next start) may run another version
+  const downloads = [...new Set(records.filter(r => r.kind === 'update-download').map(r => r.url))];
+  if (downloads.length)
+    add('RUNTIME_UPDATE_DOWNLOAD', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN, `The app downloaded update files during the session (${downloads.slice(0, 3).join(', ')}${downloads.length > 3 ? ` and ${downloads.length - 3} more` : ''}): it may install a newer version when it quits, so later sessions can test a different version than the one scanned`,
+      { downloads });
   for (const r of records.filter(r => r.kind === 'certificate-error')) {
     if (first(`cert:${origin(r.url)}`))
       add('RUNTIME_CERTIFICATE_ERROR', r.url, severity.LOW, confidence.FIRM, `A certificate error occurred for ${r.url} (${r.error}); check that the app rejected the connection`, undefined, 'https://www.electronjs.org/docs/latest/api/app#event-certificate-error');

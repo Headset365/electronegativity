@@ -10,7 +10,7 @@ const RANK = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, MODERATE: 2, LOW: 1 };
 
 const isElectron = (row) => row.name === 'electron';
 const typeOf = (row) => isElectron(row) ? 'Electron runtime'
-  : (row.kinds || []).length > 0 && (row.kinds || []).every(kind => kind === 'bundled library') ? 'JS library' : 'npm package';
+  : (row.kinds || []).length > 0 && (row.kinds || []).every(kind => kind === 'bundled library' || kind === 'served by the app server') ? 'JS library' : 'npm package';
 
 // a newer release than the installed one exists (a prerelease newer than the latest is not behind)
 const behind = (row) => !!(row.latest && row.version && row.latest !== row.version && (row.versionsBehind === undefined || row.versionsBehind > 0));
@@ -43,6 +43,11 @@ export function needsAction(row) {
 }
 
 function action(row, labels) {
+  const text = recommendedAction(row, labels);
+  return (row.notes || []).length ? `${text}. Note: ${row.notes.join('; ')}` : text;
+}
+
+function recommendedAction(row, labels) {
   const latest = row.latest;
   if (row.malicious) return `Remove immediately: known malicious version (${row.malicious.id})`;
   if (labels.includes('End of life')) return `Replace with a maintained alternative: ${row.name} is no longer maintained`;
@@ -98,7 +103,7 @@ export function linksToValidate(row) {
 export const CATALOG_HEADER = ['Component', 'Type', 'Version', 'Identified from', 'Path found', 'Needs action', 'Shipment evidence'];
 const shipment = row => row.shipment ? `${row.shipment.status}: ${row.shipment.note}` : 'Shipment not assessed';
 
-const FOUND_AS = { 'Electron runtime': "App's Electron version", lockfile: 'Lockfile', node_modules: 'Installed package (node_modules)', 'bundled library': 'Library file in the app' };
+const FOUND_AS = { 'Electron runtime': "App's Electron version", lockfile: 'Lockfile', node_modules: 'Installed package (node_modules)', 'bundled library': 'Library file in the app', 'served by the app server': 'Script served by the app server (not in the installed package)' };
 const paths = (row) => (row.locations && row.locations.length ? row.locations : row.files || []).join('\n');
 
 // the column a re-rendered workbook adds: what changed for each component since the earlier workbook

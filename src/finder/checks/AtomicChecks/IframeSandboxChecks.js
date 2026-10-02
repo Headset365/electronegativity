@@ -1,9 +1,12 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
-import { finding } from '../helpers.js';
-import { constantValue } from '../analysis.js';
+import { finding, memberName, keyName, visit } from '../helpers.js';
+import { constantValue, isCall, enclosingFunction } from '../analysis.js';
 
 const URL = "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox";
+
+// compiled JSX element factories
+const COMPILED_JSX = new Set(['jsx', 'jsxs', '_jsx', '_jsxs', 'jsxDEV', 'h']);
 
 // With both flags the framed page can remove its own sandbox, so it is as good as none
 const isEffective = (sandbox) => !(/\ballow-scripts\b/i.test(sandbox) && /\ballow-same-origin\b/i.test(sandbox));
@@ -45,7 +48,9 @@ export class IframeSandboxJSCheck {
     this.shortenedURL = URL;
   }
 
-  match(astNode, astHelper, scope) {
+  match(astNode, astHelper, scope, defaults, electronVersion, context) {
+    // compiled code: jsx("iframe", props) / React.createElement("iframe", props), and document.createElement("iframe")
+    if (isCall(astNode) && astNode.type !== 'NewExpression') return this.compiled(astNode, scope, context);
     if (astNode.type !== 'JSXOpeningElement' || !astNode.name || astNode.name.name !== 'iframe') return null;
     // {...props} may carry the attribute
     if (astNode.attributes.some(a => a.type === 'JSXSpreadAttribute')) return null;
@@ -58,5 +63,68 @@ export class IframeSandboxJSCheck {
     }
     const problem = assess(sandbox);
     return problem ? [finding(this, astNode, { severity: severity.LOW, confidence: confidence.CERTAIN, manualReview: true, description: `${this.description} (${problem})` })] : null;
+  }
+
+  // an iframe made in compiled code, and what it is given to show: srcdoc (a document in the window's own origin) or src
+  compiled(astNode, scope, context) {
+    const callee = astNode.callee;
+    const name = callee.type === 'Identifier' ? callee.name : memberName(callee);
+    if (constantValue(astNode.arguments[0], scope) !== 'iframe') return null;
+    // jsx("iframe", { src, sandbox }) and createElement("iframe", { srcDoc })
+    const props = astNode.arguments[1];
+    // (document.createElement takes at most an { is } options object; React.createElement takes the props)
+    const reactProps = name === 'createElement' && props && props.type === 'ObjectExpression' && !props.properties.some(p => keyName(p.key) === 'is');
+    if ((COMPILED_JSX.has(name) || reactProps) && props && props.type === 'ObjectExpression') {
+      if (props.properties.some(p => p.type === 'SpreadElement' || p.type === 'SpreadProperty')) return null;
+      const property = (key) => props.properties.find(p => new RegExp(`^${key}$`, 'i').test(keyName(p.key) || ''));
+      const sandbox = property('sandbox');
+      const value = sandbox ? constantValue(sandbox.value, scope) : undefined;
+      if (sandbox && value === undefined) return null; // dynamic, can't tell
+      const problem = assess(sandbox ? value : undefined);
+      const content = property('srcdoc') ? 'srcdoc' : property('src') ? 'src' : undefined;
+      return problem ? [this.compiledFinding(astNode, problem, content)] : null;
+    }
+    // const frame = document.createElement("iframe"); frame.srcdoc = html; (no frame.sandbox / setAttribute("sandbox"))
+    if (name !== 'createElement') return null;
+    const ancestors = (context && context.ancestors) || [];
+    const parent = ancestors[ancestors.length - 1];
+    const variable = parent && parent.type === 'VariableDeclarator' && parent.id.type === 'Identifier' ? parent.id.name
+      : parent && parent.type === 'AssignmentExpression' && parent.left.type === 'Identifier' ? parent.left.name : undefined;
+    const body = enclosingFunction(ancestors) || ancestors[0];
+    if (!variable || !body) return null;
+    let sandbox;
+    let dynamicSandbox = false;
+    let content;
+    const on = (node) => node && node.type === 'Identifier' && node.name === variable;
+    visit(body, (node) => {
+      if (node.type === 'AssignmentExpression' && (node.left.type === 'MemberExpression') && on(node.left.object)) {
+        const property = memberName(node.left);
+        if (property === 'sandbox') { const v = constantValue(node.right, scope); if (v === undefined) dynamicSandbox = true; else sandbox = v; }
+        if (property === 'srcdoc') content = 'srcdoc';
+        else if (property === 'src' && !content) content = 'src';
+      }
+      if (isCall(node) && node.callee.type === 'MemberExpression') {
+        const method = memberName(node.callee);
+        // frame.setAttribute("sandbox", v), frame.sandbox.add(...)
+        if (method === 'setAttribute' && on(node.callee.object)) {
+          const attribute = String(constantValue(node.arguments[0], scope)).toLowerCase();
+          if (attribute === 'sandbox') { const v = constantValue(node.arguments[1], scope); if (v === undefined) dynamicSandbox = true; else sandbox = v; }
+          if (attribute === 'srcdoc') content = 'srcdoc';
+          else if (attribute === 'src' && !content) content = 'src';
+        }
+        if (['add', 'value'].includes(method) && node.callee.object.type === 'MemberExpression' && memberName(node.callee.object) === 'sandbox' && on(node.callee.object.object)) dynamicSandbox = true;
+      }
+    });
+    if (dynamicSandbox || !content) return null;
+    const problem = assess(sandbox);
+    return problem ? [this.compiledFinding(astNode, problem, content)] : null;
+  }
+
+  compiledFinding(astNode, problem, content) {
+    // a srcdoc document has the window's origin: without a sandbox it can reach everything the window can
+    const sameOrigin = content === 'srcdoc';
+    return finding(this, astNode, { severity: sameOrigin ? severity.MEDIUM : severity.LOW, confidence: confidence.FIRM, manualReview: true,
+      description: `${this.description} (${problem}; created in code${content ? `, content set through ${content}` : ''}${sameOrigin ? ', so the frame shares the window’s origin' : ''})`,
+      properties: { content, sameOrigin } });
   }
 }

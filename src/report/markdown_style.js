@@ -132,6 +132,8 @@ const STATIC = {
   WINDOW_SESSION: (i) => { const d = detailOf(i.description); return d ? `windows that display different content share a session (${d.replace(/\s*\([^)]*\)/, '')})` : 'windows that display different content share a session'; },
   IPC_SENDER_VALIDATION: (i) => `the handler${channel(i)} does not validate the sender of the message before acting on it`,
   IPC_HANDLER: (i) => { const op = /uses (\w+) with arguments/.exec(i.description || ''); const what = { processes: 'to start a process', shell: 'to Electron’s `shell` module', files: 'to file system operations', fs: 'to file system operations', network: 'to network requests' }[op && op[1]] || 'to a sensitive operation'; return `the handler${channel(i)} passes values received from the user interface ${what} without validating them`; },
+  IPC_RPC_PROCEDURE: (i) => { const p = i.properties || {}; const what = (p.capabilities || []).join(', ') || 'performs a privileged operation';
+    return `the ${code(p.procedure || 'listed')} procedure, which any page that reaches the inter-process channel can call, ${what}${p.takesInput ? ' using input supplied by the page' : ''}`; },
   IPC_FILE_ACCESS: () => 'a file path chosen by the user interface, a navigation or a deep link reaches the file system without validation',
   IPC_CHANNEL_MAP: (i) => `the main process handles the ${code(i.properties?.channel || 'listed')} channel`,
   OPEN_EXTERNAL: shell('shell.openExternal()'),
@@ -149,18 +151,21 @@ const STATIC = {
   PROTOCOL_PRIVILEGES: () => 'a custom protocol is registered with elevated privileges',
   FILE_PROTOCOL: () => 'local content is loaded over `file:` URLs, which have additional privileges in Electron',
   UNTRUSTED_LOAD_URL: () => 'an application window loads a URL taken from external input',
-  LIMIT_NAVIGATION: (i) => /never calls event\.preventDefault/.test(i.description || '') ? 'the `will-navigate` handler never blocks a navigation, so windows can navigate to any destination'
-    : /Missing will-navigate/i.test(i.description || '') ? 'no `will-navigate` handler restricts where windows can navigate' : 'navigation is not restricted to the application’s own pages',
+  LIMIT_NAVIGATION: (i) => i.properties?.hostOnly ? 'the navigation allowlist compares host names only, so an allowed host is also accepted over unencrypted `http:`, where its page loads with the window’s privileges'
+    : /never calls event\.preventDefault/.test(i.description || '') ? 'the `will-navigate` handler never blocks a navigation, so windows can navigate to any destination'
+      : /Missing will-navigate/i.test(i.description || '') ? 'no `will-navigate` handler restricts where windows can navigate' : 'navigation is not restricted to the application’s own pages',
   NAVIGATION_REDIRECT: () => 'server redirects are not restricted, as no handler blocks redirects to other destinations',
   WINDOW_OPEN_HANDLER: (i) => /every URL is allowed/.test(i.description || '') ? 'the `setWindowOpenHandler()` handler allows every URL to open a new window' : 'new windows are allowed without restriction',
   AUXCLICK: () => 'middle-clicking a link can open it in a new window',
   ALLOWPOPUPS: () => 'a `<webview>` tag allows popups',
   WEBVIEW_TAG: () => 'the `<webview>` tag is enabled',
   WEBVIEW: () => 'the `<webview>` tag is enabled without a `will-attach-webview` handler to check embedded content before it is created',
-  IFRAME_SANDBOX: () => 'an iframe displays content without the `sandbox` attribute',
+  IFRAME_SANDBOX: (i) => i.properties?.sameOrigin ? 'an iframe created in code displays generated HTML (`srcdoc`) without the `sandbox` attribute, so its content runs in the application’s own origin' : 'an iframe displays content without the `sandbox` attribute',
   PERMISSION_REQUEST_HANDLER: (i) => /grants every permission/.test(i.description || '') ? 'the permission request handler grants every permission to every origin'
     : /Missing/.test(i.description || '') ? 'no permission request handler is set, so permission requests are granted by default' : 'the permission request handler does not restrict which permissions are granted',
   XSS_SINK: (i) => { const m = /^(\w+(?:\.\w+)?) with (.+)$/.exec(detailOf(i.description)); return m ? `${code(m[1])} is assigned ${m[2].replace(/^a /, 'a ')}, so the content is inserted as HTML` : 'dynamic content is inserted into the page as HTML'; },
+  HTML_TEMPLATE: (i) => { const values = (i.properties?.values || []).map(v => String(v).replace(/ \((?:attribute value|element text)\)$/, '')); const shown = [...new Set(values)].slice(0, 4).map(code).join(', ');
+    return shown ? `HTML is built by inserting ${shown} into a markup template without escaping` : 'HTML is built by inserting values into a markup template without escaping'; },
   RICH_TEXT_EDITOR: () => 'HTML is loaded into a rich-text editor without being sanitised on the server',
   SANITIZER_CONFIG: () => 'an HTML sanitiser or editor is configured to allow script-bearing markup',
   ANGULAR_SCE_DISABLED: () => 'AngularJS Strict Contextual Escaping is disabled for the whole application',
@@ -169,6 +174,8 @@ const STATIC = {
   ANGULAR_BIND_HTML_UNSAFE: () => '`ng-bind-html-unsafe` renders its expression as raw HTML',
   CSP: () => 'no Content Security Policy is defined for the application’s pages',
   CSP_DIRECTIVES: (i) => { const d = detailOf(i.description); return d ? `the Content Security Policy is incomplete: ${d}` : 'the Content Security Policy permits unsafe sources or omits protective directives'; },
+  RENDERER_INPUT: (i) => { const event = { 'file-reader': 'a file read by the page', paste: 'pasted content', drop: 'dropped content', change: 'a file chosen in a file picker', message: 'a message posted to the page' }[i.properties?.event] || 'content received by the page';
+    const reached = /input reaches ([^;]+)/.exec(i.description || ''); return `${event} reaches ${reached ? reached[1] : 'a sensitive operation'} without validation`; },
   DOCUMENT_PIPELINE: (i) => { const d = detailOf(i.description); return d ? `documents are processed by ${d}` : 'documents from external sources are processed by a parser or converter'; },
   FUSES: (i) => /No Electron Fuses configuration/i.test(i.description || '') ? 'no Electron fuse configuration is applied when the application is packaged, so `RunAsNode`, `NODE_OPTIONS`, `--inspect` and archive integrity remain at their insecure defaults' : 'the Electron fuse configuration leaves security hardening features disabled',
   PACKAGED_FUSES: (i) => i.properties?.fuse ? `the ${code(i.properties.fuse)} fuse is ${i.properties.value === true || i.properties.value === 'enabled' ? 'enabled' : i.properties.value === false || i.properties.value === 'disabled' ? 'disabled' : 'in an insecure state'} in the shipped executable` : 'the shipped executable’s fuses leave security hardening features disabled',
@@ -195,7 +202,7 @@ const STATIC = {
 
 // runtime and traffic observations: their own description, without the caveats and instructions to the tester (those go
 // to the tester notes)
-const CAVEATS = /\s*(?:[.;:]\s*|\s)(?:This (?:establishes|confirms|does not)|Script execution (?:and|remains)|Whether |Path traversal|The handler['’]s|[Cc]heck (?:that|the|what|which|whether)|[Vv]erify |[Rr]eview (?:which|the|whether)|Delivery to|Identity with|Command injection|Cross-account|Exploitability|only https?\(s\))[\s\S]*$/;
+const CAVEATS = /\s*(?:[.;:]\s*|\s)(?:This (?:establishes|confirms|does not)|Script execution (?:and|remains)|Whether |Path traversal|The handler['’]s|[Cc]heck (?:that|the|what|which|whether)|[Vv]erify |[Rr]eview (?:which|the|whether)|Delivery to|Identity with|Command injection|Cross-account|Exploitability|only https?\(s\)|URLs end up in|Authentication and origin enforcement|the storage provider issues)[\s\S]*$/;
 export function runtimeFact(i) {
   let text = String(i.description || '').replace(/^(?:Observed|Seen) at runtime:\s*/i, '').replace(CAVEATS, '').replace(/\s+/g, ' ').trim().replace(/[.;:]$/, '');
   text = text.replace(/\b(\d+) of (\d+) (.+?) were\b/, (m, a, b, what) => `${a} of ${b} ${what} ${a === '1' ? 'was' : 'were'}`)

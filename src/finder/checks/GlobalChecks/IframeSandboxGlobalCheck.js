@@ -15,7 +15,13 @@ export default class IframeSandboxGlobalCheck {
       issue.severity === severity.HIGH && issue.confidence !== confidence.TENTATIVE);
     if (!nodeIntegration) return issues;
     const where = nodeIntegration.file && nodeIntegration.file !== 'N/A' ? ` (${nodeIntegration.file}:${nodeIntegration.location.line})` : '';
-    return issues.map(issue => ({ ...issue, severity: severity.MEDIUM,
-      description: `${issue.description}; a window of the app enables nodeIntegration${where}, so script in an unsandboxed frame of that window can reach Node.js through parent.require()` }));
+    // without context isolation, require() is in the page's own world: a frame in the window's origin (srcdoc) reaches it
+    const noIsolation = allIssues.some(issue => /^CONTEXT_ISOLATION_JS_CHECK$/.test(issue.id) && issue.severity === severity.HIGH);
+    return issues.map(issue => {
+      const sameOrigin = !!(issue.properties && issue.properties.sameOrigin);
+      return { ...issue, severity: sameOrigin && noIsolation ? severity.HIGH : severity.MEDIUM,
+        description: `${issue.description}; a window of the app enables nodeIntegration${where}${noIsolation ? ' without context isolation' : ''}, so script in an unsandboxed frame of that window can reach Node.js through parent.require()`,
+        properties: { ...issue.properties, nodeIntegration: true, contextIsolation: !noIsolation } };
+    });
   }
 }

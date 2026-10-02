@@ -69,3 +69,23 @@ export function resourcesFolder({ code, executable } = {}) {
   if (executable) return path.join(path.dirname(path.resolve(executable)), 'resources');
   return undefined;
 }
+
+/**
+ * The feed an app sets in code (autoUpdater.setFeedURL, found by the static scan) as an exact metadata address:
+ * { url } when everything in it is known on this machine (${process.platform} is), { skipped } when it depends on values
+ * only the running app has (a release track the user chose), or undefined when the code sets no feed.
+ */
+export function feedFromCode(staticIssues = [], platform = process.platform) {
+  const set = staticIssues.find(issue => issue.id === 'UPDATE_FEED_JS_CHECK' && issue.properties && issue.properties.feed);
+  if (!set) return undefined;
+  const { feed, provider, channel } = set.properties;
+  const resolve = (value) => String(value).replace(/\$\{process\.platform\}/g, platform);
+  const address = resolve(feed);
+  const file = channel === undefined ? 'latest.yml' : `${resolve(channel)}.yml`;
+  if (/\$\{/.test(address) || /\$\{/.test(file))
+    return { skipped: `the app sets its update feed in code from values only the running app has (${feed}): give the exact metadata address in --proof-profile`, provider, code: feed };
+  const exactAddress = /(?:latest[^/]*\.ya?ml|RELEASES)$/i.test(new URL(address).pathname) ? address : `${address.replace(/\/+$/, '')}/${file}`;
+  if (provider && !['generic', 'custom'].includes(String(provider).toLowerCase()) && exactAddress !== address)
+    return { skipped: `the app sets a ${provider} update feed in code: give the exact metadata address in --proof-profile`, provider, code: feed };
+  return { url: exactAddress, provider, code: feed };
+}

@@ -54,6 +54,7 @@ import { SecureKeyboardEntryJSCheck, SecureKeyboardEntryHTMLCheck } from './Secu
 import { WebGLJSCheck, WebGLHTMLCheck, WebSQLJSCheck, WebSQLHTMLCheck, PluginsJSCheck, PluginsHTMLCheck, NavigateOnDragDropJSCheck, NavigateOnDragDropHTMLCheck } from './WebPreferenceFeatureChecks.js';
 import { FileProtocolJSCheck, UntrustedLoadUrlJSCheck } from './LoadContentJSChecks.js';
 import XssSinkJSCheck from './XssSinkJSCheck.js';
+import HtmlTemplateJSCheck from './HtmlTemplateJSCheck.js';
 import SanitizerConfigJSCheck from './SanitizerConfigJSCheck.js';
 import { AngularSceDisabledJSCheck, AngularResourceUrlListJSCheck } from './AngularJSChecks.js';
 import { AngularTrustHtmlJSCheck, RichTextEditorHtmlJSCheck, AngularBindHtmlUnsafeHTMLCheck } from './HtmlInjectionChecks.js';
@@ -67,6 +68,7 @@ import PlaintextSecretsJSCheck from './PlaintextSecretsJSCheck.js';
 import HardcodedSecretsCheck from './HardcodedSecretsCheck.js';
 import PackagedBinaryCheck from './PackagedBinaryCheck.js';
 import { IpcFileAccessJSCheck, IpcHandlerJSCheck, IpcRendererChannelJSCheck } from './IpcHandlerChecks.js';
+import IpcRpcProcedureJSCheck from './IpcRpcProcedureJSCheck.js';
 import NavigationRedirectJSCheck from './NavigationRedirectJSCheck.js';
 import SourceMapsCheck from './SourceMapsCheck.js';
 import { DevelopmentCodeJSCheck, DebugLoggingJSCheck, WordLaunchJSCheck, DocumentPipelineJSCheck } from './ProductionChecks.js';
@@ -139,6 +141,7 @@ const CHECKS = [
   FileProtocolJSCheck,
   UntrustedLoadUrlJSCheck,
   XssSinkJSCheck,
+  HtmlTemplateJSCheck,
   AngularSceDisabledJSCheck,
   AngularResourceUrlListJSCheck,
   AngularTrustHtmlJSCheck,
@@ -164,6 +167,7 @@ const CHECKS = [
   PackagedBinaryCheck,
   IpcFileAccessJSCheck,
   IpcHandlerJSCheck,
+  IpcRpcProcedureJSCheck,
   IpcRendererChannelJSCheck,
   NavigationRedirectJSCheck,
   DevelopmentCodeJSCheck,

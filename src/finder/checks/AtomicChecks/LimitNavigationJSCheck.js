@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { electronAtLeast, ELECTRON_CHANGES } from '../versions.js';
-import { memberName, findProperty, literalValue } from '../helpers.js';
+import { memberName, findProperty, literalValue, visit } from '../helpers.js';
 import { handlerFunction, callsIn, isConditional, hasUrlValidation, returnedValues, paramNames } from '../analysis.js';
 
 const NAVIGATION_EVENTS = ['will-navigate', 'will-frame-navigate', 'new-window'];
@@ -48,8 +48,13 @@ export default class LimitNavigationJSCheck {
         return report(`${event}-noop`, severity.HIGH, confidence.CERTAIN, `the ${event} handler never calls event.preventDefault(), so it blocks nothing`, false);
       if (blocks.some(({ call, ancestors }) => !isConditional(call, ancestors, fn)))
         return report(event, severity.INFORMATIONAL, confidence.CERTAIN, `the ${event} handler blocks every navigation`, false);
-      if (hasUrlValidation(fn))
+      if (hasUrlValidation(fn)) {
+        // an allowlist of host names that never looks at the scheme lets http:// (or another scheme) on an allowed host
+        // through: the page then loads unencrypted, with the window's privileges
+        if (hostOnly(fn))
+          return [{ ...report(event, severity.MEDIUM, confidence.FIRM, `the ${event} handler compares host names only, so any scheme on an allowed host passes (http:// loads the page unencrypted with the window's privileges)`)[0], properties: { event, hostOnly: true } }];
         return report(event, severity.LOW, confidence.FIRM, `the ${event} handler allows some URLs; review the allowlist`);
+      }
       return report(event, severity.MEDIUM, confidence.FIRM, `the ${event} handler allows navigation without inspecting the URL`);
     }
 
@@ -88,4 +93,21 @@ function delegatesEvent(fn, scope, ancestors, depth = 0) {
     }
   }
   return result;
+}
+
+// Whether a handler's URL check reads the host name but never the scheme: url.hostname / url.host compared, with no
+// url.protocol, url.origin or "https:" anywhere in it
+function hostOnly(fn) {
+  let host = false;
+  let scheme = false;
+  visit(fn.body || fn, (node) => {
+    if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+      const name = memberName(node);
+      if (name === 'hostname' || name === 'host') host = true;
+      if (name === 'protocol' || name === 'origin' || name === 'href') scheme = true;
+    }
+    const literal = literalValue(node);
+    if (typeof literal === 'string' && /^(https?|file|app|wss?):?(\/\/)?/i.test(literal)) scheme = true;
+  });
+  return host && !scheme;
 }

@@ -28,6 +28,13 @@ export function analyzeProofs(records) {
       text = `The configured ${p.scope} test reached shell.${p.method} with scheme '${p.scheme || 'path'}'. The operating-system call was blocked by the tool. This proves route-to-shell flow for this test input.`;
       sev = severity.MEDIUM; confirmed = true;
     } else if (['navigation', 'window-open', 'permission-request', 'permission-check'].includes(p.test)) {
+      // "blocked" means the app opened no window of its own: a handler that passes the URL to the operating system instead
+      // (shell.openExternal) is no protection against a link with another scheme
+      const handedOff = ['navigation', 'window-open'].includes(p.test) && proofs.some(h => h.test === 'shell-handoff' && h.scope === p.test);
+      if (handedOff) {
+        properties.handedToOs = true;
+        text = `${p.test}: the app opened no window of its own, but its handler passed the URL to the operating system (shell.openExternal, blocked by the tool).`;
+      }
       text += ' This is a synthetic handler-decision test with OS/process/file mutation guards, not a renderer reachability test.';
       if (p.actualSender) text += ' The permission handler received the existing renderer and a foreign requesting URL; handlers that inspect the actual renderer origin may give a different answer for a real foreign renderer.';
       confirmed = ['allowed', 'blocked', 'not-configured'].includes(p.outcome);
@@ -59,8 +66,13 @@ export function analyzeProofs(records) {
       p, p.hasArgument && !p.argumentQuoted || !p.executableQuoted ? severity.LOW : severity.INFORMATIONAL, true, 'registry-configuration'));
   }
   const toolListeners = new Set(records.filter(r => r.kind === 'proof-listener').map(r => `${r.pid}:${r.port}`));
-  const listeners = records.filter(r => r.kind === 'windows-listener' && !r.toolInspector && !toolListeners.has(`${r.pid}:${r.port}`));
+  const appSockets = records.filter(r => r.kind === 'windows-listener' && !r.toolInspector && !toolListeners.has(`${r.pid}:${r.port}`));
+  // UDP endpoints are Chromium's own networking (QUIC, mDNS, WebRTC), not services that accept connections: one summary
+  const listeners = appSockets.filter(r => r.transport !== 'udp');
+  const udp = appSockets.filter(r => r.transport === 'udp');
   for (const p of listeners) issues.push(issue('WINDOWS_LOCAL_LISTENER', `App process ${p.pid} listens on ${p.address}:${p.port} (${p.transport}). Authentication and origin enforcement are untested unless a reviewed service route was supplied.`, p));
+  if (udp.length) issues.push(issue('WINDOWS_LOCAL_LISTENER', `${udp.length} UDP endpoint(s) were open in the app's processes (${[...new Set(udp.map(p => `${p.address}:${p.port}`))].slice(0, 6).join(', ')}${udp.length > 6 ? ', …' : ''}). These are usually Chromium's own networking (QUIC, mDNS, WebRTC) rather than services; review only if the app implements its own UDP protocol.`,
+    { transport: 'udp', count: udp.length, endpoints: udp.map(({ pid, address, port }) => ({ pid, address, port })) }));
   for (const p of records.filter(r => r.kind === 'windows-ports')) issues.push(issue('WINDOWS_LOCAL_LISTENER', `Listening-service inventory: ${p.status}.`, { status: p.status }));
   for (const p of records.filter(r => r.kind === 'motw')) issues.push(issue('WINDOWS_MARK_OF_THE_WEB', `Observed ${p.operation} file: Zone.Identifier ${p.status}${p.zone === undefined ? '' : ` (ZoneId ${p.zone})`}. This does not establish Word Protected View behavior, and a locally created file may legitimately have no zone stream.`, p, severity.INFORMATIONAL, ['present', 'absent'].includes(p.status), 'file-metadata'));
   const before = records.filter(r => r.kind === 'logout-snapshot' && r.phase === 'before').pop();

@@ -75,9 +75,13 @@ function isSensitiveParam(name) {
   return false;
 }
 
+// values in code that are not credentials: a route or path (/login, /inbox/api-keys), a CSS or DOM selector
+// ([type=password], #token-field), or a constant's own name in words (RequiredPassword, ResetPasswordToken)
+const CODE_VALUE = /^(?:[/[.#@:~]|\w+:\/\/)|^(?:[A-Z]?[a-z]{2,}){3,}$|^[a-z]+(?:[-_][a-z]+){2,}$|^(?:[A-Z][A-Z]+_)+[A-Z]+$/;
+
 function looksSecretValue(value) {
   const text = String(value || '');
-  if (text.length < 12 || PLACEHOLDER.test(text) || text.includes(' ')) return false;
+  if (text.length < 12 || PLACEHOLDER.test(text) || text.includes(' ') || CODE_VALUE.test(text)) return false;
   return shannonEntropy(text) >= 3.3;
 }
 
@@ -136,8 +140,9 @@ function placeholderCredentials(value) {
   if (!credentials) return false;
   const decode = text => { try { return decodeURIComponent(text); } catch { return text; } };
   const user = decode(credentials[1]), password = decode(credentials[2]);
-  return (user === '[username]' && password === '[password]') ||
-    (user === 'username' && password === 'password' && /@(some-[\w.-]+|example\.(com|org|net)|host)([:/]|$)/i.test(value));
+  // both halves template words: username:password, user:pass, [user]:[password], <user>:<pass>, foo:bar, ${USER}:${PASS}
+  const word = /^(?:[[<{(]|\$\{|%|:)?\s*(?:user(?:[_-]?name)?|login|name|pass(?:word)?|pwd|secret|foo|bar|baz|test|demo|example|x+|\*+|your[_-]?\w*|my[_-]?\w*)\s*(?:[\]>})%])?$/i;
+  return word.test(user) && word.test(password);
 }
 
 /** Redacts every provider-pattern secret inside free-form text. */

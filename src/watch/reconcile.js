@@ -20,6 +20,16 @@ export function reconcileRuntime(issues, summary) {
     const fuse = proof.properties.test === 'run-as-node' ? 'RunAsNode' : proof.properties.test === 'node-inspector' ? 'EnableNodeCliInspectArguments' : undefined;
     if (fuse) for (const finding of issues.filter(i => i.id === 'PACKAGED_FUSES' && i.properties?.fuse === fuse)) recordValidation(finding, proof.validation);
   }
+  // a navigation or new-window proof "blocked" while the code passes those URLs to shell.openExternal: the app opened no
+  // window of its own, and handed the link to the operating system instead
+  const handOff = { navigation: /navigation requested by web content/i, 'window-open': /window\.open\(\) call or link in web content/i };
+  for (const proof of issues.filter(i => i.id === 'RUNTIME_PROOF' && handOff[i.properties?.test] && i.properties.outcome === 'blocked' && !i.properties.handedToOs)) {
+    const code = issues.find(i => /^OPEN_EXTERNAL_JS_CHECK$/.test(i.id) && handOff[proof.properties.test].test(i.description || ''));
+    if (!code) continue;
+    proof.properties = { ...proof.properties, handedToOs: 'static' };
+    proof.description = `${proof.properties.test}: the app opened no window of its own, but its handler passes the URL to shell.openExternal (${code.file}:${code.location?.line}), so the link is handed to the operating system. ${proof.description.replace(/^[^.]*\.\s*/, '')}`;
+    if (proof.validation) proof.validation = { ...proof.validation, text: proof.description };
+  }
   const runtimeWindows = issues.filter(i => i.id === 'RUNTIME_WINDOW_SUMMARY');
   if (runtimeWindows.length === 0) return issues; // nothing was observed: leave the static findings untouched
   entryCoverage(issues, summary);

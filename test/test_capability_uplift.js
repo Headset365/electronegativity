@@ -47,7 +47,7 @@ app.on('open-url', (e,url) => read(url)); app.on('second-instance', (e,args) => 
 const reader = new FileReader(); reader.onload = e => render(e.target.result);`,
       'render.js': `export function render(value) { document.body.innerHTML = value; }`,
     });
-    const flows = issues.filter(i => i.id === 'FILE_HANDLER_JS_CHECK' && ['paste','file-reader'].includes(i.properties?.event));
+    const flows = issues.filter(i => i.id === 'RENDERER_INPUT_JS_CHECK' && ['paste','file-reader'].includes(i.properties?.event));
     flows.should.have.length(2);
     flows.every(i => i.properties.context.effects.some(e => e.kind === 'html-insertion')).should.equal(true);
   });

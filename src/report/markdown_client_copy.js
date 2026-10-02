@@ -142,6 +142,26 @@ export const CLIENT_COPY = {
     'A crafted link could open an external page in a new application window with privileges it should not have, or pass an unsafe destination to the operating system.',
     'Deny new windows by default in `setWindowOpenHandler()`, and open approved external links in the system browser after validating their scheme and destination. Verify ordinary clicks, middle-clicks and scripted popups.'
   ],
+  'Privileged procedure exposed': [
+    'The application exposes procedures through a single inter-process channel (a remote procedure call router), and some of them write or delete files, open paths, change network settings or return decrypted secrets for any page that can reach the channel.',
+    'If script runs in any page that can reach the channel, through cross-site scripting or less trusted embedded content, it could call these procedures with its own input and act with the privileges of the main process.',
+    'Restrict each procedure to the pages that need it by checking the sender, validate every input against the narrowest acceptable values (for example, keep file paths inside an application folder), and remove procedures the interface does not use. Verify that a call from an unapproved page is rejected.'
+  ],
+  'HTML built from unescaped values': [
+    'The application builds HTML by inserting values, such as titles, tags or names, into a markup template without escaping them.',
+    'If an attacker can influence one of those values, for example a shared note title, their markup and script would run wherever the built HTML is displayed, exported or printed.',
+    'Escape every value for the context it is placed in (element text or attribute value), or build the document with DOM methods that treat values as text. Verify that a title containing markup appears as text in the output.'
+  ],
+  'Pasted, dropped or opened content': [
+    'Content the user pastes, drops or opens in the application reaches a sensitive operation, such as HTML insertion or file access, without validation.',
+    'A crafted file or clipboard content, for example from a shared document, could carry markup or paths that the application acts on with its own privileges.',
+    'Treat pasted, dropped and opened content as untrusted: sanitise HTML before insertion and validate file names and types before use. Verify that a harmless crafted file is handled as data.'
+  ],
+  'Update files fetched during testing': [
+    'The application downloaded an update while it was being tested.',
+    'Later testing could examine a different version from the one assessed, so results may not reflect the release in scope.',
+    'Disable automatic updates in the test environment, or confirm the version before each session.'
+  ],
   'Embedded content': [
     'The application allows embedded content, through `<webview>` tags or iframes, without restricting its source and privileges.',
     'Less trusted embedded content could gain privileges, such as Node.js access or the parent window’s preload script, that should be limited to the application’s own pages.',
@@ -390,6 +410,10 @@ export const CLIENT_LABELS = {
   'Top-level navigation or redirect': 'Navigation and redirects not restricted',
   'Popup or middle-click': 'New windows not restricted',
   'Embedded content': 'Embedded content not restricted',
+  'Privileged procedure exposed': 'Privileged procedures exposed over IPC',
+  'HTML built from unescaped values': 'HTML built from unescaped values',
+  'Pasted, dropped or opened content': 'Pasted or opened content not validated',
+  'Update files fetched during testing': 'Update downloaded during testing',
   'Permission request callback': 'Permission requests granted without restriction',
   'Synchronous permission check': 'Permission checks granted without restriction',
   'HTML sink or editor': 'Dynamic content inserted as HTML',

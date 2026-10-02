@@ -15,7 +15,7 @@ import { createAssistant, followLog, writeMarkerFiles } from './assistant.js';
 import { watchDebug } from './debug.js';
 import { watchDebugApp } from './debug_launch.js';
 import { inspectFeed, inspectServices } from './network-proofs.js';
-import { feedFromAppUpdate, resourcesFolder, APP_UPDATE_FILE } from './app-update.js';
+import { feedFromAppUpdate, feedFromCode, resourcesFolder, APP_UPDATE_FILE } from './app-update.js';
 import { logoutCheck } from './logout.js';
 import { createRequire } from 'node:module';
 import { isTuiWorker, tuiEvent } from '../tui/bridge.js';
@@ -152,12 +152,15 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
       if (/(?:latest[^/]*\.ya?ml|RELEASES)$/i.test(new URL(feed.url).pathname)) { if (!feeds.has(feed.url)) feeds.set(feed.url, 'observed at runtime'); }
       else records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'feed directory/provider requires an exact metadata URL in --proof-profile' });
     }
-    // an electron-builder app ships its feed in resources/app-update.yml, which the updater reads instead of setting it
-    const shipped = packagedApp ? feedFromAppUpdate(resourcesFolder({ code: staticInput, executable: packagedApp })) : undefined;
-    if (shipped?.url && !feeds.has(shipped.url)) feeds.set(shipped.url, APP_UPDATE_FILE);
-    else if (shipped?.skipped && !feeds.size) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', source: APP_UPDATE_FILE, provider: shipped.provider, reason: shipped.skipped });
+    // a feed the app sets in code overrides resources/app-update.yml: use it, or say why it can't be known; the shipped
+    // app-update.yml is the feed only when the code sets none
+    const coded = feedFromCode(staticIssues);
+    const shipped = !coded && packagedApp ? feedFromAppUpdate(resourcesFolder({ code: staticInput, executable: packagedApp })) : undefined;
+    const fallback = coded ? { ...coded, source: 'setFeedURL in the app code' } : shipped ? { ...shipped, source: APP_UPDATE_FILE } : undefined;
+    if (fallback?.url && !feeds.has(fallback.url)) feeds.set(fallback.url, fallback.source);
+    else if (fallback?.skipped && !feeds.size) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', source: fallback.source, provider: fallback.provider, reason: fallback.skipped });
     for (const [url, source] of [...feeds].slice(0, 8)) records.push({ t: Date.now(), kind: 'proof', ...await inspectFeed(url), source });
-    if (!feeds.size && !shipped?.skipped) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'no exact metadata feed observed, configured or shipped in app-update.yml' });
+    if (!feeds.size && !fallback?.skipped) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'no exact metadata feed observed, configured or shipped in app-update.yml' });
     if (!proofProfile?.links?.length) records.push({ t: Date.now(), kind: 'proof', test: 'external-scheme', outcome: 'skipped', reason: 'reviewed app link route required' });
     if (!ipcProfile) records.push({ t: Date.now(), kind: 'proof', test: 'ipc', outcome: 'skipped', reason: 'separate reviewed IPC profile required' });
     for (const test of ['navigation', 'window-open', 'permission-request', 'permission-check', 'certificate']) {
