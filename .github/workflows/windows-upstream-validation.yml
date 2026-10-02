@@ -1,0 +1,35 @@
+name: Windows upstream application validation
+
+on:
+  push:
+    branches: [validation/windows-open-source-20261002]
+
+permissions:
+  contents: read
+
+jobs:
+  applications:
+    name: ${{ matrix.app }} shipped Windows release
+    runs-on: windows-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [joplin, marktext, electerm]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Scan the pinned package and observe the real app
+        run: node --max-old-space-size=6144 scripts/validate-windows-upstream.mjs ${{ matrix.app }}
+      - name: Upload grouped reports and validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.app }}-reports
+          path: validation-results/${{ matrix.app }}
+          if-no-files-found: error
+          retention-days: 7

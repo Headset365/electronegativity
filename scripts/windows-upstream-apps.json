@@ -1,0 +1,69 @@
+{
+  "scannerCommit": "3f4417aaba6a790da2247ae6f5563e342796eaa7",
+  "apps": [
+    {
+      "id": "joplin",
+      "name": "Joplin",
+      "version": "2.12.18",
+      "repo": "laurent22/joplin",
+      "tag": "v2.12.18",
+      "asset": "Joplin-Setup-2.12.18.exe",
+      "advisory": {
+        "id": "CVE-2023-45673",
+        "url": "https://github.com/laurent22/joplin/security/advisories/GHSA-g8qx-5vcm-3x59",
+        "summary": "PDF-link navigation in a node-integrated note viewer",
+        "affected": "<2.13.3",
+        "expectedChecks": [
+          "RUNTIME_NODE_INTEGRATION",
+          "NODE_INTEGRATION_JS_CHECK",
+          "NAVIGATION_JS_CHECK",
+          "OPEN_EXTERNAL_JS_CHECK"
+        ],
+        "limitation": "An automated startup session does not create a note/PDF or exercise the advisory's PDF-link workflow."
+      },
+      "url": "https://github.com/laurent22/joplin/releases/download/v2.12.18/Joplin-Setup-2.12.18.exe"
+    },
+    {
+      "id": "marktext",
+      "name": "MarkText",
+      "version": "0.17.1",
+      "repo": "marktext/marktext",
+      "tag": "v0.17.1",
+      "asset": "marktext-x64-win.zip",
+      "advisory": {
+        "id": "CVE-2023-2318",
+        "url": "https://github.com/marktext/marktext/issues/3618",
+        "summary": "DOM XSS in the paste-to-Markdown link conversion path",
+        "affected": "0.17.1 and earlier",
+        "expectedChecks": [
+          "XSS_SINK_JS_CHECK",
+          "RUNTIME_NODE_INTEGRATION",
+          "NODE_INTEGRATION_JS_CHECK"
+        ],
+        "limitation": "The clipboard-paste advisory trigger is not exercised; this run covers shipped code and startup security behavior."
+      },
+      "url": "https://github.com/marktext/marktext/releases/download/v0.17.1/marktext-x64-win.zip"
+    },
+    {
+      "id": "electerm",
+      "name": "Electerm",
+      "version": "3.7.9",
+      "repo": "electerm/electerm",
+      "tag": "v3.7.9",
+      "asset": "electerm-3.7.9-win-x64-installer.exe",
+      "sha256": "d51e48f35ad186e24fa2e0be9adfae0e2fda6c1cfd22ae730db39ef389b0a09f",
+      "advisory": {
+        "id": "CVE-2026-43940",
+        "url": "https://github.com/electerm/electerm/security/advisories/GHSA-f77v-9vpc-6pjm",
+        "summary": "Renderer IPC path traversal into dynamic widget module loading",
+        "affected": "<=3.7.9",
+        "expectedChecks": [
+          "DYNAMIC_MODULE_JS_CHECK",
+          "IPC_VALIDATION_JS_CHECK"
+        ],
+        "limitation": "runWidget executes code and is deliberately excluded from read-only IPC probes; the advisory is not exploited."
+      },
+      "url": "https://github.com/electerm/electerm/releases/download/v3.7.9/electerm-3.7.9-win-x64-installer.exe"
+    }
+  ]
+}
