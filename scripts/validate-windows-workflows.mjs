@@ -93,22 +93,28 @@ try {
     '--all-files', '--auto-campaign', '--user-data', 'auto', '--watch-screenshots', 'screenshots', '--remote', remote, '--remote-header', 'Cookie', '--watch-marker', marker, '--prove', '--sessions', '1', '--watch-args', appArgs.join(' '), '--no-nvd', '--no-source-maps'];
   status.command = { executable: 'node', args, effectiveCLI: args.slice(1), remote, headerNames: ['Cookie'], addedOptions: ['--sessions 1', '--no-nvd', '--no-source-maps', '--watch-args (local renderer debug port and isolated app data)'], customExploits: false }; persist();
   const terminal = pty.spawn(process.execPath, args, { name: 'xterm-color', cols: 180, rows: 45, cwd: repo, env, useConpty: true }); cli = terminal;
-  let transcript = '', promptOffset = 0, exited = false, exitCode;
+  let transcript = '', promptOffset = 0, activeAutoRoute = '', exited = false, exitCode;
   const finished = new Promise(resolve => terminal.onExit(e => { exited = true; exitCode = e.exitCode; resolve(e); }));
   terminal.onData(data => {
     transcript += data; fs.appendFileSync(path.join(out, 'cli-transcript.txt'), data);
     const clean = transcript.slice(promptOffset).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
-    if (!clean.includes('> ')) return;
+    // ConPTY often renders the prompt's space with ESC[1C, leaving a bare >
+    // after ANSI removal. Match the prompt line rather than a literal space.
+    const promptStart = clean.lastIndexOf('\n>');
+    if (promptStart < 0) return;
     // Ordinary watch messages may arrive after a question. Match actual input
     // questions before the prompt, not simply the last [validate] message.
-    const head = clean.slice(0, clean.lastIndexOf('> '));
+    const head = clean.slice(0, promptStart);
+    const captures = [...head.matchAll(/\[validate\][^\r\n]*Captured (?:POST|PUT|PATCH) (https?:\/\/\S+)/g)];
+    if (captures.length) activeAutoRoute = captures.at(-1)[1].replace(/\.$/, '');
     const questions = [...head.matchAll(/\[validate\]\s+(?:Fields to test|Saved-content view URL|Run \d+ cases|Send [^\r\n]*)/g)];
     if (!questions.length) return;
     const q = head.slice(questions.at(-1).index);
     let answer;
-    if (/Fields to test/.test(q)) answer = clean.includes('/api/block/updateBlock') ? 'data' : '';
-    else if (/Saved-content view URL/.test(q)) answer = status.savedView || '';
-    else if (/Run \d+ cases/.test(q)) answer = q.includes('/api/block/updateBlock') ? 'y' : 'n';
+    const approvedRoute = activeAutoRoute.endsWith('/api/block/updateBlock');
+    if (/Fields to test/.test(q)) answer = approvedRoute ? 'data' : '';
+    else if (/Saved-content view URL/.test(q)) answer = approvedRoute ? status.savedView || '' : '';
+    else if (/Run \d+ cases/.test(q)) answer = approvedRoute ? 'y' : 'n';
     else if (/Send .*\[y\/N\]/.test(q)) answer = 'n';
     if (answer !== undefined) { promptOffset = transcript.length; step('interactive-prompt', { question: q.slice(0,1200), answer, policy: 'Only the reviewed disposable updateBlock content route may run an automatic campaign' }); terminal.write(answer + '\r'); }
   });
@@ -126,7 +132,6 @@ try {
     const doc = await api('/api/filetree/createDocWithMd', { notebook: nb.data.notebook.id, path: '/ENG campaign', markdown: 'Original disposable content' }); step('create-disposable-note', { result: doc });
     if (doc.code !== 0 || typeof doc.data !== 'string') throw Error('Document creation failed');
     status.noteId = doc.data; status.savedView = `http://127.0.0.1:${apiPort}/stage/build/app/?id=${doc.data}`; persist();
-    await cdp.eval(`document.querySelector('[data-type="close"]')?.click(); document.querySelector('[aria-label="Close"]')?.click();`);
     const seed = await api('/api/block/updateBlock', { id: doc.data, dataType: 'markdown', data: 'Original disposable content' }); step('auto-campaign-seed-save', { result: seed, noteId: doc.data });
     await until(() => rows().find(r => r.kind === 'campaign-done'), 'Completed automatic campaign', 240000);
     step('auto-campaign-completed', { done: rows().filter(r => r.kind === 'campaign-done'), sends: rows().filter(r => r.kind === 'campaign-send').length, restores: rows().filter(r => r.kind === 'campaign-restore') });
