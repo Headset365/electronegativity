@@ -332,6 +332,7 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
       case 'campaign-send':
         state.deliveries++;
         state.channel?.onCampaign?.({ key: state.currentCampaign || campaign?.route || 'Configured campaign', status: 'running',
+          delivered: state.deliveries, cases: state.totalCases,
           reason: `${state.deliveries}/${state.totalCases || '?'} cases sent; ${r.case}${r.status ? ` (HTTP ${r.status})` : ''}` });
         break;
       case 'campaign-result':

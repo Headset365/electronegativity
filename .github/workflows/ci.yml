@@ -26,6 +26,9 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - name: Capture Windows TUI design previews
+        if: matrix.node == 24
+        run: node scripts/preview-tui-windows.mjs
 
   watch-mode:
     name: Watch mode end to end (Electron ${{ matrix.electron }} on ${{ matrix.os }})

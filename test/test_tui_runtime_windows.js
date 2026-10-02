@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
-import { runDashboard, launchWorker } from '../src/tui/dashboard.js';
+import { runDashboard, launchWorker, cleanText } from '../src/tui/dashboard.js';
 import { watchApp } from '../src/watch/launch.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -41,8 +41,8 @@ describe('Windows TUI with real Electron', function () {
     const click = async label => {
       const deadline = Date.now() + 20000;
       while (Date.now() < deadline) {
-        for (const match of frame.matchAll(/\x1b\[(\d+);1H\x1b\[2K([^\x1b]*)/g)) {
-          const column = match[2].indexOf(`[${label}]`);
+        for (const match of frame.matchAll(/\x1b\[(\d+);1H\x1b\[2K(.*?)(?=\x1b\[\d+;1H|$)/g)) {
+          const column = cleanText(match[2]).indexOf(label);
           if (column >= 0) { input.write(`\x1b[<0;${column + 2};${match[1]}M`); return; }
         }
         await pause(50);
@@ -70,7 +70,7 @@ describe('Windows TUI with real Electron', function () {
               await pause(100);
               if (!reviewedFirst) { reviewedFirst = true; await click('Start next session'); }
               else await click('Finish & write reports');
-            } else if (message.kind === 'campaign') await click('ready: review & run');
+            } else if (message.kind === 'campaign') await click('Review & run');
             else if (message.kind === 'text') await click('Use value / default');
             else if (message.kind === 'confirm') await click('Approve');
           })().catch(error => { automationError = error; if (worker.connected) worker.disconnect(); worker.kill(); });
