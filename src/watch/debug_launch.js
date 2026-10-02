@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { resolveApp, freePort } from './launch.js';
 import { connectDebug, watchDebug } from './debug.js';
 
-export async function watchDebugApp(target, { args = [], target: debugTarget, duration = 0, log, stdio = 'inherit', onNote = () => {},
+export async function watchDebugApp(target, { args = [], target: debugTarget, duration = 0, log, stdio = 'inherit', onOutput, onNote = () => {},
   spawnApp = spawn, connect = connectDebug, observe = watchDebug, selectPort = freePort, startupTimeout = 30000, exitGraceMs = 2000, ...options } = {}) {
   if (!log) throw new Error('Managed debug launch requires a session log');
   if (!Number.isInteger(startupTimeout) || startupTimeout < 1) throw new Error('Debug startup timeout must be positive');
@@ -18,7 +18,11 @@ export async function watchDebugApp(target, { args = [], target: debugTarget, du
   const endpoint = `http://127.0.0.1:${port}`;
   fs.writeFileSync(log, '');
   // Electron's DevTools socket factory binds the renderer debug listener to 127.0.0.1.
-  const child = spawnApp(app.command, [...app.args, `--remote-debugging-port=${port}`], { env: { ...process.env }, stdio });
+  const child = spawnApp(app.command, [...app.args, `--remote-debugging-port=${port}`], { env: { ...process.env }, stdio: onOutput ? ['ignore', 'pipe', 'pipe'] : stdio });
+  if (onOutput) {
+    child.stdout.on('data', chunk => onOutput('stdout', chunk.toString('utf8')));
+    child.stderr.on('data', chunk => onOutput('stderr', chunk.toString('utf8')));
+  }
   let client, exited = false, launchError, finishing = false, finish;
   const ended = new Promise(resolve => { finish = resolve; });
   const exit = error => { exited = true; launchError = error; client?.close(); finish(); };

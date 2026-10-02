@@ -24,6 +24,7 @@ import { writeCombinedReport } from './report/combined.js';
 import { rerender } from './report/rerender.js';
 import { createReportFolder, reportFiles } from './util/reportdir.js';
 import { createRequire } from 'node:module';
+import { isTuiWorker, interactiveTerminal, tuiAsk, tuiConfirm, tuiEvent } from './tui/bridge.js';
 const { loadProfile } = createRequire(import.meta.url)('./watch/proof-profile.cjs');
 
 async function main() {
@@ -50,6 +51,7 @@ async function main() {
     .option(__('electronVersionOption'), __('electronVersionOptionDescription'))
     .option(__('parserPluginsOption'), __('parserPluginsOptionDescription'))
     .option('--offline', __('offlineOptionDescription'))
+    .option('--tui', 'Windows PowerShell dashboard with separate logs, campaign controls and session review')
     .option('--all-files', __('allFilesOptionDescription'))
     .option('--baseline <file>', __('baselineOptionDescription'))
     .option('--write-baseline <file>', __('writeBaselineOptionDescription'))
@@ -101,6 +103,17 @@ async function main() {
     .parse(process.argv);
 
   const options = program.opts();
+  if (options.tui && !isTuiWorker) {
+    const { runDashboard } = await import('./tui/dashboard.js');
+    const result = await runDashboard(process.argv.slice(2));
+    process.exitCode = result.code;
+    console.log(`Electronegativity dashboard closed (exit code ${result.code}).`);
+    if (result.folder) console.log(`Results: ${result.folder}`);
+    return;
+  }
+  tuiEvent('configuration', { target: options.app || options.watch || options.input || options.rerender,
+    autoCampaign: !!options.autoCampaign, mode: options.app ? 'guided' : options.watch ? 'watch' : 'scan' });
+  tuiEvent('phase', { text: options.rerender ? 'Rewriting reports…' : 'Checking command options…' });
   // --rerender: no scan, only the earlier scan's findings written again
   if (options.rerender) {
     try {
@@ -127,11 +140,11 @@ async function main() {
   if (options.proofProfile && !options.prove) throw new Error('--proof-profile requires --prove');
   if ((options.prove || ipcProfile || options.logoutCheck) && ((!options.watch && !options.app) || options.watchLog || options.debugUrl || options.debugLaunch))
     throw new Error('Proof and logout options require --watch or --app in native watch mode');
-  if (options.logoutCheck && !process.stdin.isTTY) throw new Error('--logout-check requires an interactive terminal');
+  if (options.logoutCheck && !interactiveTerminal()) throw new Error('--logout-check requires an interactive terminal');
   if (options.logoutCheck && options.autoCampaign) throw new Error('Use separate sessions for --logout-check and --auto-campaign');
   if ((options.activeTests || campaign || options.autoCampaign) && !options.watch && !options.app && !options.debugUrl) throw new Error('Active testing requires --watch, --app or --debug-url');
   if (options.autoCampaign && campaign) throw new Error('Choose --auto-campaign or --campaign, not both');
-  if (options.autoCampaign && !process.stdin.isTTY) throw new Error('--auto-campaign needs an interactive terminal for approval; use an explicit --campaign profile for unattended runs');
+  if (options.autoCampaign && !interactiveTerminal()) throw new Error('--auto-campaign needs an interactive terminal for approval; use an explicit --campaign profile for unattended runs');
   if (options.debugUrl && (!options.input && !options.app || options.watch || options.watchLog)) throw new Error('--debug-url requires -i or --app and cannot be combined with --watch or --watch-log');
   if (options.debugLaunch && ((!options.app && !options.watch) || options.debugUrl || options.watchLog)) throw new Error('--debug-launch requires --app or --watch and cannot be combined with --debug-url or --watch-log');
   if ((options.debugTarget || options.debugDuration) && !options.debugUrl && !options.debugLaunch) throw new Error('Debug target and duration require --debug-url or --debug-launch');
@@ -175,6 +188,7 @@ async function main() {
     // a run that ends before writing anything (bad input, nothing to scan) leaves no empty folder behind
     process.once('exit', () => { try { fs.rmdirSync(reportFolder); } catch { /* not empty, or already gone */ } });
     console.log(chalk.gray(__('reportFolder', { dir: reportFolder })));
+    tuiEvent('results-folder', { folder: reportFolder });
     if (!options.app) {
       // what a scan writes there, unless asked for elsewhere: the report, the findings redacted for sharing, diagnostics
       const files = reportFiles(reportFolder);
@@ -249,6 +263,7 @@ async function main() {
   }
   // what every scan of this invocation shares
   const common = {
+    onProgress: isTuiWorker ? ({ done, total, phase }) => tuiEvent('phase', { text: phase || `Scanning files: ${done}/${total}` }) : undefined,
     customScan: options.checks ? options.checks.split(",").map(check => check.trim().toLowerCase()) : [],
     excludeFromScan: options.excludeChecks ? options.excludeChecks.split(",").map(check => check.trim().toLowerCase()) : [],
     severitySet: options.severity,
@@ -288,6 +303,7 @@ async function main() {
     let session;
     if (options.watch || options.watchLog || options.debugUrl) {
       try {
+        if (!options.watchLog) tuiEvent('session-start', { number: 1 });
         session = await observeSession({ watch: options.debugUrl ? options.input : options.watch, watchLog: options.watchLog, args: watchArgs, ...debug, marker: options.watchMarker || ((options.activeTests || campaign || options.autoCampaign) ? generateMarker() : undefined), active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, capture, traffic, scope, screenshots,
           prove: !!options.prove, proofProfile, ipcProfile, logout: !!options.logoutCheck,
           reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm(),
@@ -299,6 +315,7 @@ async function main() {
       if (!options.input && session.staticInput) options.input = session.staticInput;
     }
     // Front-end code served over the network: what watch mode captured, and --remote URLs. It is scanned with the app.
+    tuiEvent('phase', { text: 'Collecting remote sources and scanning…' });
     const fetched = await collectRemote({ runtime: session && session.runtime, watchLog: session && session.watchLog, capture, remote: remote.seeds, guessed: remote.guessed, headers, scope,
       allowHosts: remote.hosts, headersByHost: (session && session.copiedHeaders) || {}, offline: options.offline });
     // --remote on its own: the downloaded front end is the input
@@ -348,6 +365,8 @@ async function main() {
       // nothing written anywhere else: the client findings and components workbook go to reports/ where the tool ran
       reportsBase: process.cwd(),
     }, forCli);
+    publishFindings(result);
+    if (!reportFolder && options.output) tuiEvent('results-folder', { folder: path.dirname(path.resolve(splitOutputs(options.output)[0])) });
     for (const file of [].concat(options.share || [])) if (!forCli) console.log(chalk.gray(__('shareWritten', { file })));
     if (options.campaignPlan) writeCampaignPlan(options.campaignPlan, result.issues);
     // CI gate: fail when a reported finding reaches the given severity
@@ -383,7 +402,12 @@ function generateMarker() {
   return 'ENG' + [...crypto.randomBytes(6)].map(b => alphabet[b % alphabet.length]).join('');
 }
 
-async function ask(question, signal, preserveCase = false) {
+async function ask(question, signal, preserveCase = false, kind = 'text') {
+  if (isTuiWorker) {
+    const answer = await tuiAsk(question, { signal, kind });
+    if (answer === undefined) return undefined;
+    return preserveCase ? answer.trim() : answer.trim().toLowerCase();
+  }
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     // App/debugger output can arrive while awaiting input. Keep the full question in terminal history.
@@ -401,7 +425,8 @@ async function ask(question, signal, preserveCase = false) {
 // the tester to send the request themselves. The returned function carries a cancel() that aborts an open question
 // (used when the app closes with a question still waiting), which resolves it as no.
 function interactiveConfirm() {
-  if (!process.stdin.isTTY) return undefined;
+  if (isTuiWorker) return tuiConfirm();
+  if (!interactiveTerminal()) return undefined;
   let active;
   const confirm = async (question) => {
     const controller = new AbortController();
@@ -451,6 +476,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
   fs.mkdirSync(outDir, { recursive: true });
   console.log(chalk.green(__('appFound', { name: located.name, executable: located.executable || '-', code: located.code })));
   console.log(chalk.gray(__('appResults', { dir: outDir })));
+  tuiEvent('results-folder', { folder: outDir });
   // -o names the reports of the run (report.html, report.docx...; the .md is the reports/ folder, always written): the final
   // ones in the results folder, and each step's backups in steps/, prefixed with the step (static-report.html,
   // session-1-report.html). Without -o: report.html and report.json.
@@ -475,11 +501,12 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
     stepDiagnostics.push({ name, file: diagnostics });
     for (const error of result.errors.filter(e => !e.tolerable).slice(0, 5)) console.error(chalk.yellow(`${error.file}: ${error.message}`));
     console.log(chalk.green(__('appStepDone', { file: output, ...countBySeverity(result.reported) })));
+    publishFindings(result, name);
     return result;
   };
 
-  const interactive = !!process.stdin.isTTY;
-  const sessions = options.sessions !== undefined ? Math.max(0, Number.parseInt(options.sessions, 10) || 0) : campaign || options.prove || options.ipcProfile || options.logoutCheck || options.debugUrl || options.debugLaunch ? 1 : interactive ? Infinity : 0;
+  const interactive = interactiveTerminal();
+  const sessions = options.sessions !== undefined ? Math.max(0, Number.parseInt(options.sessions, 10) || 0) : isTuiWorker ? Infinity : campaign || options.prove || options.ipcProfile || options.logoutCheck || options.debugUrl || options.debugLaunch ? 1 : interactive ? Infinity : 0;
   const observable = located.executable || options.debugUrl;
   // --remote-header names: nothing to copy before the app has run, so the --remote sites are downloaded after each
   // session, with the values it sent (there are no sessions: now, without them)
@@ -487,6 +514,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
 
   // 1. the app's code, including what's behind the login, and --remote URLs if given
   console.log(chalk.cyan(__('appStatic')));
+  tuiEvent('phase', { text: 'Static scan: collecting sources…' });
   if (afterSessions && remote.seeds.length > 0) console.log(chalk.gray(`--remote ${remote.hosts.join(', ')}: downloaded after each session, with the ${headerNames.join(', ')} the app sends there`));
   const fetched = await collectRemote({ remote: afterSessions ? [] : remote.seeds, guessed: remote.guessed, headers, scope, allowHosts: afterSessions || remote.seeds.length === 0 ? [] : remote.hosts, offline: options.offline });
   // the profile review and the password trace belong to the sessions, after the app has been used
@@ -504,12 +532,15 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
     staticIssues: staticResult.issues, files: writeMarkerFiles(outDir, marker, !!(options.activeTests || campaign || options.autoCampaign)) });
   if (observable && sessions > 0) assistant.intro();
   for (let n = 1; observable && n <= sessions; n++) {
-    if (interactive && options.sessions === undefined && !campaign && !options.debugUrl && !options.debugLaunch) {
-      const answer = await ask(chalk.cyan(__(n === 1 ? 'appAskFirstSession' : 'appAskNextSession', { n })) + ' ');
-      if (/^[snq]/.test(answer)) break;
+    if (interactive && options.sessions === undefined && (isTuiWorker || !campaign && !options.debugUrl && !options.debugLaunch)) {
+      tuiEvent('phase', { text: n === 1 ? 'Static results ready. Choose Start next session or Finish.' : `Session ${n - 1} results ready. Review before starting session ${n}.` });
+      const answer = await ask(isTuiWorker ? (n === 1 ? 'Static scan complete. Start the first watch session, or finish and write the combined reports?' : `Session ${n - 1} complete. Review its results, then start session ${n} or finish and write the combined reports.`)
+        : chalk.cyan(__(n === 1 ? 'appAskFirstSession' : 'appAskNextSession', { n })) + ' ', undefined, false, 'session');
+      if (isTuiWorker ? answer !== 'start' : /^[snq]/.test(answer)) break;
     }
     let session;
     try {
+      tuiEvent('session-start', { number: n });
       session = await observeSession({ watch: options.debugUrl ? located.folder : located.kind === 'project' ? located.folder : located.executable, args: watchArgs, ...debug, marker, active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, capture, traffic, scope,
         screenshots: screenshots && (path.isAbsolute(screenshots) ? screenshots : path.join(outDir, screenshots)),
         prove: !!options.prove, proofProfile: options.proofProfile ? loadProfile(options.proofProfile) : undefined,
@@ -523,6 +554,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
     }
     // headers go to the --remote sites (and without them the --scope domains) only, not to whatever the session captured;
     // with --remote, nothing outside its hosts is downloaded
+    tuiEvent('phase', { text: `Session ${n}: collecting captured sources and writing its reports…` });
     const captured = await collectRemote({ runtime: session.runtime, watchLog: session.watchLog, capture, remote: afterSessions ? remote.seeds : [], guessed: remote.guessed, headers, headerSites: remote.seeds, scope,
       allowHosts: remote.hosts, headersByHost: session.copiedHeaders || {}, offline: options.offline });
     await step(`session-${n}`, { runtime: session.runtime, credentials: session.credentials, watchDiagnostics: session.watchDiagnostics, runtimeElectronVersion: session.watchDiagnostics.electron,
@@ -531,6 +563,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
   assistant.printSummary('Validation across all sessions');
   // the report of the whole run: the static scan and every session, each finding once, with what each session validated
   console.log(chalk.cyan(`Writing the report of the whole run (${results.length} step${results.length === 1 ? '' : 's'}) and checking the components workbook's links...`));
+  tuiEvent('phase', { text: 'Writing combined reports and checking component links…' });
   const combined = await writeCombinedReport({ outDir, results, steps: stepNames, outputs: finalOutputs, shares: shareTypes.map(type => path.join(outDir, `shareable-report${type}`)),
     diagnostics: path.join(outDir, 'diagnostics.json'), stepDiagnostics, root: located.code, isRelative: common.isRelative, redact: common.redact,
     reveal: common.reveal, shareCode: common.shareCode, version: pkg.version });
@@ -538,10 +571,24 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
   console.log(chalk.green(__('appDone', { dir: outDir })));
   for (const file of combined.written) console.log(`  ${file}`);
   console.log(`  ${stepsDir} (each step's reports, kept as backups)`);
+  publishFindings(combined, 'Combined');
   return combined;
 }
 
-main();
+main().catch(error => {
+  console.error(error.message);
+  process.exitCode = 2;
+}).finally(() => {
+  if (isTuiWorker && process.connected) process.disconnect();
+});
+
+function publishFindings(result, step = 'Scan') {
+  if (!isTuiWorker) return;
+  tuiEvent('findings', { counts: countBySeverity(result.reported), items: result.reported.slice(0, 500).map(issue => ({
+    severity: issue.severity.name, id: issue.id, file: `[${step}] ${issue.file}`, line: issue.location?.line,
+    description: issue.description.slice(0, 500),
+  })) });
+}
 
 function writeCampaignPlan(file, issues) {
   fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });

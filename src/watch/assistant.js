@@ -75,6 +75,7 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
     channel: undefined, confirming: false, campaignBusy: false, autoSent: new Set(),
     // requests waiting to be asked about while a question is open, and the endpoint keys already on that list
     queue: [], queued: new Set(), autoSeen: new Set(),
+    offers: new Set(), currentCampaign: undefined, deliveries: 0, totalCases: 0,
   };
   const review = staticIssues.filter(i => i.manualReview || HTML_REVIEW.has(i.id) || LINK_REVIEW.has(i.id) || i.id === 'OPEN_PATH_JS_CHECK');
   const count = (ids) => review.filter(i => ids.has(i.id)).length;
@@ -153,26 +154,40 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
 
   async function askCampaign(request) {
     const channel = state.channel;
+    const update = (status, details = {}) => channel?.onCampaign?.({ key: request.key, status, ...details });
     let profile;
     try {
       profile = capturedCampaign(request.r);
-      if (hostsOutsideScope(profile, scope).length) { say.note(`Skipping ${request.key}: the save endpoint is outside --scope.`); return; }
-    } catch (error) { say.note(`Cannot capture ${request.key}: ${error.message}.`); return; }
+      if (hostsOutsideScope(profile, scope).length) { say.note(`Skipping ${request.key}: the save endpoint is outside --scope.`); update('unavailable', { reason: 'Save endpoint is outside --scope.' }); return; }
+    } catch (error) { say.note(`Cannot capture ${request.key}: ${error.message}.`); update('unavailable', { reason: error.message }); return; }
     if (!channel?.confirm || !channel?.ask || !channel?.send) {
       say.note(`Captured ${request.key}. Interactive approval is required for --auto-campaign.`);
       return;
     }
+    if (channel.offer) {
+      state.offers.add(request.key);
+      const details = { key: request.key, fields: profile.fields, cases: profile.cases.length * profile.fields.length };
+      update('ready', details);
+      const selected = await channel.offer(details);
+      state.offers.delete(request.key);
+      if (state.channel !== channel || !selected) { update('expired', { reason: 'Session ended or the offer was cancelled.' }); return; }
+      if (state.confirming || state.campaignBusy) { update('unavailable', { reason: 'Another campaign is already active.' }); return; }
+    }
     state.confirming = true;
+    state.currentCampaign = request.key;
+    update('reviewing');
     try {
       say.next(`Captured ${request.key}. Available content fields: ${profile.fields.join(', ')}. The originating app window can be reopened automatically.`);
       const selected = await channel.ask(`[validate] Fields to test, comma-separated [${profile.fields.join(', ')}]: `);
-      if (state.channel !== channel || selected === undefined) return;
+      if (state.channel !== channel || selected === undefined) { update('declined', { reason: 'Field selection cancelled.' }); return; }
       const view = await channel.ask('[validate] Saved-content view URL, or Enter to reopen the captured app view: ');
-      if (state.channel !== channel || view === undefined) return;
+      if (state.channel !== channel || view === undefined) { update('declined', { reason: 'View selection cancelled.' }); return; }
       profile = capturedCampaign(request.r, { fields: selected.trim() ? selected.split(',').map(field => field.trim()) : profile.fields, view: view.trim() || 'captured' });
       const approved = await channel.confirm(`[validate] Run ${profile.cases.length} cases in ${profile.fields.join(', ')} using ${request.key}, open ${profile.view === 'captured' ? 'the captured view' : profile.view} after each save, and attempt restoration? This must be a disposable record. [y/N] `);
-      if (approved !== true || state.channel !== channel) { say.note('Campaign declined; no test requests sent.'); return; }
+      if (approved !== true || state.channel !== channel) { say.note('Campaign declined; no test requests sent.'); update('declined', { reason: 'Execution was not approved.' }); return; }
       state.campaignBusy = true;
+      state.deliveries = 0; state.totalCases = profile.cases.length * profile.fields.length;
+      update('running', { fields: profile.fields, cases: state.totalCases, reason: 'Starting approved campaign…' });
       // Profiles contain field names and a generalized route, never bodies, headers or session tokens.
       if (saveCampaign) {
         let savedView = profile.view;
@@ -186,6 +201,7 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
     } catch (error) {
       state.campaignBusy = false;
       say.note(`Campaign not started: ${error.message}`);
+      update('error', { reason: error.message });
     } finally {
       if (state.channel === channel) { state.confirming = false; drainQueue(); }
     }
@@ -225,6 +241,8 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
           if (campaignMatch(campaign, r) && !state.campaignSent && state.channel?.send) {
             state.campaignSent = true;
             state.channel.send({ kind: 'run-campaign', replay: r.replay, profile: campaign });
+            state.currentCampaign = campaign.route;
+            state.channel.onCampaign?.({ key: campaign.route, status: 'running', cases: state.totalCases, fields: campaign.fields === 'auto' ? [] : campaign.fields });
             say.note(`Captured ${campaign.route}; starting the configured campaign without per-case prompts.`);
           }
           break;
@@ -237,13 +255,14 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
           const failure = captureFailure(r);
           if (failure) {
             if (first(`capture-skip:${key}:${failure}`)) say.note(`Save observed for ${key}, but no campaign prompt: ${failure}.`);
+            state.channel?.onCampaign?.({ key, status: 'unavailable', reason: failure });
             break;
           }
           if (state.autoSeen.has(key)) break;
           state.autoSeen.add(key);
           observeSavedMarker(r, key);
           const request = { key, r, route, html: r.fields.filter(f => f.html).map(f => f.name), text: r.fields.filter(f => !f.html).map(f => f.name) };
-          if (state.confirming) { state.queued.add(key); state.queue.push(request); }
+          if (state.confirming && !state.channel?.offer) { state.queued.add(key); state.queue.push(request); }
           else askCampaign(request);
           break;
         }
@@ -310,6 +329,11 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
         if (!state.activeExecuted) say.bad(`The benign probe executed in a renderer at ${r.url}. Review the content route and the page's privileges.`);
         state.activeExecuted = true;
         break;
+      case 'campaign-send':
+        state.deliveries++;
+        state.channel?.onCampaign?.({ key: state.currentCampaign || campaign?.route || 'Configured campaign', status: 'running',
+          reason: `${state.deliveries}/${state.totalCases || '?'} cases sent; ${r.case}${r.status ? ` (HTTP ${r.status})` : ''}` });
+        break;
       case 'campaign-result':
         if (r.signal === 'executed' || r.signal === 'fs-read' || r.signal === 'eval-allowed')
           say.note(`Campaign ${r.case}: ${r.signal} in ${r.url}.`);
@@ -317,6 +341,7 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
       case 'campaign-done':
         say.note(`Campaign finished ${r.cases} cases. The report separates delivery, rendering and execution evidence.`);
         state.campaignBusy = false;
+        state.channel?.onCampaign?.({ key: state.currentCampaign || campaign?.route || 'Configured campaign', status: 'completed', reason: `${r.cases} cases finished. Review delivery, rendering and execution evidence.` });
         drainQueue();
         break;
       case 'campaign-window':
@@ -330,10 +355,12 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
       case 'campaign-error':
         say.note(`Campaign stopped: ${r.message}. Coverage is incomplete.`);
         state.campaignBusy = false;
+        state.channel?.onCampaign?.({ key: state.currentCampaign || campaign?.route || 'Configured campaign', status: 'error', reason: r.message });
         drainQueue();
         break;
       case 'docx-done':
         say.note(`DOCX import campaign finished ${r.cases} fixtures. Accepted imports are not treated as successful conversion or rendering.`);
+        state.channel?.onCampaign?.({ key: campaign?.route || 'DOCX campaign', status: 'completed', reason: `${r.cases} fixtures finished.` });
         break;
       case 'sink': {
         if (!r.live) break;
@@ -437,8 +464,19 @@ export function createAssistant({ marker, active = false, campaign, autoCampaign
 
   // The current session's channel for re-sending the marker request: confirm(question)->bool and send(command). Set at
   // the start of a session that can do this (an interactive terminal, a marker) and cleared when it ends.
-  function useChannel(channel) { state.channel = channel || undefined; state.autoSeen.clear(); state.confirming = false; }
+  function useChannel(channel) {
+    state.channel = channel || undefined; state.autoSeen.clear(); state.confirming = false;
+    state.campaignSent = false; state.deliveries = 0; state.currentCampaign = undefined;
+    if (campaign) {
+      state.currentCampaign = campaign.route;
+      state.totalCases = (campaign.docxImport?.cases || campaign.cases).length * (Array.isArray(campaign.fields) ? campaign.fields.length : 1);
+      channel?.onCampaign?.({ key: campaign.route, status: campaign.mode === 'capture' ? 'waiting' : 'running', cases: state.totalCases,
+        reason: campaign.mode === 'capture' ? 'Waiting for a matching successful save.' : 'Running the explicit campaign profile.' });
+    }
+  }
   function clearChannel() {
+    for (const key of state.offers) state.channel?.onCampaign?.({ key, status: 'expired', reason: 'Session ended.' });
+    state.offers.clear();
     // cancel a question left open when the app closed, so it stops reading the keyboard (otherwise the next prompt,
     // e.g. "start session 2?", shares the input and one Enter answers both). A cancelled question is treated as no.
     if (state.channel && state.channel.cancel) {

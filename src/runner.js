@@ -196,6 +196,8 @@ async function scan(options, forCli) {
   }
 
   const detectedLibraries = [];
+  let completedFiles = 0;
+  options.onProgress?.({ done: 0, total: filenames.length });
   try {
     if (forCli) progress.start(filenames.length, 0);
 
@@ -222,6 +224,9 @@ async function scan(options, forCli) {
         issues.push(...result);
       } catch (error) {
         errors.push({ file: file, message: error.message, tolerable: false });
+      } finally {
+        completedFiles++;
+        if (completedFiles % 25 === 0 || completedFiles === filenames.length) options.onProgress?.({ done: completedFiles, total: filenames.length });
       }
     }
 
@@ -274,6 +279,7 @@ async function scan(options, forCli) {
   const inventory = issues.filter(i => i.id === 'DEPENDENCY_INVENTORY_LOCK_CHECK');
   issues = await globalChecker.getResults(issues, options.output);
   endPhase('globalChecks');
+  options.onProgress?.({ phase: 'Combining global, runtime, storage and dependency findings…' });
   // hard-coded secrets in everything that ships: code, configuration files, native modules and helper binaries
   if (runSecretScan) {
     issues.push(...scanSecrets(secretSources(options.input, filenames, (file) => loader.load_buffer(file), { allFiles: !!options.allFiles })));
@@ -456,6 +462,7 @@ async function scan(options, forCli) {
   const reportsBase = options.reports === false ? undefined
     : markdownOutput ? path.dirname(path.resolve(markdownOutput)) : outputs[0] ? path.dirname(path.resolve(outputs[0])) : options.reportsBase;
   // the workbook's links are checked before they are written
+  options.onProgress?.({ phase: 'Writing reports and checking component links…' });
   if (dependencies && options.checkLinks !== false && (reportsBase || outputs.some(o => /\.xlsx$/i.test(o)))) {
     if (forCli) console.log(chalk.gray('Checking the links of the components workbook...'));
     await checkComponentLinks(dependencies);

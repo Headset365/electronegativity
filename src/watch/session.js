@@ -18,6 +18,7 @@ import { inspectFeed, inspectServices } from './network-proofs.js';
 import { feedFromAppUpdate, resourcesFolder, APP_UPDATE_FILE } from './app-update.js';
 import { logoutCheck } from './logout.js';
 import { createRequire } from 'node:module';
+import { isTuiWorker, tuiEvent } from '../tui/bridge.js';
 const { validateProfile } = createRequire(import.meta.url)('./proof-profile.cjs');
 
 export function parseHeaders(list = []) {
@@ -87,6 +88,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
       commandsFile = path.join(logDir, 'commands.jsonl');
       fs.writeFileSync(commandsFile, '');
       assistant.useChannel({ confirm: logout ? undefined : confirm, ask: logout ? undefined : confirm?.ask, cancel: typeof confirm?.cancel === 'function' ? () => confirm.cancel() : undefined,
+        offer: logout ? undefined : confirm?.offer, onCampaign: confirm?.onCampaign,
         send: (command) => { try { fs.appendFileSync(commandsFile, JSON.stringify(command) + '\n'); } catch { /* best effort */ } } });
       if (campaign?.mode === 'request' || campaign?.mode === 'docx')
         fs.appendFileSync(commandsFile, JSON.stringify({ kind: 'run-campaign', profile: campaign }) + '\n');
@@ -116,10 +118,11 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
     const headersFile = remoteHosts.length > 0 && headerNames.length > 0 ? path.join(logDir, 'remote-headers.json') : undefined;
     const remoteOptions = { remoteHosts, headerNames, headersFile };
     try {
-      const debugOptions = { target: debugTarget, duration: debugDuration, marker, active, campaign: !!campaign || autoCampaign,
+      const terminal = isTuiWorker ? { onReady: () => tuiEvent('session-live'), onOutput: (stream, text) => tuiEvent('app-output', { stream, text }) } : {};
+      const debugOptions = { ...terminal, target: debugTarget, duration: debugDuration, marker, active, campaign: !!campaign || autoCampaign,
         traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile, ...remoteOptions };
       log = debugUrl ? await watchDebug(debugUrl, debugOptions) : debugLaunch ? await watchDebugApp(located.kind === 'project' ? located.folder : located.executable,
-        { ...debugOptions, args, onNote: note => { injection = note; } }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, active, campaign: !!campaign || autoCampaign, prove, proofConfig: proofFile, preserveLog: true, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
+        { ...debugOptions, args, onNote: note => { injection = note; } }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { ...terminal, args, marker, active, campaign: !!campaign || autoCampaign, prove, proofConfig: proofFile, preserveLog: true, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
         ...remoteOptions, onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
       logoutController?.stop();
@@ -131,6 +134,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
       }
       stopFollowing();
       if (assistant.clearChannel) assistant.clearChannel();
+      tuiEvent('session-ended');
       if ((campaign || autoCampaign || logout) && commandsFile) try { fs.unlinkSync(commandsFile); } catch { /* best effort */ }
     }
     await Promise.allSettled(serviceTasks);
