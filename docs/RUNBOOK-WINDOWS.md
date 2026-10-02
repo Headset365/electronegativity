@@ -146,6 +146,81 @@ the components workbook to a `reports` folder, and the tester notes to a `tester
 report folder, next to the first `-o` file, or in the folder you ran it from, with `report.json` next to them: the data
 the findings were written from.
 
+### Bounded proofs (`--prove`) and `proof.json`
+
+`--prove` turns several "review this" items into recorded results during a watch session. These tests need no
+configuration:
+
+- the app's navigation and new-window handlers, asked about a test URL (nothing navigates or opens);
+- the app's permission handlers, asked whether a foreign origin may use the camera (no camera is opened);
+- a self-signed HTTPS request through the app's sessions (does the app accept an invalid certificate?);
+- the packaged `.exe` started in Node mode with a harmless expression (the RunAsNode fuse);
+- the update feed, when the app sets an exact `latest.yml` or `RELEASES` address while you use it (metadata only:
+  nothing is downloaded or installed).
+
+Start with those, without a profile:
+
+```powershell
+electronegativity --app "C:\Program Files\MyApp" --prove --sessions 1
+```
+
+A profile (`proof.json`) adds the tests that need to know something about this app. Make one only after that first run,
+from what its report shows:
+
+1. Copy the template next to your results and open it:
+
+   ```powershell
+   Copy-Item "$(npm root -g)\electronegativity\docs\proof.example.json" C:\eng\proof.json
+   notepad C:\eng\proof.json
+   ```
+
+   It holds four sections; a section left empty (or out) keeps its default:
+
+   ```json
+   { "origins": ["https://eng-proof.invalid"], "feeds": [], "links": [], "services": [] }
+   ```
+
+2. **`origins`** (optional): the "foreign site" the handlers are asked about. 1 to 8 exact origins, scheme and host
+   (and port) only, no path or trailing slash: `"https://eng-proof.invalid"`. It is never contacted. Keep the default
+   unless you want another name in the evidence.
+3. **`feeds`** (optional): the update metadata to inspect, if the first run said "no exact metadata feed observed".
+   Look in the install folder for `resources\app-update.yml` (its `url`, plus `latest.yml`), or in Burp for a request
+   ending in `latest.yml` or `RELEASES`. Up to 8 exact addresses, no credentials or tokens in them:
+   `"https://updates.example.com/win/latest.yml"`.
+4. **`links`** (only after reviewing the code): a function the app's own page exposes that opens one URL, to see whether
+   non-web links (`file:`, unknown protocols) are filtered before they reach Windows. Find it in the preload script
+   (`contextBridge.exposeInMainWorld`) of the extracted `app.asar`, and read what it does: it must only open the link.
+
+   ```json
+   { "reviewed": true, "page": "https://app.example.com/", "method": "appLinks.open" }
+   ```
+
+   `page` is the start of the address of a page where that function exists; `method` its dotted name. The hand-off to
+   Windows is blocked by the tool.
+5. **`services`** (only after reviewing the route): a port the app's own process listens on (the first run's report
+   lists them, or `Get-NetTCPConnection -State Listen -OwningProcess (Get-Process MyApp).Id` while it runs) and a
+   **read-only** route on it, to see whether it answers without credentials or to a foreign origin.
+
+   ```json
+   { "reviewed": true, "port": 8123, "path": "/status", "transport": "http", "requiresAuth": true }
+   ```
+
+   `transport` is `"http"` or `"websocket"`; `requiresAuth` is what the app's design says should be true (it is
+   recorded as your expectation). Never list a route that changes anything.
+6. `"reviewed": true` is your statement that you read that function or route and that calling it in a disposable test
+   session has no other effect. Entries without it are refused. At most 8 entries per section; the file must be valid
+   JSON (double quotes, no trailing commas, no comments). A mistake stops the run before the app starts, naming the
+   section.
+7. Run again with the profile:
+
+   ```powershell
+   electronegativity --app "C:\Program Files\MyApp" --prove --proof-profile C:\eng\proof.json --sessions 1
+   ```
+
+Each result says what it establishes and what it does not; errors and timeouts are listed as coverage limits, not as
+safe. `docs\PROOF-WATCH-WINDOWS.md` in the installed package has the details, including the separate `--ipc-profile`
+and `--logout-check` opt-ins (run `--logout-check` in its own session, without `--auto-campaign`).
+
 ### Updating the findings of an earlier scan to new templates
 
 After a finding template changes (a revised fuse finding, say), the findings of an earlier scan can be written again
