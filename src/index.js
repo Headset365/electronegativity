@@ -23,6 +23,8 @@ import { splitOutputs, unwritableOutput } from './util/file.js';
 import { writeCombinedReport } from './report/combined.js';
 import { rerender } from './report/rerender.js';
 import { createReportFolder, reportFiles } from './util/reportdir.js';
+import { createRequire } from 'node:module';
+const { loadProfile } = createRequire(import.meta.url)('./watch/proof-profile.cjs');
 
 async function main() {
 
@@ -57,6 +59,10 @@ async function main() {
     .option('--watch-log <file>', __('watchLogOptionDescription'))
     .option('--watch-marker <token>', __('watchMarkerOptionDescription'))
     .option('--active-tests', 'Opt in to a benign HTML execution probe in watch mode; logs a nonce if the renderer executes it')
+    .option('--prove', 'Opt in to bounded native-watch handler, self-signed TLS and Windows RunAsNode proofs')
+    .option('--proof-profile <file>', 'With --prove: exact origins, update feeds and reviewed link/service routes')
+    .option('--ipc-profile <file>', 'Separate opt-in: reviewed read-only IPC contracts and tool-owned file canaries')
+    .option('--logout-check', 'Capture live before/after logout snapshots using interactive BEFORE and AFTER checkpoints')
     .option('--campaign <file>', 'Run a bounded, profile-driven benign payload campaign without per-case prompts')
     .option('--no-source-maps', 'Keep packaged bundle analysis instead of recovering embedded original sources')
     .option('--campaign-plan <file>', 'Export finding-linked campaign drafts to review and complete before execution')
@@ -110,6 +116,13 @@ async function main() {
     return;
   }
   const campaign = options.campaign ? loadCampaign(options.campaign) : undefined;
+  const proofProfile = options.proofProfile ? loadProfile(options.proofProfile) : undefined;
+  const ipcProfile = options.ipcProfile ? loadProfile(options.ipcProfile, true) : undefined;
+  if (options.proofProfile && !options.prove) throw new Error('--proof-profile requires --prove');
+  if ((options.prove || ipcProfile || options.logoutCheck) && ((!options.watch && !options.app) || options.watchLog || options.debugUrl || options.debugLaunch))
+    throw new Error('Proof and logout options require --watch or --app in native watch mode');
+  if (options.logoutCheck && !process.stdin.isTTY) throw new Error('--logout-check requires an interactive terminal');
+  if (options.logoutCheck && options.autoCampaign) throw new Error('Use separate sessions for --logout-check and --auto-campaign');
   if ((options.activeTests || campaign || options.autoCampaign) && !options.watch && !options.app && !options.debugUrl) throw new Error('Active testing requires --watch, --app or --debug-url');
   if (options.autoCampaign && campaign) throw new Error('Choose --auto-campaign or --campaign, not both');
   if (options.autoCampaign && !process.stdin.isTTY) throw new Error('--auto-campaign needs an interactive terminal for approval; use an explicit --campaign profile for unattended runs');
@@ -272,6 +285,7 @@ async function main() {
     if (options.watch || options.watchLog || options.debugUrl) {
       try {
         session = await observeSession({ watch: options.debugUrl ? options.input : options.watch, watchLog: options.watchLog, args: watchArgs, ...debug, marker: options.watchMarker || ((options.activeTests || campaign || options.autoCampaign) ? generateMarker() : undefined), active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, capture, traffic, scope, screenshots,
+          prove: !!options.prove, proofProfile, ipcProfile, logout: !!options.logoutCheck,
           reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm(),
           remoteHosts: remote.hosts, headerNames: remoteHeaders.names });
       } catch (error) {
@@ -461,7 +475,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
   };
 
   const interactive = !!process.stdin.isTTY;
-  const sessions = options.sessions !== undefined ? Math.max(0, Number.parseInt(options.sessions, 10) || 0) : campaign || options.debugUrl || options.debugLaunch ? 1 : interactive ? Infinity : 0;
+  const sessions = options.sessions !== undefined ? Math.max(0, Number.parseInt(options.sessions, 10) || 0) : campaign || options.prove || options.ipcProfile || options.logoutCheck || options.debugUrl || options.debugLaunch ? 1 : interactive ? Infinity : 0;
   const observable = located.executable || options.debugUrl;
   // --remote-header names: nothing to copy before the app has run, so the --remote sites are downloaded after each
   // session, with the values it sent (there are no sessions: now, without them)
@@ -494,6 +508,8 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
     try {
       session = await observeSession({ watch: options.debugUrl ? located.folder : located.kind === 'project' ? located.folder : located.executable, args: watchArgs, ...debug, marker, active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, capture, traffic, scope,
         screenshots: screenshots && (path.isAbsolute(screenshots) ? screenshots : path.join(outDir, screenshots)),
+        prove: !!options.prove, proofProfile: options.proofProfile ? loadProfile(options.proofProfile) : undefined,
+        ipcProfile: options.ipcProfile ? loadProfile(options.ipcProfile, true) : undefined, logout: !!options.logoutCheck,
         reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, assistant, confirm: interactiveConfirm(),
         remoteHosts: remote.hosts, headerNames });
     } catch (error) {

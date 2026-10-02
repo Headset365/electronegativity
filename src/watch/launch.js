@@ -5,6 +5,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { createRequire } from 'node:module';
+import { proveRunAsNode } from './fuses.js';
+
+const { inventory: windowsInventory, observePorts } = createRequire(import.meta.url)('./windows.cjs');
 
 const HOOK = path.join(import.meta.dirname, 'hook.cjs');
 // how long an app that has quit gets to end its process before it is closed
@@ -60,9 +63,9 @@ export function resolveApp(target, extraArgs = []) {
  * (--inspect-brk, on a local port), the hook is loaded through it before any of the app's code runs, and the app is
  * resumed. That needs the EnableNodeCliInspectArguments fuse, on unless the build switched it off.
  */
-export function watchApp(target, { args = [], marker, active = false, campaign = false, capture = true, traffic = true, scope = [], reveal = false, screenshots, commands, remoteHosts = [], headerNames = [], headersFile, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onNote = () => {} } = {}) {
+export function watchApp(target, { args = [], marker, active = false, campaign = false, capture = true, traffic = true, scope = [], reveal = false, screenshots, commands, proofConfig, prove = false, preserveLog = false, remoteHosts = [], headerNames = [], headersFile, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onNote = () => {} } = {}) {
   const { command, args: commandArgs, packaged, staticInput } = resolveApp(target, args);
-  fs.writeFileSync(log, '');
+  if (!preserveLog) fs.writeFileSync(log, '');
   const quotedHook = HOOK.includes(' ') ? `"${HOOK}"` : HOOK;
   const env = {
     ...process.env,
@@ -74,6 +77,8 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
   if (campaign) env.ELECTRONEGATIVITY_WATCH_CAMPAIGN = '1';
   // the file the CLI writes send-marker commands to, for the hook to re-send the marker request through the app's session
   if (commands) env.ELECTRONEGATIVITY_WATCH_COMMANDS = commands;
+  if (proofConfig) env.ELECTRONEGATIVITY_PROOF_CONFIG = proofConfig;
+  const record = (kind, data) => fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind, ...data }) + '\n');
   // download the front-end code pages run, for the static scan (capture/ next to the log)
   if (capture) env.ELECTRONEGATIVITY_WATCH_CAPTURE = '1';
   // the passive traffic checks run inside the app (--no-watch-traffic turns them off); scope: the app's own domains
@@ -92,6 +97,8 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
   return (async () => {
     let port;
     if (packaged) {
+      await windowsInventory(command, record);
+      if (prove) record('proof', await proveRunAsNode(command));
       // packaged apps drop NODE_OPTIONS=--require: don't pass it, it only makes Electron print an error
       if (process.env.NODE_OPTIONS) env.NODE_OPTIONS = process.env.NODE_OPTIONS;
       else delete env.NODE_OPTIONS;
@@ -102,6 +109,7 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
     const finalArgs = packaged ? [`--inspect-brk-node=127.0.0.1:${port}`, ...commandArgs] : commandArgs;
     return new Promise((resolve, reject) => {
       const child = spawn(command, finalArgs, { env, stdio });
+      const stopPorts = observePorts(child.pid, record, { inspectorPort: port });
       const stop = () => child.kill();
       process.once('SIGINT', stop);
       let exited = false;
@@ -141,6 +149,7 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
         }, QUIT_GRACE_MS);
       }, 1000);
       const done = () => {
+        stopPorts();
         exited = true;
         clearInterval(quitWatch);
         clearTimeout(lingerTimer);
@@ -155,7 +164,7 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
         resolve(log);
       });
       if (packaged) {
-        loadThroughInspector(port, () => exited, mainScriptOf(staticInput), 30000, inspectorTrace(log)).then(result => onNote(result)).catch(error => {
+        loadThroughInspector(port, () => exited, mainScriptOf(staticInput), 30000, inspectorTrace(log), () => record('proof', { test: 'node-inspector', outcome: 'connected', scope: 'cli-inspector', toolOpened: true })).then(result => onNote(result)).catch(error => {
           fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind: 'hook-error', message: `inspector: ${error.message}` }) + '\n');
           onNote({ loaded: false, error: error.message });
         });
@@ -224,7 +233,7 @@ const scriptUrlPattern = (main) => {
  * EnableNodeCliInspectArguments fuse is off), the app runs normally and nothing is observed. The inspector closes once
  * the hook is in.
  */
-async function loadThroughInspector(port, hasExited, mainScript, timeoutMs = 30000, trace = () => {}) {
+async function loadThroughInspector(port, hasExited, mainScript, timeoutMs = 30000, trace = () => {}, onConnected = () => {}) {
   const deadline = Date.now() + timeoutMs;
   let target;
   trace(`waiting for the inspector on 127.0.0.1:${port}`);
@@ -246,6 +255,7 @@ async function loadThroughInspector(port, hasExited, mainScript, timeoutMs = 300
     socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('could not connect to the app\'s inspector')); }, { once: true });
   });
   trace('connected');
+  onConnected();
   let id = 0;
   let closed = false;
   const pending = new Map();

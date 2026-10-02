@@ -14,6 +14,10 @@ import { prepareScanFolder, mapFrames } from '../remote/sources.js';
 import { createAssistant, followLog, writeMarkerFiles } from './assistant.js';
 import { watchDebug } from './debug.js';
 import { watchDebugApp } from './debug_launch.js';
+import { inspectFeed, inspectServices } from './network-proofs.js';
+import { logoutCheck } from './logout.js';
+import { createRequire } from 'node:module';
+const { validateProfile } = createRequire(import.meta.url)('./proof-profile.cjs');
 
 export function parseHeaders(list = []) {
   const headers = {};
@@ -29,7 +33,7 @@ export function parseHeaders(list = []) {
  * session log `watchLog`, and analyzes it. Returns { runtime, watchDiagnostics, watchLog, staticInput }.
  * @throws when the app can't be started or the log can't be read
  */
-export async function observeSession({ watch, watchLog, args = [], debugUrl, debugLaunch = false, debugTarget, debugDuration = 0, marker, active = false, campaign, autoCampaign = false, capture = true, traffic = true, scope = [], reveal = false, canaries = [], searchDirs = [], userData,
+export async function observeSession({ watch, watchLog, args = [], debugUrl, debugLaunch = false, debugTarget, debugDuration = 0, marker, active = false, campaign, autoCampaign = false, prove = false, proofProfile, ipcProfile, logout = false, capture = true, traffic = true, scope = [], reveal = false, canaries = [], searchDirs = [], userData,
   assistant, staticIssues = [], confirm, screenshots, remoteHosts = [], headerNames = [] }) {
   let log = watchLog;
   let packagedApp;
@@ -38,6 +42,11 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
   let credentials;
   let copiedHeaders;
   const rendererDebug = !!debugUrl || debugLaunch;
+  if (prove) proofProfile = validateProfile(proofProfile || {});
+  if (ipcProfile) ipcProfile = validateProfile(ipcProfile, true);
+  if ((prove || ipcProfile || logout) && !watch) throw new Error('Proof and logout options need a live watch session, not a saved log');
+  if (rendererDebug && (prove || proofProfile || ipcProfile || logout)) throw new Error('Proof and logout checks require native main-process watch mode');
+  if (logout && autoCampaign) throw new Error('Logout checkpoints and auto-campaign need separate sessions to avoid conflicting terminal prompts');
   if (debugLaunch && (!watch || debugUrl || watchLog)) throw new Error('--debug-launch requires an app to launch and cannot be combined with a saved log or --debug-url');
   if (rendererDebug && campaign && (campaign.mode !== 'capture' || campaign.docxImport || campaign.cases.some(name => /^(api|nav)-/.test(name))))
     throw new Error('Renderer debugging needs a standard capture campaign or --auto-campaign; direct request, API, navigation and DOCX profiles use native watch mode');
@@ -73,15 +82,35 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
     // when the terminal is interactive and there is a marker, let the assistant re-send the marker request itself
     // (after a Y/N): it writes a command here and the hook, reading it, replays the request through the app's session
     let commandsFile;
-    if (marker && (confirm || campaign) && assistant.useChannel) {
+    if (logout || marker && (confirm || campaign) && assistant.useChannel) {
       commandsFile = path.join(logDir, 'commands.jsonl');
       fs.writeFileSync(commandsFile, '');
-      assistant.useChannel({ confirm, ask: confirm?.ask, cancel: typeof confirm?.cancel === 'function' ? () => confirm.cancel() : undefined,
+      assistant.useChannel({ confirm: logout ? undefined : confirm, ask: logout ? undefined : confirm?.ask, cancel: typeof confirm?.cancel === 'function' ? () => confirm.cancel() : undefined,
         send: (command) => { try { fs.appendFileSync(commandsFile, JSON.stringify(command) + '\n'); } catch { /* best effort */ } } });
       if (campaign?.mode === 'request' || campaign?.mode === 'docx')
         fs.appendFileSync(commandsFile, JSON.stringify({ kind: 'run-campaign', profile: campaign }) + '\n');
     }
-    const stopFollowing = followLog(logFile, record => assistant.handle(record));
+    const serviceTasks = [];
+    const servicePorts = new Set();
+    const toolPorts = new Set();
+    const stopFollowing = followLog(logFile, record => {
+      assistant.handle(record);
+      if (record.kind === 'proof-listener') toolPorts.add(`${record.pid}:${record.port}`);
+      if (prove && record.kind === 'windows-listener' && !record.toolInspector && !toolPorts.has(`${record.pid}:${record.port}`) && !servicePorts.has(record.port)) {
+        const routes = (proofProfile?.services || []).filter(s => s.port === record.port);
+        if (!routes.length) return;
+        servicePorts.add(record.port);
+        serviceTasks.push(inspectServices(routes, [record]).then(results => {
+          for (const p of results) fs.appendFileSync(logFile, JSON.stringify({ t: Date.now(), kind: 'proof', ...p }) + '\n');
+        }));
+      }
+    });
+    let proofFile;
+    if (prove || ipcProfile || logout) {
+      proofFile = path.join(logDir, 'proof-config.json');
+      fs.writeFileSync(proofFile, JSON.stringify({ enabled: prove, profile: proofProfile || {}, ipc: ipcProfile, logout }), { mode: 0o600 });
+    }
+    const logoutController = logout ? logoutCheck({ ask: confirm?.ask, commands: commandsFile, log: logFile, canaries, searchDirs }) : undefined;
     // --remote-header names: the values the app sends to the --remote hosts, handed over in this file (never the log)
     const headersFile = remoteHosts.length > 0 && headerNames.length > 0 ? path.join(logDir, 'remote-headers.json') : undefined;
     const remoteOptions = { remoteHosts, headerNames, headersFile };
@@ -89,22 +118,46 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
       const debugOptions = { target: debugTarget, duration: debugDuration, marker, active, campaign: !!campaign || autoCampaign,
         traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile, ...remoteOptions };
       log = debugUrl ? await watchDebug(debugUrl, debugOptions) : debugLaunch ? await watchDebugApp(located.kind === 'project' ? located.folder : located.executable,
-        { ...debugOptions, args, onNote: note => { injection = note; } }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, active, campaign: !!campaign || autoCampaign, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
+        { ...debugOptions, args, onNote: note => { injection = note; } }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, active, campaign: !!campaign || autoCampaign, prove, proofConfig: proofFile, preserveLog: true, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
         ...remoteOptions, onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
+      logoutController?.stop();
+      if (logout && confirm?.cancel) confirm.cancel();
+      if (proofFile) fs.rmSync(proofFile, { force: true });
       if (headersFile) {
         copiedHeaders = readCopiedHeaders(headersFile);
         for (const file of [headersFile, `${headersFile}.tmp`]) try { fs.rmSync(file, { force: true }); } catch { /* best effort */ }
       }
       stopFollowing();
       if (assistant.clearChannel) assistant.clearChannel();
-      if ((campaign || autoCampaign) && commandsFile) try { fs.unlinkSync(commandsFile); } catch { /* best effort */ }
+      if ((campaign || autoCampaign || logout) && commandsFile) try { fs.unlinkSync(commandsFile); } catch { /* best effort */ }
     }
+    await Promise.allSettled(serviceTasks);
     assistant.printSummary();
     console.log(chalk.gray(__('watchLogSaved', { file: log })));
     if (headersFile) reportCopiedHeaders(copiedHeaders, remoteHosts, headerNames);
   }
   const records = readWatchLog(log);
+  if (watch && prove) {
+    const metadataStart = records.length;
+    const feeds = new Set(proofProfile?.feeds || []);
+    for (const feed of records.filter(r => r.kind === 'update-feed' && r.exact)) {
+      if (/(?:latest[^/]*\.ya?ml|RELEASES)$/i.test(new URL(feed.url).pathname)) feeds.add(feed.url);
+      else records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'feed directory/provider requires an exact metadata URL in --proof-profile' });
+    }
+    for (const url of [...feeds].slice(0, 8)) records.push({ t: Date.now(), kind: 'proof', ...await inspectFeed(url) });
+    if (!feeds.size) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'no exact metadata feed observed or configured' });
+    if (!proofProfile?.links?.length) records.push({ t: Date.now(), kind: 'proof', test: 'external-scheme', outcome: 'skipped', reason: 'reviewed app link route required' });
+    if (!ipcProfile) records.push({ t: Date.now(), kind: 'proof', test: 'ipc', outcome: 'skipped', reason: 'separate reviewed IPC profile required' });
+    for (const test of ['navigation', 'window-open', 'permission-request', 'permission-check', 'certificate']) {
+      if (!records.some(r => r.kind === 'proof' && r.test === test)) records.push({ t: Date.now(), kind: 'proof', test, outcome: 'skipped', reason: 'no completed early-hook test observed' });
+    }
+    for (const service of proofProfile?.services || []) if (!records.some(r => r.kind === 'proof' && r.test === 'local-service' && r.port === service.port))
+      records.push({ t: Date.now(), kind: 'proof', test: 'local-service', outcome: 'skipped', port: service.port, reason: 'no matching listener observed during the session' });
+    // Persist metadata proofs so --watch-log reproduces the same report.
+    const extra = records.slice(metadataStart).filter(r => r.kind === 'proof');
+    if (extra.length) fs.appendFileSync(log, extra.map(r => JSON.stringify(r)).join('\n') + '\n');
+  }
   if (campaign && !records.some(r => r.kind === (campaign.mode === 'docx' ? 'docx-done' : 'campaign-done') || r.kind === 'campaign-error'))
     records.push({ kind: 'campaign-error', message: 'No completed campaign was observed; check the app hook, test window and capture workflow' });
   if (campaign?.docxImport && !records.some(r => r.kind === 'docx-done' || r.kind === 'campaign-error'))

@@ -7,6 +7,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FUSES, evaluateFuses } from '../finder/checks/fuses.js';
 import { severity, confidence } from '../finder/attributes.js';
+import { spawn } from 'node:child_process';
+
+/** Explicitly enabled behavioral probe. A disabled fuse may launch the normal app;
+ * avoid that when the wire already pins it off, and terminate unresponsive children. */
+export function proveRunAsNode(executable, { run = spawn, timeout = 3000, platform = process.platform } = {}) {
+  if (platform !== 'win32') return Promise.resolve({ test: 'run-as-node', outcome: 'skipped', reason: 'Windows-only probe' });
+  const wire = readFuseWire(executable);
+  if (wire?.config.RunAsNode === false) return Promise.resolve({ test: 'run-as-node', outcome: 'skipped', reason: 'binary fuse is disabled', scope: 'binary-configuration' });
+  return new Promise(resolve => {
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
+    delete env.NODE_OPTIONS;
+    for (const key of Object.keys(env)) if (key.startsWith('ELECTRONEGATIVITY_')) delete env[key];
+    const child = run(executable, ['-e', 'process.exit(42)'], { env, stdio: 'ignore', windowsHide: true });
+    let done = false;
+    const finish = result => { if (done) return; done = true; clearTimeout(timer); resolve({ test: 'run-as-node', scope: 'process-exit', ...result }); };
+    const timer = setTimeout(() => { child.kill(); finish({ outcome: 'timeout' }); }, timeout);
+    child.once('error', () => finish({ outcome: 'error' }));
+    child.once('exit', code => finish({ outcome: code === 42 ? 'enabled' : 'inconclusive', exitCode: code }));
+  });
+}
 
 const SENTINEL = Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX');
 const DOCS = 'https://www.electronjs.org/docs/latest/tutorial/fuses';

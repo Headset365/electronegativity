@@ -1,5 +1,20 @@
 # Checklist automation status
 
+## Windows watch proof additions
+
+See [PROOF-WATCH-WINDOWS.md](PROOF-WATCH-WINDOWS.md) for the Windows 10/11 implementation,
+opt-in contracts and evidence limits. Native watch now collects installation ACLs,
+matching protocol commands, app-owned listeners and observed zone streams. `--prove`
+adds bounded handler, loopback self-signed TLS and RunAsNode evidence; reviewed profiles
+add link/service/feed tests and a separate real foreign-sender read-only IPC canary.
+`--logout-check` coordinates live and file before/after snapshots. App log/crash folders
+join supplied marker scans, shipment evidence appears in the component workbook, and
+static/runtime setting differences are flagged without discarding unvisited findings.
+
+These are evidence-producing checks, not a new completed-checklist count. Synthetic
+handler calls, registry quoting, feed metadata, value retention and missing package
+manifests do not establish broader exploitation, dead code or successful credential use.
+
 This is the implementation update for the 400 line-item Electron checklist audit. The original audit's strict standard counts an item as autonomous only when the tool can finish its assessment without the tester logging in, providing an application-specific workflow or policy, or validating the result. Under that standard the earlier **6 autonomous / 156 assisted / 238 missing** baseline is not replaced by a new claimed pass rate: the new campaign needs a one-time test profile and a prepared app session, and no target app was provided for an end-to-end assessment. The six bounded software-version/advisory facts remain the only strictly autonomous items. This does not mean the other 394 require a manual action for every test; a configured run handles its cases without per-case prompts.
 
 ## Implemented in this iteration

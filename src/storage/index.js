@@ -107,6 +107,8 @@ export function reviewDataAtRest({ names = [], userData, observedUserData, revie
       const diff = baseline ? changedFiles(baseline.files, snapshot(baseline.roots)) : undefined;
       const newTargets = baseline ? credentialTargets().filter(t => !baseline.targets.includes(t)) : [];
       const result = scanForCanaries(roots, values, { registryNames: names, changedPaths: diff && new Set(diff.map(d => d.path)) });
+      if (result.coverage.skippedLargeFiles || result.coverage.unreadableFiles || result.coverage.fileLimitReached)
+        notes.push(`Test-marker scan coverage: ${result.coverage.skippedLargeFiles} files exceeded ${result.coverage.maxFileBytes} bytes, ${result.coverage.unreadableFiles} files were unreadable${result.coverage.fileLimitReached ? ', file count limit reached' : ''}; silence does not establish absence.`);
       const shown = (value) => reveal ? value : value.length > 4 ? `${value.slice(0, 2)}…${value.slice(-1)}` : '…';
       const byLocation = new Map();
       for (const hit of result.hits) byLocation.set(hit.location, [...(byLocation.get(hit.location) || []), hit]);
@@ -118,7 +120,7 @@ export function reviewDataAtRest({ names = [], userData, observedUserData, revie
           `The test password '${shown(hits[0].canary)}' typed into the app was found ${plain ? 'in plaintext' : 'encoded but not encrypted'} (${encodings.join(', ')}) in ${location}${plain ? '' : ': base64, hex and URL encoding are reversible by anyone who can read it'}`,
           { store: hits[0].store || 'file', encodings, evidence }, SAFE_STORAGE, evidence[0]));
       }
-      summary.credentialTrace = { canaries: values.length, roots, files: result.files, leveldbStores: result.leveldbStores, locations: [...byLocation.keys()],
+      summary.credentialTrace = { canaries: values.length, roots, files: result.files, coverage: result.coverage, leveldbStores: result.leveldbStores, locations: [...byLocation.keys()],
         credentialManagerNew: newTargets, protectedMarkers: result.markers.slice(0, 50), changed: (diff || []).slice(0, 200), baseline: !!baseline };
       if (byLocation.size === 0) {
         const parts = [`The test password was not found in plaintext or a common encoding in ${result.files} files (${result.leveldbStores} LevelDB stores decoded) under ${roots.join(', ')}.`];

@@ -38,6 +38,7 @@ export function statusLabels(row) {
 
 /** Components that need action: anything but Latest (or Unknown, when nothing could be looked up). */
 export function needsAction(row) {
+  if (row.shipment?.status === 'development-metadata-only') return false;
   return statusLabels(row).some(label => label !== 'Latest' && label !== 'Unknown');
 }
 
@@ -85,7 +86,7 @@ const link = (target) => target ? { value: target.text, url: target.url } : '';
 
 export const ACTION_HEADER = ['Component', 'Type', 'Installed version', 'Installed version release date', 'Latest version', 'Latest version release date',
   'Support status', 'Recommended action', 'Path found', 'Installed version link', 'Latest version link',
-  'Advisories: deps.dev (this version)', 'Advisories: Snyk (this version)', 'Advisories: GitHub (all versions)', 'Links to validate manually'];
+  'Advisories: deps.dev (this version)', 'Advisories: Snyk (this version)', 'Advisories: GitHub (all versions)', 'Links to validate manually', 'Shipment evidence'];
 // the links, as the "Links to validate manually" column names them
 const LINK_NAMES = ['Installed version link', 'Latest version link', 'deps.dev', 'Snyk', 'GitHub'];
 
@@ -94,7 +95,8 @@ export function linksToValidate(row) {
   const checks = row.linkChecks || [];
   return LINK_NAMES.filter((name, i) => checks[i] !== true).join(', ');
 }
-export const CATALOG_HEADER = ['Component', 'Type', 'Version', 'Identified from', 'Path found', 'Needs action'];
+export const CATALOG_HEADER = ['Component', 'Type', 'Version', 'Identified from', 'Path found', 'Needs action', 'Shipment evidence'];
+const shipment = row => row.shipment ? `${row.shipment.status}: ${row.shipment.note}` : 'Shipment not assessed';
 
 const FOUND_AS = { 'Electron runtime': "App's Electron version", lockfile: 'Lockfile', node_modules: 'Installed package (node_modules)', 'bundled library': 'Library file in the app' };
 const paths = (row) => (row.locations && row.locations.length ? row.locations : row.files || []).join('\n');
@@ -112,12 +114,12 @@ export function componentTable(dependencies) {
       sort: [row.malicious ? 1 : 0, advisories.some(a => a.kev) ? 1 : 0, highest, advisories.length,
         labels.includes('End of life') || labels.includes('Unsupported') ? 1 : 0, row.majorsBehind || 0],
       cells: [row.name, typeOf(row), row.version, date(row.released), row.latest || '', date(row.latestReleased), labels.join(', '), action(row, labels), paths(row),
-        ...links.map(link), linksToValidate(row)],
+        ...links.map(link), linksToValidate(row), shipment(row)],
     };
   }).sort((a, b) => { for (let i = 0; i < a.sort.length; i++) if (a.sort[i] !== b.sort[i]) return b.sort[i] - a.sort[i]; return 0; });
   const catalog = [...all].sort((a, b) => a.name.localeCompare(b.name) || String(a.version).localeCompare(String(b.version), undefined, { numeric: true }))
     .map(row => [row.name, typeOf(row), row.version, (row.kinds || []).map(kind => FOUND_AS[kind] || kind).join(', ') + (row.dev && !isElectron(row) ? ' (development only)' : ''),
-      paths(row), needsAction(row) ? 'Yes' : 'No']);
+      paths(row), needsAction(row) ? 'Yes' : row.shipment?.status === 'development-metadata-only' ? 'Build/supply-chain review' : 'No', shipment(row)]);
   return { header: ACTION_HEADER, rows: actions.map(r => r.cells), catalogHeader: CATALOG_HEADER, catalog };
 }
 
@@ -164,8 +166,8 @@ const CATALOG_SHEET = 'All components';
 /** The workbook as a Buffer. */
 export function renderComponentsXlsx(dependencies, { appName } = {}) {
   const { header, rows, catalogHeader, catalog } = componentTable(dependencies);
-  const actions = worksheet(header, rows, [26, 16, 14, 14, 14, 14, 30, 50, 50, 30, 30, 30, 30, 36, 30]);
-  const inventory = worksheet(catalogHeader, catalog, [30, 16, 14, 34, 70, 12]);
+  const actions = worksheet(header, rows, [26, 16, 14, 14, 14, 14, 30, 50, 50, 30, 30, 30, 30, 36, 30, 70]);
+  const inventory = worksheet(catalogHeader, catalog, [30, 16, 14, 34, 70, 28, 70]);
   const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/></numFmts>

@@ -29,6 +29,13 @@ export const ROUTES = {
 
 // keyed by check id without its _JS_CHECK / _HTML_CHECK / _JSON_CHECK / _GLOBAL_CHECK suffix
 const CONSEQUENCES = {
+  RUNTIME_CERTIFICATE_PROOF: ['network', 'The app accepted the tool’s self-signed certificate at a loopback test endpoint. Scope to that endpoint; interception of other hosts is untested.'],
+  RUNTIME_FUSE_PROOF: ['local', 'The packaged app demonstrated a fuse-controlled capability when the tool launched it with the corresponding environment or CLI argument.'],
+  RUNTIME_IPC_PROOF: ['escalation', 'A tool-created foreign renderer with a tool-supplied IPC bridge read a tool-owned file through a reviewed handler. App bridge exposure and authorization policy are untested.'],
+  RUNTIME_SHELL_PROOF: ['content', 'A configured app link route reached an operating-system handoff; the tool blocked the real OS call.'],
+  RUNTIME_UPDATE_PROOF: ['supply', 'The update metadata used insecure transport. Artifact signatures and actual updater verification remain untested.'],
+  WINDOWS_INSTALL_PERMISSIONS: ['local', 'An install-path ACL contains broad-group write grants. Effective access and elevation depend on deny entries, inheritance and the attacker’s account.'],
+  WINDOWS_PROTOCOL_REGISTRATION: ['local', 'A matching Windows protocol command contains weak quoting. Actual switch injection and second-instance handling remain untested.'],
   DYNAMIC_MODULE: ['escalation', 'A renderer or deep link chooses the JavaScript module loaded by the main process: a traversal path can execute a file outside the intended module folder with the app’s privileges.'],
   RUNTIME_MARKER_MODULE: ['escalation', 'A planted marker reached a module-loading path. Review whether untrusted input can select executable modules outside the intended set.'],
   AFFINITY: ['escalation', 'Windows sharing a renderer process are not isolated from each other: script injected into one of them can affect the others.'],

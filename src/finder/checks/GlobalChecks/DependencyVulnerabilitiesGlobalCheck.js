@@ -20,7 +20,8 @@ export default class DependencyVulnerabilitiesGlobalCheck {
       for (const pkg of (issue.properties && issue.properties.packages) || []) {
         if (pkg.name === 'electron') continue;
         const key = `${pkg.name}@${pkg.version}`;
-        if (!byKey.has(key)) byKey.set(key, { ...pkg, file: issue.file });
+        const earlier = byKey.get(key);
+        if (!earlier || pkg.installed || pkg.vendored) byKey.set(key, { ...pkg, dev: pkg.installed || pkg.vendored ? false : !!pkg.dev, file: issue.file });
       }
     }
     const packages = [...byKey.values()];

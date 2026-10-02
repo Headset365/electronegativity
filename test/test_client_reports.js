@@ -255,7 +255,7 @@ describe('Client report outputs', () => {
     const table = componentTable({ rows });
     table.header.should.deep.equal(['Component', 'Type', 'Installed version', 'Installed version release date', 'Latest version', 'Latest version release date',
       'Support status', 'Recommended action', 'Path found', 'Installed version link', 'Latest version link',
-      'Advisories: deps.dev (this version)', 'Advisories: Snyk (this version)', 'Advisories: GitHub (all versions)', 'Links to validate manually']);
+      'Advisories: deps.dev (this version)', 'Advisories: Snyk (this version)', 'Advisories: GitHub (all versions)', 'Links to validate manually', 'Shipment evidence']);
     const byName = Object.fromEntries(table.rows.map(r => [r[0], r]));
     table.rows.map(r => r[0]).should.deep.equal(['malicious', 'electron', 'lodash', 'request', 'old']);
     byName.malicious[1].should.equal('JS library');
@@ -274,9 +274,9 @@ describe('Client report outputs', () => {
     byName.request[8].should.equal('package-lock.json (line 40)');
     byName.malicious[8].should.equal('js/app.js');
     // every component is in the catalog, with where it was found and whether it needs action
-    table.catalogHeader.should.deep.equal(['Component', 'Type', 'Version', 'Identified from', 'Path found', 'Needs action']);
+    table.catalogHeader.should.deep.equal(['Component', 'Type', 'Version', 'Identified from', 'Path found', 'Needs action', 'Shipment evidence']);
     table.catalog.map(r => r[0]).should.deep.equal(['current', 'electron', 'lodash', 'malicious', 'old', 'private-thing', 'request']);
-    table.catalog.find(r => r[0] === 'old').should.deep.equal(['old', 'npm package', '1.0.0', 'Installed package (node_modules)', 'node_modules/old', 'Yes']);
+    table.catalog.find(r => r[0] === 'old').should.deep.equal(['old', 'npm package', '1.0.0', 'Installed package (node_modules)', 'node_modules/old', 'Yes', 'Shipment not assessed']);
     table.catalog.find(r => r[0] === 'current')[5].should.equal('No');
     table.catalog.find(r => r[0] === 'private-thing')[5].should.equal('No');
   });
@@ -305,7 +305,7 @@ describe('Client report outputs', () => {
     const buffer = renderComponentsXlsx({ rows: [row, electron] });
     const sheet = zipEntry(buffer, 'xl/worksheets/sheet1.xml');
     const rels = zipEntry(buffer, 'xl/worksheets/_rels/sheet1.xml.rels');
-    sheet.should.include('state="frozen"').and.include('<autoFilter ref="A1:O3"/>');
+    sheet.should.include('state="frozen"').and.include('<autoFilter ref="A1:P3"/>');
     // five links a row, each its own cell and relationship
     (sheet.match(/<hyperlink ref=/g) || []).length.should.equal(10);
     (rels.match(/TargetMode="External"/g) || []).length.should.equal(10);
@@ -316,7 +316,7 @@ describe('Client report outputs', () => {
     zipEntry(buffer, 'xl/styles.xml').should.include('formatCode="yyyy-mm-dd"');
     const workbook = zipEntry(buffer, 'xl/workbook.xml');
     workbook.should.include('name="Components needing action" sheetId="1"').and.include('name="All components" sheetId="2"');
-    zipEntry(buffer, 'xl/worksheets/sheet2.xml').should.include('<autoFilter ref="A1:F3"/>').and.not.include('<hyperlinks>');
+    zipEntry(buffer, 'xl/worksheets/sheet2.xml').should.include('<autoFilter ref="A1:G3"/>').and.not.include('<hyperlinks>');
   });
 
   it('escapes link targets and cell text, and never writes formulas', () => {
@@ -330,13 +330,13 @@ describe('Client report outputs', () => {
 
   it('writes both sheets for an empty or offline dependency report without lookups', () => {
     const empty = renderComponentsXlsx({ rows: [], offline: true });
-    zipEntry(empty, 'xl/worksheets/sheet1.xml').should.include('<autoFilter ref="A1:O1"/>').and.not.include('<hyperlinks>');
-    zipEntry(empty, 'xl/worksheets/sheet2.xml').should.include('<autoFilter ref="A1:F1"/>');
+    zipEntry(empty, 'xl/worksheets/sheet1.xml').should.include('<autoFilter ref="A1:P1"/>').and.not.include('<hyperlinks>');
+    zipEntry(empty, 'xl/worksheets/sheet2.xml').should.include('<autoFilter ref="A1:G1"/>');
     zipEntry(empty, 'xl/worksheets/_rels/sheet1.xml.rels').should.not.include('TargetMode');
     // nothing looked up: Unknown, listed in the catalog only
     const offline = componentTable({ offline: true, rows: [{ name: 'local', version: '1', kinds: ['lockfile'], support: { status: 'unknown' } }] });
     offline.rows.should.deep.equal([]);
-    offline.catalog.should.deep.equal([['local', 'npm package', '1', 'Lockfile', '', 'No']]);
+    offline.catalog.should.deep.equal([['local', 'npm package', '1', 'Lockfile', '', 'No', 'Shipment not assessed']]);
   });
 
   it('dispatches mixed outputs through the existing writer', () => {

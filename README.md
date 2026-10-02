@@ -602,3 +602,15 @@ npm run test:runtime
 ```
 
 This runs the existing live watch tests and paired vulnerable/hardened fixtures through native hooks and managed renderer debugging. Independent fixture assertions check allowed versus outside-folder IPC reads, navigation behavior and restored saved content; runtime reports check observed execution and read-back verification. Fixtures use loopback servers, isolated profiles and tool-owned canary files. CI runs the same tests on Windows, macOS and Linux with pending tests forbidden. Ordinary `npm test` skips live cases when Electron or a Linux display is unavailable; `test:runtime` fails instead. Windows runs natively and needs no WSL.
+## Windows watch proofs
+
+Native watch now inventories install-path ACLs, matching protocol registry commands,
+app-owned listeners and observed Mark-of-the-Web streams. Add `--prove` for bounded
+handler/self-signed-TLS/RunAsNode tests, `--proof-profile` for reviewed link/service
+routes and exact update feeds, `--ipc-profile` for separately reviewed read-only IPC,
+and `--logout-check` for interactive before/after logout snapshots. Development-only
+metadata and actual shipped package presence are distinguished in the workbook.
+
+See [the Windows proof runbook](docs/PROOF-WATCH-WINDOWS.md) for Windows 10/11 commands,
+profile contracts, evidence limits and native regression tests. Credential validation
+against a live service remains a manual checklist item requiring written client permission.

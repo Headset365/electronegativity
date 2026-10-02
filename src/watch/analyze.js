@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { severity, confidence } from '../finder/attributes.js';
 import { trafficIssues } from '../traffic/ingest.js';
 import { createRequire } from 'node:module';
+import { analyzeProofs } from './proof-analysis.js';
 
 const require = createRequire(import.meta.url);
 const { EXECUTION } = require('./campaign.cjs');
@@ -44,6 +45,9 @@ const hostOf = (url) => {
  * @returns {{ issues: Array, summary: { started, windows, channels, unusedChannels, pages } }}
  */
 export function analyzeWatchLog(records) {
+  const toolWindows = new Set(records.filter(r => r.kind === 'proof-window').map(r => r.id));
+  records = records.filter(r => r.kind === 'proof' || !toolWindows.has(r.id) && !toolWindows.has(r.webContents));
+  const proofAnalysis = analyzeProofs(records);
   const issues = [];
   const add = (id, url, sev, conf, description, properties, reference = DOCS) => issues.push({
     file: url || 'runtime', sample: '', location: { line: 0, column: 0 }, id, description, properties, shortenedURL: reference,
@@ -169,7 +173,7 @@ export function analyzeWatchLog(records) {
     const where = origin(page.url);
     const settings = Object.fromEntries(['nodeIntegration', 'contextIsolation', 'sandbox', 'webSecurity'].map(name => [name, { value: prefs[name], source: prefs[name] === undefined ? 'unavailable' : 'observed' }]));
     const preload = prefs.preload || preloadByContents.get(page.id);
-    if (first(`window:${page.id}:${where}`))
+    if (first(`window:${page.id}:${where}:${JSON.stringify(settings)}`))
       add('RUNTIME_WINDOW_SUMMARY', page.url, severity.INFORMATIONAL, confidence.CERTAIN, `Window observed at runtime: ${page.type} showing ${page.url}`,
         { window: page.type, settings, preload, url: page.url, webContents: page.id });
     if (prefs.nodeIntegration === true && prefs.sandbox !== true && first(`node:${where}`))
@@ -384,11 +388,12 @@ export function analyzeWatchLog(records) {
         text: `${issue.description}${setting ? ' This confirms the observed configuration, not exploitability.' : ''}` };
     }
   }
-  return { issues, summary: { screenshots, started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic,
+  issues.push(...proofAnalysis.issues);
+  return { issues, summary: { proofs: proofAnalysis.summary, screenshots, started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic,
     docxCampaign: docxCases.length ? { attempted: docxCases.length, accepted: docxCases.filter(c => c.accepted).length, cases: docxCases } : undefined,
     campaign: campaignCases.length ? { attempted: campaignCases.length, accepted: campaignCases.filter(c => c.delivery === 'accepted').length,
       executed: campaignCases.filter(c => c.execution === 'observed').length, cases: campaignCases } : undefined,
-    userData: paths && paths.userData } };
+    userData: paths && paths.userData, logs: paths && paths.logs, crashDumps: paths && paths.crashDumps } };
 }
 
 // Secrets written to the consoles, errors nothing handled, and CSP violations: each once per kind and place

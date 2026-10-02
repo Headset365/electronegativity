@@ -3,6 +3,13 @@
 // Each entry is [what to do, an example] and the example is optional. Inventory findings (route "info") have none:
 // there is nothing to fix in them. Runtime and traffic findings that prove a static finding share its advice (ALIASES).
 const REMEDIATION = {
+  RUNTIME_CERTIFICATE_PROOF: ['Preserve certificate chain/hostname verification, remove bypass switches and fail closed in certificate verification callbacks.'],
+  RUNTIME_FUSE_PROOF: ['Disable unnecessary RunAsNode and CLI inspector fuses at packaging time, then repeat the behavioral probe on the rebuilt executable.'],
+  RUNTIME_IPC_PROOF: ['Review the tested handler’s sender allowlist and path policy; validate actual senderFrame origins and constrain reads to approved files.'],
+  RUNTIME_SHELL_PROOF: ['Allow only the URL schemes and file paths required by the app before handing them to shell APIs.'],
+  RUNTIME_UPDATE_PROOF: ['Use HTTPS for every feed hop and verify artifact hashes and publisher signatures in the actual updater.'],
+  WINDOWS_INSTALL_PERMISSIONS: ['Review effective rights for the intended attacker account and restrict modification of executable, DLL and resource paths to the intended installation owner or administrators.'],
+  WINDOWS_PROTOCOL_REGISTRATION: ['Quote the executable and URL placeholder, separate URL arguments from switches where supported, and validate all initial/second-instance arguments against an explicit protocol policy.'],
   DYNAMIC_MODULE: ['Keep renderer input out of require() and import() paths. Map an allowlisted identifier to a fixed module, and reject unknown identifiers before loading anything.'],
   AFFINITY: ['Remove the affinity option so each window gets its own renderer process (it was removed in Electron 14).'],
   ALLOWPOPUPS: ['Remove the allowpopups attribute from the <webview>, or handle new-window requests and deny what the app does not need.'],

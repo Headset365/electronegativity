@@ -196,6 +196,7 @@ export function scanForCanaries(roots, canaries, { registryNames = [], changedPa
   const hits = [];
   const found = [];
   let files = 0;
+  let skippedLargeFiles = 0, unreadableFiles = 0;
   const levelDbs = new Set();
   const addHit = (canary, location, label, data, at, length, store) => {
     if (hits.length >= MAX_HITS || hits.some(h => h.location === location && h.encoding === label)) return;
@@ -209,9 +210,10 @@ export function scanForCanaries(roots, canaries, { registryNames = [], changedPa
     if (levelDbCache.get(dir)) levelDbs.add(dir);
     let data;
     try {
-      if (fs.statSync(file).size > MAX_FILE_BYTES) continue;
+      if (fs.statSync(file).size > MAX_FILE_BYTES) { skippedLargeFiles++; continue; }
       data = fs.readFileSync(file);
     } catch {
+      unreadableFiles++;
       continue;
     }
     for (const match of find(data, patterns)) addHit(match.canary, file, match.label, data, match.at, match.length);
@@ -236,5 +238,5 @@ export function scanForCanaries(roots, canaries, { registryNames = [], changedPa
     const data = Buffer.from(text, 'utf8');
     for (const match of find(data, patterns.filter(p => p.label !== 'plaintext (UTF-16)'))) addHit(match.canary, key, `${match.label} (registry)`, data, match.at, match.length, 'registry');
   }
-  return { files, leveldbStores: levelDbs.size, hits, markers: found };
+  return { files, leveldbStores: levelDbs.size, hits, markers: found, coverage: { skippedLargeFiles, unreadableFiles, fileLimitReached: files >= MAX_FILES, maxFileBytes: MAX_FILE_BYTES, maxFiles: MAX_FILES } };
 }

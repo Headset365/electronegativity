@@ -18,6 +18,7 @@ import { extension, input_exists, is_directory, writeIssues, writeReports, getRe
 import { checkComponentLinks } from './util/link_check.js';
 import { isSourceBuildTooling } from './util/file.js';
 import { dependencyReport, sortRows } from './util/dependencies.js';
+import { annotateShipment } from './util/shipment.js';
 import { validationHint } from './finder/consequences.js';
 import { startDiagnostics, stopDiagnostics, diagnostics, writeDiagnostics } from './util/diagnostics.js';
 import pkg from '../package.json' with { type: 'json' };
@@ -232,8 +233,7 @@ async function scan(options, forCli) {
     // copies of libraries skipped by the scan still count for the dependency advisory checks
     if (finder._enabled_checks.some(check => check.name === 'DependencyInventoryLockCheck')) {
       // a packaged app has no lockfile: the packages in its node_modules stand in for it
-      const lockfileInventory = issues.some(i => i.id === 'DEPENDENCY_INVENTORY_LOCK_CHECK');
-      const installed = lockfileInventory ? [] : (loader.installedPackages || []);
+      const installed = loader.installedPackages || [];
       if (installed.length > 0) {
         issues.push({ file: 'node_modules', sample: '', location: { line: 1, column: 0 }, id: 'DEPENDENCY_INVENTORY_LOCK_CHECK',
           description: `${__('DEPENDENCY_INVENTORY_LOCK_CHECK')} (${installed.length} packages shipped in node_modules)`,
@@ -362,7 +362,7 @@ async function scan(options, forCli) {
     const names = credentials.names || appNames(topManifest(filenames, loader), options.appNames || []);
     const packagedApp = /[\\/]resources[\\/]app(\.asar)?$/i.test(path.resolve(options.input)) ? path.dirname(path.dirname(path.resolve(options.input))) : undefined;
     atRest = reviewDataAtRest({ names, userData: options.userData, observedUserData: options.runtime && options.runtime.summary && options.runtime.summary.userData,
-      review: reviewProfile, canaries: options.canaries || [], searchDirs: options.searchDirs || [], installDir: credentials.installDir || packagedApp,
+      review: reviewProfile, canaries: options.canaries || [], searchDirs: [...(options.searchDirs || []), options.runtime?.summary?.logs, options.runtime?.summary?.crashDumps].filter(Boolean), installDir: credentials.installDir || packagedApp,
       baseline: credentials.baseline, cookieEncryption: cookieEncryptionFuse(issues), reveal: !!options.reveal });
     issues.push(...atRest.issues);
     for (const note of atRest.notes) errors.push({ file: 'data at rest', message: note, tolerable: true });
@@ -679,6 +679,7 @@ async function dependencyTable(issues, filenames, loader, electronVersion, input
     }
   }
   const report = await dependencyReport([...byKey.values()]);
+  annotateShipment(report.rows, { packaged: /\.asar$/i.test(input) || /[\\/]resources[\\/]app$/i.test(input) });
   report.rows = sortRows(report.rows);
   return report;
 }

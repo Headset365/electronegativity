@@ -25,6 +25,7 @@
     "lint": "eslint .",
     "test": "mocha",
     "test:runtime": "mocha --no-config --timeout 150000 test/test_watch.js test/test_runtime_benchmark.js --forbid-pending",
+    "test:windows-proofs": "mocha --no-config --timeout 120000 test/test_windows_proofs.js test/test_windows_live_proofs.js --forbid-pending",
     "test:benchmark": "node scripts/benchmark-known-vulnerabilities.mjs ../electron-benchmark/sources ../electron-benchmark/results-ci --download && node scripts/evaluate-known-vulnerabilities.mjs ../electron-benchmark/sources ../electron-benchmark/results-ci --ci",
     "check:references": "node scripts/check-references.js"
   },

@@ -1,0 +1,10 @@
+{
+  "handlers": [
+    {
+      "channel": "replace-with-reviewed-file-read-channel",
+      "reviewed": false,
+      "contract": "file-read",
+      "args": ["$CANARY_PATH"]
+    }
+  ]
+}

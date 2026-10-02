@@ -10,6 +10,7 @@ if (logFile && process.versions.electron && process.type === 'browser') {
   // loader instead, so also try again as soon as the app's entry point has started.
   const Module = require('module');
   const fs = require('fs');
+  const appendEarly = fs.appendFileSync.bind(fs);
   const { observeModuleLoads } = require('./module-load.cjs');
   const observe = load => observeModuleLoads(load, { marker: process.env.ELECTRONEGATIVITY_WATCH_MARKER,
     resolve: (...args) => Module._resolveFilename(...args),
@@ -19,6 +20,9 @@ if (logFile && process.versions.electron && process.type === 'browser') {
   // wraps a module loader so the first load of `electron` is instrumented, and the app gets the wrapped module
   const wrapLoader = (load) => observe(function (request, ...rest) {
     const loaded = load.call(this, request, ...rest);
+    if (request === 'electron-updater') {
+      try { require('./update-observer.cjs').observeUpdater(loaded?.autoUpdater, (kind, data) => appendEarly(logFile, JSON.stringify({ t: Date.now(), kind, ...data }) + '\n')); } catch { /* best effort */ }
+    }
     if (request === 'electron' && loaded && loaded.app) {
       if (!started) {
         started = true;
@@ -209,9 +213,10 @@ function instrument(electron, late) {
   const fs = require('fs');
   const path = require('path');
   const logFile = process.env.ELECTRONEGATIVITY_WATCH_LOG;
+  const appendLog = fs.appendFileSync.bind(fs);
   const write = (kind, data) => {
     try {
-      fs.appendFileSync(logFile, JSON.stringify({ t: Date.now(), kind, ...data }) + '\n');
+      appendLog(logFile, JSON.stringify({ t: Date.now(), kind, ...data }) + '\n');
     } catch {
       // the log is best effort, never break the app
     }
@@ -294,6 +299,18 @@ function instrument(electron, late) {
   };
 
   const { app, ipcMain, shell } = electron;
+  let proofConfig = {};
+  try { if (process.env.ELECTRONEGATIVITY_PROOF_CONFIG) proofConfig = JSON.parse(fs.readFileSync(process.env.ELECTRONEGATIVITY_PROOF_CONFIG, 'utf8')); } catch { write('hook-error', { message: 'proof configuration unreadable' }); }
+  const { createProofs } = require('./proofs.cjs');
+  const proofs = createProofs(electron, write, { ...proofConfig, late: !!late });
+  const { readZone } = require('./windows.cjs');
+  const zoneSeen = new Set();
+  const recordZone = (file, operation) => {
+    if (process.platform !== 'win32' || typeof file !== 'string') return;
+    const result = readZone(file);
+    const key = `${operation}:${file}:${result.status}:${result.zone}`;
+    if (!zoneSeen.has(key) && zoneSeen.size < 1000) { zoneSeen.add(key); write('motw', { path: file, operation, ...result }); }
+  };
   // name of the renderer observer's global, different for every session
   const OBSERVER_KEY = `__eng_${require('crypto').randomBytes(6).toString('hex')}`;
   write('start', { electron: process.versions.electron, platform: process.platform, late: !!late });
@@ -410,12 +427,12 @@ function instrument(electron, late) {
   // preload scripts, by webContents id: getLastWebPreferences() does not report them, so capture them where the window
   // is constructed. The electron exports are getter-only and can't be reassigned, so the app is handed a Proxy of the
   // module (returned from the require hook) that wraps the window constructors. This fills the preload column.
-  const wrappedModule = late ? electron : wrapWindowConstructors(electron, write, pickPrefs, path);
+  const wrappedModule = late ? electron : wrapWindowConstructors(electron, write, pickPrefs, path, () => proofs.deny('new-window'));
 
   // IPC: channel names the app registers, and the calls the pages make
   const wrapInvoke = (channel, listener) => (event, ...args) => {
     write('ipc', { channel: String(channel), mode: 'invoke', sender: redact(event.senderFrame && event.senderFrame.url), args: args.map(typeOf), marker: hasMarker(args) });
-    return listener(event, ...args);
+    return proofs.invoke(event, channel, listener, args);
   };
   safely(() => {
     // started late (ES module app): handlers registered so far are wrapped in place
@@ -431,6 +448,7 @@ function instrument(electron, late) {
     for (const method of ['handle', 'handleOnce']) {
       const original = ipcMain[method].bind(ipcMain);
       ipcMain[method] = (channel, listener) => {
+        proofs.registerIpc(channel, listener, method === 'handleOnce');
         write('ipc-register', { channel: String(channel), mode: method });
         return original(channel, wrapInvoke(channel, listener));
       };
@@ -444,6 +462,10 @@ function instrument(electron, late) {
       };
     }
   });
+  if (typeof ipcMain.removeHandler === 'function') {
+    const remove = ipcMain.removeHandler.bind(ipcMain);
+    ipcMain.removeHandler = channel => { proofs.registerIpc(channel, undefined, true); return remove(channel); };
+  }
 
   // shell: what the app opens outside itself
   safely(() => {
@@ -451,6 +473,11 @@ function instrument(electron, late) {
       const original = shell[method];
       if (typeof original !== 'function') continue;
       shell[method] = function (target, ...rest) {
+        if (proofs.guard()) {
+          write('proof', { test: 'shell-handoff', outcome: 'blocked', scope: proofs.guard().scope, method, scheme: schemeOf(target) });
+          return method === 'openPath' || method === 'openExternal' ? Promise.resolve(method === 'openPath' ? '' : undefined) : undefined;
+        }
+        if (method === 'openPath' || method === 'showItemInFolder') recordZone(target, method);
         write('shell', { method, target: method === 'openExternal' ? redact(target) : String(target), marker: hasMarker(target),
           scheme: method === 'openExternal' ? schemeOf(target) : undefined });
         return original.call(this, target, ...rest);
@@ -682,6 +709,9 @@ function instrument(electron, late) {
   function instrumentSession(ses) {
     if (!ses || instrumentedSessions.has(ses)) return;
     instrumentedSessions.add(ses);
+    const label = sessionLabel(ses);
+    proofs.registerSession(ses, label);
+    if (!proofs.isToolCreation()) proofs.queueCertificate(ses, label);
     const request = ses.webRequest;
     // response headers of documents and anything fetched over plain http
     const record = (details) => {
@@ -725,7 +755,7 @@ function instrument(electron, late) {
       else answer(true);
     };
     originalSetHandler(logged(null, true));
-    ses.setPermissionRequestHandler = (handler) => originalSetHandler(handler ? logged(handler, false) : logged(null, true));
+    ses.setPermissionRequestHandler = (handler) => { proofs.setPermission(ses, 'request', handler); return originalSetHandler(handler ? logged(handler, false) : logged(null, true)); };
 
     // synchronous permission checks (setPermissionCheckHandler): without a handler of the app's own, Electron
     // answers them itself. Records what the app's handler (or the default) allows, the same way as requests above.
@@ -737,7 +767,7 @@ function instrument(electron, late) {
         return granted;
       };
       originalSetCheck(loggedCheck(null, true));
-      ses.setPermissionCheckHandler = (handler) => originalSetCheck(handler ? loggedCheck(handler, false) : loggedCheck(null, true));
+      ses.setPermissionCheckHandler = (handler) => { proofs.setPermission(ses, 'check', handler); return originalSetCheck(handler ? loggedCheck(handler, false) : loggedCheck(null, true)); };
     }
   }
 
@@ -746,6 +776,7 @@ function instrument(electron, late) {
     if (instrumented.has(contents)) return;
     instrumented.add(contents);
     const id = contents.id;
+    proofs.registerContents(contents);
     let type = 'unknown';
     safely(() => { type = contents.getType(); });
     safely(() => instrumentSession(contents.session));
@@ -770,11 +801,15 @@ function instrument(electron, late) {
         .then(csp => write('page-meta-csp', { id, url, csp }))
         .catch(() => {});
     });
-    contents.on('will-navigate', (event, url) => {
+    const observeNavigation = (event, url) => {
       // read after the app's own handlers, which may cancel it
       setImmediate(() => write('will-navigate', { id, url: redact(url), marker: hasMarker(url), prevented: !!event.defaultPrevented }));
-    });
-    contents.on('will-navigate', (event, url) => { if (hasMarker(url)) setImmediate(() => { if (!event.defaultPrevented) screenshot(contents, 'navigation', redact(url)); }); });
+    };
+    observeNavigation.engObserver = true;
+    contents.on('will-navigate', observeNavigation);
+    const observeNavigationMarker = (event, url) => { if (hasMarker(url)) setImmediate(() => { if (!event.defaultPrevented) screenshot(contents, 'navigation', redact(url)); }); };
+    observeNavigationMarker.engObserver = true;
+    contents.on('will-navigate', observeNavigationMarker);
     // server redirects: will-navigate doesn't see them, will-redirect does (read after the app's handlers)
     contents.on('will-redirect', (event, url, isInPlace, isMainFrame) => {
       if (isMainFrame === false) return;
@@ -791,7 +826,7 @@ function instrument(electron, late) {
         return result;
       };
       originalSetHandler(logged(null));
-      contents.setWindowOpenHandler = (handler) => originalSetHandler(logged(handler));
+      contents.setWindowOpenHandler = (handler) => { proofs.setOpen(contents, handler); return originalSetHandler(logged(handler)); };
     });
     contents.on('will-attach-webview', (event, webPreferences, params) => {
       // read after the app's own handlers, which may change the options or cancel the webview
@@ -861,11 +896,19 @@ function instrument(electron, late) {
 
   app.on('web-contents-created', (event, contents) => instrumentWebContents(contents));
   app.on('session-created', (ses) => safely(() => instrumentSession(ses)));
-  app.on('certificate-error', (event, contents, url, error) => write('certificate-error', { url: redact(url), error: String(error) }));
+  app.on('certificate-error', (event, contents, url, error) => write('certificate-error', { id: contents?.id, url: redact(url), error: String(error) }));
   app.whenReady().then(() => safely(() => instrumentSession(electron.session.defaultSession)));
+  safely(() => {
+    require('./update-observer.cjs').observeUpdater(electron.autoUpdater, write);
+  });
   // where the app keeps its profile (cookies, web storage): reviewed after the session for data at rest. Read when the
   // app is ready, after any app.setPath('userData') of its own.
-  app.whenReady().then(() => safely(() => write('paths', { userData: app.getPath('userData') })));
+  app.whenReady().then(() => safely(() => {
+    const paths = {};
+    for (const name of ['userData', 'logs', 'crashDumps']) try { paths[name] = app.getPath(name); } catch { /* unavailable */ }
+    write('paths', paths);
+    if (proofConfig.enabled || proofConfig.ipc) setTimeout(() => { void proofs.start().catch(() => write('proof', { test: 'profile', outcome: 'error' })); }, 2000).unref();
+  }));
   app.on('quit', () => {
     if (traffic) safely(() => traffic.flush());
     saveCopiedHeaders();
@@ -874,17 +917,43 @@ function instrument(electron, late) {
   // files, deep links and command lines handed to the app (listening does not change how the app handles them)
   app.on('open-file', () => write('entry', { detail: 'open-file' }));
   app.on('open-url', () => write('entry', { detail: 'open-url' }));
-  app.on('second-instance', () => write('entry', { detail: 'second-instance' }));
+  app.on('second-instance', (event, args) => write('entry', { detail: 'second-instance', arguments: Array.isArray(args) ? args.length : 0,
+    switches: Array.isArray(args) ? args.filter(a => /^--[\w-]+(?:=|$)/.test(a)).map(a => a.split('=')[0]).slice(0, 50) : [] }));
   safely(() => {
     const { dialog } = electron;
-    for (const method of ['showOpenDialog', 'showOpenDialogSync']) {
+    for (const method of ['showOpenDialog', 'showOpenDialogSync', 'showSaveDialog', 'showSaveDialogSync']) {
       const original = dialog[method];
       if (typeof original !== 'function') continue;
       dialog[method] = function (...args) {
-        write('entry', { detail: 'open-dialog' });
-        return original.apply(this, args);
+        proofs.deny(`dialog.${method}`);
+        write('entry', { detail: /Save/.test(method) ? 'save-dialog' : 'open-dialog' });
+        const record = result => {
+          const files = typeof result === 'string' ? [result] : Array.isArray(result) ? result : result?.filePaths || (result?.filePath ? [result.filePath] : []);
+          for (const file of files) recordZone(file, /Save/.test(method) ? 'save' : 'open');
+          return result;
+        };
+        const result = original.apply(this, args);
+        return result && typeof result.then === 'function' ? result.then(record) : record(result);
       };
     }
+  });
+  // File operations observed after the app's call succeeds. Only document/file
+  // formats relevant to handoff are inventoried; module and log reads are skipped.
+  if (process.platform === 'win32') safely(() => {
+    const wanted = file => typeof file === 'string' && /\.(?:docx?|xlsx?|pptx?|pdf|rtf|txt|html?|exe|msi|zip)$/i.test(file) && !proofs.guard();
+    for (const name of ['readFile', 'readFileSync', 'writeFile', 'writeFileSync', 'appendFile', 'appendFileSync']) {
+      const original = fs[name];
+      fs[name] = function (file, ...args) {
+        const result = original.call(this, file, ...args);
+        if (wanted(file)) setTimeout(() => recordZone(file, /^(?:write|append)/.test(name) ? 'saved-file' : 'opened-file'), 100).unref();
+        return result;
+      };
+    }
+    for (const name of ['readFile', 'writeFile', 'appendFile']) {
+      const original = fs.promises[name];
+      fs.promises[name] = async function (file, ...args) { const result = await original.call(this, file, ...args); if (wanted(file)) recordZone(file, name === 'readFile' ? 'opened-file' : 'saved-file'); return result; };
+    }
+    require('node:module').syncBuiltinESMExports();
   });
 
   // Command channel: the CLI's validation assistant, after asking the tester Y/N, appends a send-marker command here.
@@ -893,6 +962,7 @@ function instrument(electron, late) {
   // only the harmless marker goes into the body. The channel is polled like the log is followed, one line at a time.
   if (COMMANDS) safely(() => {
     const runCommand = (cmd) => {
+      if (cmd?.kind === 'logout-snapshot' && proofConfig.logout) { void proofs.logoutSnapshot(cmd.phase).catch(() => write('hook-error', { message: 'logout snapshot failed' })); return; }
       if (cmd && cmd.kind === 'run-campaign' && CAMPAIGN) {
         const { runCampaign, RESOURCES, startResourceReceiver } = require(path.join(__dirname, 'campaign.cjs'));
         const { runDocxCampaign } = require(path.join(__dirname, 'docx.cjs'));
@@ -1060,7 +1130,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { fillMark
 // A Proxy of the electron module whose BrowserWindow/BrowserView/WebContentsView constructors are wrapped to record the
 // preload script (and other webPreferences) each window is built with. The exports are getter-backed but not
 // non-configurable data properties, so a get trap may return a wrapped value; instances keep passing `instanceof`.
-function wrapWindowConstructors(electron, write, pickPrefs, path) {
+function wrapWindowConstructors(electron, write, pickPrefs, path, beforeConstruct = () => {}) {
   const CTORS = new Set(['BrowserWindow', 'BrowserView', 'WebContentsView']);
   const cache = new WeakMap();
   return new Proxy(electron, {
@@ -1070,6 +1140,7 @@ function wrapWindowConstructors(electron, write, pickPrefs, path) {
       if (!cache.has(value)) {
         cache.set(value, new Proxy(value, {
           construct(ctor, args, newTarget) {
+            beforeConstruct();
             const instance = Reflect.construct(ctor, args, newTarget);
             try {
               const prefs = (args && args[0] && args[0].webPreferences) || {};

@@ -87,6 +87,11 @@ function reportable(i) {
 
 function groupOf(i) {
   const id = normalId(i.id);
+  const proofGroups = { RUNTIME_CERTIFICATE_PROOF: 'Insecure Network Transport and Certificate Validation', RUNTIME_FUSE_PROOF: 'Insecure Electron Fuse Configuration',
+    RUNTIME_IPC_PROOF: 'Insufficient Validation of Inter-Process Messages', RUNTIME_SHELL_PROOF: 'Unvalidated URLs and Files Passed to the Operating System',
+    RUNTIME_UPDATE_PROOF: 'Insecure Software Update Mechanism', WINDOWS_INSTALL_PERMISSIONS: 'Application Code Not Protected Against Tampering or Disclosure',
+    WINDOWS_PROTOCOL_REGISTRATION: 'Insecure Handling of Deep Links and File Associations' };
+  if (proofGroups[id] && definitionOf(proofGroups[id])) return definitionOf(proofGroups[id]);
   if (['RUNTIME_OPEN_PATH', 'RUNTIME_MARKER_OPEN_PATH'].includes(id) && /\.(?:docx?|rtf)\b/i.test(i.description || '')) return definitionOf('Insecure Microsoft Word Integration');
   // the switch that turns certificate validation off belongs with the certificate findings
   if (id === 'CUSTOM_ARGUMENTS' && /ignore-certificate-errors/i.test(i.description || '')) return definitionOf('Insecure Network Transport and Certificate Validation');
@@ -95,6 +100,17 @@ function groupOf(i) {
 
 function evidenceGroupOf(i) {
   const id = normalId(i.id);
+  if (id === 'RUNTIME_STATIC_DISCREPANCY') return 'Insufficient Renderer Process Isolation';
+  if (id === 'WINDOWS_MARK_OF_THE_WEB') return 'Insecure Microsoft Word Integration';
+  if (['RUNTIME_LOGOUT_RETENTION', 'RUNTIME_LOGOUT_FILES'].includes(id)) return 'Sensitive Data Stored Without Adequate Protection';
+  if (id === 'RUNTIME_PROOF') {
+    const test = i.properties?.test;
+    if (['navigation', 'window-open'].includes(test)) return 'Insufficient Navigation and New Window Restrictions';
+    if (test?.startsWith('permission-')) return 'Permissive Browser Permission Handling';
+    if (test === 'certificate') return 'Insecure Network Transport and Certificate Validation';
+    if (test === 'update-feed') return 'Insecure Software Update Mechanism';
+    if (test === 'ipc') return 'Insufficient Validation of Inter-Process Messages';
+  }
   if (id === 'RUNTIME_CSP_VIOLATION') return 'Missing or Insufficient Content Security Policy';
   if (/^RUNTIME_DOCX_/.test(id)) return 'Insecure Processing of Untrusted Documents';
   if (id === 'RUNTIME_WINDOW_COVERAGE') return 'Insufficient Renderer Process Isolation';

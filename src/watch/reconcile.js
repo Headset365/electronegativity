@@ -16,6 +16,10 @@ const place = (issue) => `${issue.file}${issue.location && issue.location.line ?
  */
 export function reconcileRuntime(issues, summary) {
   linkMarkerEvidence(issues);
+  for (const proof of issues.filter(i => i.id === 'RUNTIME_FUSE_PROOF' && i.validation?.status === 'confirmed')) {
+    const fuse = proof.properties.test === 'run-as-node' ? 'RunAsNode' : proof.properties.test === 'node-inspector' ? 'EnableNodeCliInspectArguments' : undefined;
+    if (fuse) for (const finding of issues.filter(i => i.id === 'PACKAGED_FUSES' && i.properties?.fuse === fuse)) recordValidation(finding, proof.validation);
+  }
   const runtimeWindows = issues.filter(i => i.id === 'RUNTIME_WINDOW_SUMMARY');
   if (runtimeWindows.length === 0) return issues; // nothing was observed: leave the static findings untouched
   entryCoverage(issues, summary);
@@ -31,7 +35,27 @@ export function reconcileRuntime(issues, summary) {
       sw.properties = { ...sw.properties, observedAt: match.properties.url };
       match.properties = { ...match.properties, staticWindow: place(sw) };
       observed.add(sw);
+      const settings = sw.properties.settings || {};
+      const effective = Object.fromEntries(Object.entries(match.properties.settings || {}).map(([name, value]) => [name, value.value]));
+      const differing = Object.entries(settings).filter(([name, value]) => typeof value.value === 'boolean' && typeof effective[name] === 'boolean' && value.value !== effective[name])
+        .map(([name, value]) => ({ setting: name, static: value.value, runtime: effective[name] }));
+      if (differing.length) {
+        const description = `Static/runtime settings differ for the uniquely matched preload ${preload}: ${differing.map(d => `${d.setting} static=${d.static}, observed=${d.runtime}`).join('; ')}. This session does not establish dead code or settings of unvisited windows; static severity is retained.`;
+        recordValidation(sw, { status: 'observed', scope: 'configuration-discrepancy', text: description });
+        issues.push({ file: sw.file, sample: '', location: sw.location, id: 'RUNTIME_STATIC_DISCREPANCY', description,
+          properties: { differing, staticWindow: place(sw), runtimeWindow: match.file }, shortenedURL: DOCS, severity: severity.INFORMATIONAL, confidence: confidence.FIRM,
+          manualReview: false, visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: 'Runtime' });
+      }
     }
+  }
+
+  // With no unique window match, report a session-wide contrast, never suppression.
+  if (issues.some(i => i.id === 'NODE_INTEGRATION_JS_CHECK') && !issues.some(i => i.id === 'RUNTIME_NODE_INTEGRATION') && runtimeWindows.every(w => w.properties?.settings?.nodeIntegration?.value === false)) {
+    const description = 'Static code enables Node integration, while every observed window had it off. The session cannot prove that unvisited window definitions are dead code; the static findings retain their severity.';
+    issues.push({ file: 'runtime', sample: '', location: { line: 0, column: 0 }, id: 'RUNTIME_STATIC_DISCREPANCY', description,
+      properties: { setting: 'nodeIntegration', observedWindows: runtimeWindows.length }, shortenedURL: DOCS,
+      severity: severity.INFORMATIONAL, confidence: confidence.FIRM, manualReview: false,
+      visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: 'Runtime' });
   }
 
   // windows the static scan found but that were never opened: coverage beyond the IPC channels already reported
