@@ -94,6 +94,23 @@ describe('Packaged apps', () => {
     loader.installedPackages.map(p => `${p.name}@${p.version}`).should.have.members(['angular@1.5.8', '@scope/lib@2.0.0', 'nested@0.1.0']);
   });
 
+  it('lists library copies in vendor folders and minified builds of a source folder, not those in tests or docs', async () => {
+    const { list_files } = await import('../src/util/file.js');
+    const { default: fs } = await import('node:fs');
+    const { default: os } = await import('node:os');
+    const { default: path } = await import('node:path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-source-libs-'));
+    const put = (name, text) => { fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true }); fs.writeFileSync(path.join(dir, name), text); };
+    put('vendor/jquery.min.js', '/*! jQuery v3.4.1 | (c) JS Foundation and other contributors | jquery.org/license */\n!function(){}();');
+    put('js/moment.min.js', '//! moment.js\n//! version : 2.19.1\n//! authors : Tim Wood, Iskren Chernev, Moment.js contributors\n//! license : MIT\n!function(){}();');
+    put('test/fixtures/jquery.min.js', '/*! jQuery v1.0.0 | (c) jQuery Foundation | jquery.org/license */\n!function(){}();');
+    put('docs/jquery.min.js', '/*! jQuery v1.1.0 | (c) jQuery Foundation | jquery.org/license */\n!function(){}();');
+    put('main.js', 'require("electron");');
+    const files = await list_files(dir);
+    files.vendoredLibraries.map(l => `${l.name}@${l.version}`).should.have.members(['jquery@3.4.1', 'moment@2.19.1']);
+    files.map(f => path.relative(dir, f)).should.deep.equal(['main.js']);
+  });
+
   it('reports the shipped app code and end-of-life packages of a packaged app', async () => {
     const { default: run } = await import('../src/runner.js');
     const result = await run({ input: await build(), offline: true });

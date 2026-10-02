@@ -1,4 +1,4 @@
-// Sources shared by the HTML dependency report and the components workbook.
+// Sources shown by the HTML dependency report (and npm version pages for the components workbook).
 export const npmUrl = (name, version) => `https://www.npmjs.com/package/${name.split('/').map(encodeURIComponent).join('/')}${version ? `/v/${encodeURIComponent(version)}` : ''}`;
 
 const LABELS = { ADVISORY: 'advisory', FIX: 'fix', REPORT: 'report', ARTICLE: 'article', WEB: 'reference' };
@@ -31,22 +31,5 @@ export function advisoryReferences(advisory) {
     if (/^GHSA-/.test(advisory.id)) references.push({ url: `https://github.com/advisories/${encodeURIComponent(advisory.id)}`, label: 'GitHub advisory' });
   }
   for (const ref of advisory.references || []) references.push({ url: ref.url, label: LABELS[ref.type] || 'reference' });
-  return uniqueWebReferences(references);
-}
-
-/** Every source for one component, once per URL, including the installed and fixed versions. */
-export function componentReferences(row) {
-  const references = [{ url: npmUrl(row.name), label: 'npm package' }];
-  if (row.known) references.push({ url: npmUrl(row.name, row.version), label: 'installed version' });
-  if (row.latest) references.push({ url: npmUrl(row.name, row.latest), label: 'latest version' });
-  if (row.latestInMajor && row.latestInMajor !== row.version) references.push({ url: npmUrl(row.name, row.latestInMajor), label: 'latest in installed major' });
-  references.push(...projectReferences(row));
-  for (const advisory of row.advisories || []) {
-    const sources = (advisory.cves || []).map(cve => ({ url: `https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve)}`, label: cve }));
-    sources.push(...advisoryReferences(advisory));
-    if (advisory.fixed) sources.push({ url: npmUrl(row.name, advisory.fixed), label: `fixed version (${advisory.fixed})` });
-    references.push(...sources.map(ref => ({ ...ref, advisory: advisory.id })));
-  }
-  if (row.malicious?.id) references.push(...advisoryReferences(row.malicious).map(ref => ({ ...ref, advisory: row.malicious.id })));
   return uniqueWebReferences(references);
 }

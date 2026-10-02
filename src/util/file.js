@@ -75,6 +75,8 @@ const NON_APP_FILES = /\.(test|spec|stories|e2e)\.[cm]?[jt]sx?$|[.-]min\.js$|^(y
 // .min.js bundles included (the usual AngularJS build output). Only tests are left out there.
 const PACKAGED_NON_APP_DIRECTORIES = new Set(['test', 'tests', '__tests__', '__mocks__', 'spec', 'specs', 'e2e', '.git']);
 const PACKAGED_NON_APP_FILES = /\.(test|spec|stories|e2e)\.[cm]?[jt]sx?$/i;
+// skipped files that are still checked for library copies (vendor/jquery.min.js), unless they are tests or documentation
+const NOT_SHIPPED_DIRECTORIES = new Set(['test', 'tests', '__tests__', '__mocks__', '__fixtures__', 'fixtures', 'spec', 'specs', 'e2e', 'coverage', 'docs', 'examples', 'benchmark', 'benchmarks']);
 
 export function isSourceBuildTooling(relativePath) {
   return /^build[\\/](vite|bin|webpack|rollup)[\\/]/i.test(relativePath) && !isManifestFile(relativePath);
@@ -109,8 +111,15 @@ export async function list_files(input, { allFiles = false, packaged = false } =
   const libraries = [];
   const skipped = { nonAppFiles: 0, vendoredDirectories: 0, vendoredLibraries: 0 };
   const kept = files.filter(file => {
-    if (isNonAppFile(path.relative(input, file), { packaged })) {
+    const relative = path.relative(input, file);
+    if (isNonAppFile(relative, { packaged })) {
       skipped.nonAppFiles++;
+      // a minified or vendor copy of a library is not scanned, but it is one of the app's components
+      const parts = relative.split(/[\\/]/).slice(0, -1);
+      if (!parts.some(part => NOT_SHIPPED_DIRECTORIES.has(part.toLowerCase()) || part.startsWith('.'))) {
+        const library = vendoredLibrary(file);
+        if (library) libraries.push({ ...library, file });
+      }
       return false;
     }
     const inVendoredDir = vendoredDirs.some(dir => file.startsWith(dir + path.sep));

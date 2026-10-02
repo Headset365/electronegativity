@@ -64,6 +64,8 @@ export function registryFacts(doc, version) {
     latest,
     latestReleased: day(latest && time[latest]),
     deprecated: current && doc.versions && doc.versions[current] && doc.versions[current].deprecated || undefined,
+    // the latest release deprecated too: the whole package is no longer maintained, not just this version
+    latestDeprecated: !!(latest && doc.versions && doc.versions[latest] && doc.versions[latest].deprecated),
     known: !!(current && doc.versions && doc.versions[current]),
     ...projectLinks(doc),
   };
@@ -112,11 +114,12 @@ export function supportFacts(product, version) {
   const open = releases.filter(r => !r.isEol).map(r => `${r.name}.x`);
   // every release line past its end of life: the project is discontinued
   const supported = open.length > 0 ? open : ['none (all release lines are end of life)'];
+  const discontinued = releases.length > 0 && open.length === 0;
   const policy = (product.links && product.links.releasePolicy) || (product.links && product.links.html);
   if (!cycle) {
     const oldest = releases.map(r => coerce(r.name)).filter(Boolean).sort(compare)[0];
-    if (oldest && lt(current, oldest)) return { status: 'unsupported', detail: 'Older than every release line the project tracks', supported, policy, source: 'endoflife.date' };
-    return { status: 'unknown', detail: 'Release line not listed by endoflife.date', supported, policy, source: 'endoflife.date' };
+    if (oldest && lt(current, oldest)) return { status: 'unsupported', detail: 'Older than every release line the project tracks', supported, policy, discontinued, source: 'endoflife.date' };
+    return { status: 'unknown', detail: 'Release line not listed by endoflife.date', supported, policy, discontinued, source: 'endoflife.date' };
   }
   const extended = cycle.isEol && cycle.isMaintained && cycle.custom && cycle.custom.eoesProvider;
   return {
@@ -127,6 +130,7 @@ export function supportFacts(product, version) {
     eol: cycle.eolFrom || undefined,
     supported,
     policy,
+    discontinued,
     source: 'endoflife.date',
   };
 }

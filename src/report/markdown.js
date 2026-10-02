@@ -373,7 +373,7 @@ function renderGroup(g, ctx) {
   const sheet = title === 'Outdated Third-Party Components' && ctx.outputs.find(o => /\.xlsx$/i.test(o));
   const sheetLink = sheet && (() => {
     const relative = ctx.outputFile ? path.relative(path.dirname(path.resolve(ctx.outputFile)), path.resolve(sheet)) : path.basename(sheet);
-    return `- Review each flagged component, advisory and fixed version in [${text(path.basename(sheet), ctx)}](${linkTarget(relative.split(path.sep).join('/'))}).`;
+    return `- Review each component needing action, its support status and the recommended action in [${text(path.basename(sheet), ctx)}](${linkTarget(relative.split(path.sep).join('/'))}).`;
   })();
 
   // references: the CWE, each check's own guidance with the scenarios it supports, then Electron's security guidance.

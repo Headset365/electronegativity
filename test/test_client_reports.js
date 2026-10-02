@@ -8,7 +8,7 @@ import { severity, confidence } from '../src/finder/attributes.js';
 import { groupClientFindings, ratingOf, renderClientMarkdown, renderClientFindings, writeClientMarkdown, combineRuns, findingFileName } from '../src/report/markdown.js';
 import { VARIATIONS, matchingVariations } from '../src/report/markdown_variations.js';
 import { CLIENT_COPY } from '../src/report/markdown_client_copy.js';
-import { componentTable, renderComponentsXlsx } from '../src/report/xlsx.js';
+import { componentTable, renderComponentsXlsx, statusLabels, componentLinks } from '../src/report/xlsx.js';
 import { outputFormat, splitOutputs, writeIssues } from '../src/util/file.js';
 
 chaiShould();
@@ -221,104 +221,104 @@ describe('Client report outputs', () => {
     matchingVariations('Other Security Observations', [issue('NEW_CHECK')], id => id).map(v => v.label).should.deep.equal(['NEW_CHECK']);
   });
 
-  it('writes a valid workbook with only flagged rows, filter and frozen header', () => {
+  it('lists the components needing action, most urgent first, with plain status labels and an action', () => {
     const rows = [
-      { name: 'current', version: '1.0.0', latest: '1.0.0', kinds: ['lockfile'], files: [], advisories: [], support: { status: 'supported' } },
-      { name: 'old-dev', version: '1.0.0', latest: '2.0.0', kinds: ['lockfile'], files: ['package-lock.json'], versionsBehind: 1, majorsBehind: 1, advisories: [], support: { status: 'outdated' } },
-      { name: 'malicious', version: '1.0.0', kinds: ['bundled library'], files: ['app.js'], advisories: [], malicious: { id: 'OSV-BAD' }, support: { status: 'unknown' } },
-      { name: 'electron', version: '25.0.0', kinds: ['Electron runtime'], files: [], advisories: [{ id: 'OSV-1', severity: 'HIGH', cves: ['CVE-2026-1'], kev: true }], support: { status: 'unsupported' } },
+      { name: 'current', version: '1.0.0', latest: '1.0.0', kinds: ['lockfile'], locations: ['package-lock.json'], advisories: [], support: { status: 'current' } },
+      { name: 'old', version: '1.0.0', latest: '2.0.0', versionsBehind: 3, majorsBehind: 1, kinds: ['node_modules'], locations: ['node_modules/old'], advisories: [], support: { status: 'outdated' } },
+      { name: 'malicious', version: '1.0.0', kinds: ['bundled library'], files: ['js/app.js'], advisories: [], malicious: { id: 'OSV-BAD' }, support: { status: 'unknown' } },
+      { name: 'electron', version: '25.0.0', latest: '38.0.0', versionsBehind: 99, kinds: ['Electron runtime'], locations: ['MyApp.exe'],
+        advisories: [{ id: 'OSV-1', severity: 'HIGH', kev: true, fixed: '30.0.0' }], fixedIn: '30.0.0', support: { status: 'unsupported' } },
+      { name: 'request', version: '2.88.2', latest: '2.88.2', latestDeprecated: true, deprecated: 'no longer maintained', kinds: ['lockfile'], locations: ['package-lock.json (line 40)'],
+        advisories: [{ id: 'GHSA-p8p7-x288-28g6', severity: 'MEDIUM' }], fixedIn: null, support: { status: 'unsupported' } },
+      { name: 'lodash', version: '4.17.4', latest: '4.18.1', versionsBehind: 17, kinds: ['lockfile'], advisories: [{ id: 'GHSA-1', severity: 'CRITICAL', fixed: '4.17.21' }],
+        fixedIn: '4.17.21', support: { status: 'current' } },
+      { name: 'private-thing', version: '1.0.0', kinds: ['node_modules'], advisories: [], support: { status: 'unknown' } },
     ];
     const table = componentTable({ rows });
-    table.rows.map(r => r[0]).should.deep.equal(['malicious', 'electron', 'old-dev']);
-    table.header.length.should.equal(20);
-    table.header[19].should.equal('References');
-    const buffer = renderComponentsXlsx({ rows });
+    table.header.should.deep.equal(['Component', 'Type', 'Installed version', 'Installed version release date', 'Latest version', 'Latest version release date',
+      'Support status', 'Recommended action', 'Path found', 'Installed version link', 'Latest version link',
+      'Advisories: deps.dev (this version)', 'Advisories: Snyk (this version)', 'Advisories: GitHub (all versions)']);
+    const byName = Object.fromEntries(table.rows.map(r => [r[0], r]));
+    table.rows.map(r => r[0]).should.deep.equal(['malicious', 'electron', 'lodash', 'request', 'old']);
+    byName.malicious[1].should.equal('JS library');
+    byName.electron[1].should.equal('Electron runtime');
+    byName.old[1].should.equal('npm package');
+    byName.electron[6].should.equal('Unsupported, Known advisories');
+    byName.electron[7].should.equal('Upgrade to a supported release line (latest 38.0.0)');
+    byName.request[6].should.equal('Latest, End of life, Known advisories');
+    byName.request[7].should.equal('Replace with a maintained alternative: request is no longer maintained');
+    byName.lodash[6].should.equal('Outdated, Known advisories');
+    byName.lodash[7].should.equal('Upgrade to 4.17.21 or later (latest 4.18.1)');
+    byName.old[6].should.equal('Outdated');
+    byName.old[7].should.equal('Upgrade to 2.0.0');
+    byName.malicious[6].should.equal('Malicious');
+    byName.malicious[7].should.equal('Remove immediately: known malicious version (OSV-BAD)');
+    byName.request[8].should.equal('package-lock.json (line 40)');
+    byName.malicious[8].should.equal('js/app.js');
+    // every component is in the catalog, with where it was found and whether it needs action
+    table.catalogHeader.should.deep.equal(['Component', 'Type', 'Version', 'Identified from', 'Path found', 'Needs action']);
+    table.catalog.map(r => r[0]).should.deep.equal(['current', 'electron', 'lodash', 'malicious', 'old', 'private-thing', 'request']);
+    table.catalog.find(r => r[0] === 'old').should.deep.equal(['old', 'npm package', '1.0.0', 'Installed package (node_modules)', 'node_modules/old', 'Yes']);
+    table.catalog.find(r => r[0] === 'current')[5].should.equal('No');
+    table.catalog.find(r => r[0] === 'private-thing')[5].should.equal('No');
+  });
+
+  it('marks a deprecated version or ended release line Unsupported, and a discontinued project End of life', () => {
+    statusLabels({ name: 'jquery', version: '3.4.1', latest: '4.0.0', versionsBehind: 9, deprecated: 'use 3.5', support: { status: 'unsupported' }, advisories: [] })
+      .should.deep.equal(['Unsupported']);
+    statusLabels({ name: 'old-framework', version: '1.8.0', latest: '1.8.3', versionsBehind: 3, support: { status: 'unsupported', discontinued: true }, advisories: [] })
+      .should.deep.equal(['End of life']);
+    statusLabels({ name: 'next', version: '2.0.0-beta', latest: '1.9.0', versionsBehind: 0, support: { status: 'current' }, advisories: [] }).should.deep.equal(['Latest']);
+  });
+
+  it('links each component to its version pages and to its advisories on deps.dev, Snyk and GitHub', () => {
+    const row = { name: '@example/library', version: '1.0.0', known: true, latest: '3.0.0', versionsBehind: 4, kinds: ['lockfile'], advisories: [{ id: 'GHSA-1' }], fixedIn: '2.0.0',
+      released: '2020-01-02', latestReleased: '2026-03-04', support: { status: 'current' } };
+    const electron = { name: 'electron', version: '22.3.27', latest: '44.5.1', versionsBehind: 1, kinds: ['Electron runtime'], advisories: [], support: { status: 'unsupported' } };
+    componentLinks(row).map(l => l.url).should.deep.equal([
+      'https://www.npmjs.com/package/%40example/library/v/1.0.0', 'https://www.npmjs.com/package/%40example/library/v/3.0.0',
+      'https://deps.dev/npm/%40example%2Flibrary/1.0.0', 'https://security.snyk.io/package/npm/%40example%2Flibrary/1.0.0',
+      'https://github.com/advisories?query=ecosystem%3Anpm%20affects%3A%40example%2Flibrary']);
+    componentLinks(row)[4].text.should.equal('GitHub: all advisories for @example/library (every version)');
+    componentLinks(electron).slice(0, 2).map(l => l.url).should.deep.equal(['https://releases.electronjs.org/release/v22.3.27', 'https://releases.electronjs.org/release/v44.5.1']);
+    // a version npm doesn't know: the package page
+    componentLinks({ ...row, known: false })[0].url.should.equal('https://www.npmjs.com/package/%40example/library');
+
+    const buffer = renderComponentsXlsx({ rows: [row, electron] });
     const sheet = zipEntry(buffer, 'xl/worksheets/sheet1.xml');
-    sheet.should.include('state="frozen"');
-    sheet.should.include('<autoFilter ref="A1:T4"/>');
-    sheet.should.include('CVE-2026-1');
-    sheet.should.not.include('current');
-    zipEntry(buffer, 'xl/workbook.xml').should.include('Outdated components');
+    const rels = zipEntry(buffer, 'xl/worksheets/_rels/sheet1.xml.rels');
+    sheet.should.include('state="frozen"').and.include('<autoFilter ref="A1:N3"/>');
+    // five links a row, each its own cell and relationship
+    (sheet.match(/<hyperlink ref=/g) || []).length.should.equal(10);
+    (rels.match(/TargetMode="External"/g) || []).length.should.equal(10);
+    sheet.should.include('<hyperlink ref="J2" r:id="rId1"/>').and.include('<hyperlink ref="N3" r:id="rId10"/>');
+    rels.should.include('https://deps.dev/npm/%40example%2Flibrary/1.0.0');
+    // release dates are Excel dates (2020-01-02 is day 43832), shown as yyyy-mm-dd
+    sheet.should.include('<c r="D2" s="4"><v>43832</v></c>');
+    zipEntry(buffer, 'xl/styles.xml').should.include('formatCode="yyyy-mm-dd"');
+    const workbook = zipEntry(buffer, 'xl/workbook.xml');
+    workbook.should.include('name="Components needing action" sheetId="1"').and.include('name="All components" sheetId="2"');
+    zipEntry(buffer, 'xl/worksheets/sheet2.xml').should.include('<autoFilter ref="A1:F3"/>').and.not.include('<hyperlinks>');
   });
 
-  it('exports the HTML dependency sources as separate clickable reference rows', () => {
-    const row = {
-      name: '@example/library', version: '1.0.0', known: true, latest: '3.0.0', latestInMajor: '1.9.0', versionsBehind: 4,
-      releaseNotes: 'https://github.com/example/library/releases', repository: 'https://github.com/example/library', homepage: 'https://example.com',
-      support: { status: 'outdated', policy: 'https://example.com/support' },
-      advisories: [{ id: 'GHSA-test-1234-5678', cves: ['CVE-2026-1234'], fixed: '2.0.0', references: [
-        { type: 'FIX', url: 'https://github.com/example/library/commit/abc' },
-        { type: 'REPORT', url: 'https://example.com/report?a=1&b="two"' },
-        { type: 'WEB', url: 'https://example.com/article' },
-      ] }],
-    };
-    const expected = [
-      'https://www.npmjs.com/package/%40example/library', 'https://www.npmjs.com/package/%40example/library/v/1.0.0',
-      'https://www.npmjs.com/package/%40example/library/v/3.0.0', 'https://www.npmjs.com/package/%40example/library/v/1.9.0',
-      row.releaseNotes, row.repository, row.homepage, row.support.policy,
-      'https://nvd.nist.gov/vuln/detail/CVE-2026-1234', 'https://osv.dev/vulnerability/GHSA-test-1234-5678',
-      'https://github.com/advisories/GHSA-test-1234-5678', ...row.advisories[0].references.map(r => r.url),
-      'https://www.npmjs.com/package/%40example/library/v/2.0.0',
-    ];
-    const table = componentTable({ rows: [row] });
-    table.references[0].map(ref => ref.url).should.deep.equal(expected);
-    for (const url of expected) table.rows[0][19].should.include(url);
+  it('escapes link targets and cell text, and never writes formulas', () => {
+    const row = { name: 'a&b"<x>', version: '1.0.0', latest: '2.0.0', versionsBehind: 1, kinds: ['lockfile'], locations: ['=HYPERLINK("bad")'], advisories: [], support: { status: 'outdated' } };
     const buffer = renderComponentsXlsx({ rows: [row] });
-    const sheet = zipEntry(buffer, 'xl/worksheets/sheet2.xml');
-    const rels = zipEntry(buffer, 'xl/worksheets/_rels/sheet2.xml.rels');
-    sheet.should.include(`<autoFilter ref="A1:E${expected.length + 1}"/>`).and.include('state="frozen"');
-    for (let i = 0; i < expected.length; i++) {
-      sheet.should.include(`<hyperlink ref="E${i + 2}" r:id="rId${i + 1}"/>`);
-      rels.should.include(`Id="rId${i + 1}"`).and.include('TargetMode="External"');
-    }
-    rels.should.include('report?a=1&amp;b=&quot;two&quot;');
-    zipEntry(buffer, 'xl/worksheets/sheet1.xml').should.include("ref=\"T2\" location=\"'References'!A2\"");
-    zipEntry(buffer, 'xl/workbook.xml').should.include('name="References" sheetId="2" r:id="rId2"');
-    zipEntry(buffer, 'xl/_rels/workbook.xml.rels').should.include('Target="worksheets/sheet2.xml"');
-    zipEntry(buffer, '[Content_Types].xml').should.include('PartName="/xl/worksheets/sheet2.xml"');
-  });
-
-  it('deduplicates reference URLs and excludes unsafe or malformed links', () => {
-    const url = 'https://example.com/source';
-    const row = { name: 'old', version: '1', latest: '2', known: true, releaseNotes: url, repository: url, homepage: `${url}#readme`,
-      support: { policy: 'file:///C:/secret.txt' }, advisories: [{ id: 'OSV-1', cves: ['CVE-2026-1'], references: [
-        { type: 'FIX', url }, { type: 'WEB', url: 'https://nvd.nist.gov/vuln/detail/CVE-2026-1' },
-        { type: 'WEB', url: 'javascript:alert(1)' }, { type: 'WEB', url: '=HYPERLINK("bad")' },
-        { type: 'WEB', url: 'https://' }, { type: 'WEB', url: 'https://example.com/\ninvalid' },
-      ] }] };
-    const table = componentTable({ rows: [row] });
-    const urls = table.references[0].map(ref => ref.url);
-    new Set(urls).size.should.equal(urls.length);
-    urls.filter(ref => ref === url).length.should.equal(1);
-    const buffer = renderComponentsXlsx({ rows: [row] });
-    const rels = zipEntry(buffer, 'xl/worksheets/_rels/sheet2.xml.rels');
-    for (const unsafe of ['file:', 'javascript:', 'HYPERLINK', 'invalid', '#readme']) rels.should.not.include(unsafe);
-    zipEntry(buffer, 'xl/worksheets/sheet2.xml').should.not.include('<f>');
-  });
-
-  it('keeps reference rows attached to the correct sorted component and installed version', () => {
-    const rows = [
-      { name: 'same', version: '1.0.0', latest: '3.0.0', repository: 'https://example.com/first' },
-      { name: 'same', version: '2.0.0', malicious: { id: 'MAL-1' }, repository: 'https://example.com/second' },
-    ];
-    const table = componentTable({ rows });
-    table.rows.map(r => r[2]).should.deep.equal(['2.0.0', '1.0.0']);
-    table.references[0].map(r => r.url).should.include('https://osv.dev/vulnerability/MAL-1').and.include('https://example.com/second');
-    const buffer = renderComponentsXlsx({ rows });
-    const sheet = zipEntry(buffer, 'xl/worksheets/sheet2.xml');
-    sheet.match(/<row r="2">.*?<\/row>/)[0].should.include('2.0.0');
-    const next = table.references[0].length + 2;
-    sheet.match(new RegExp(`<row r="${next}">.*?</row>`))[0].should.include('1.0.0');
-    zipEntry(buffer, 'xl/worksheets/sheet1.xml').should.include(`ref="T3" location="'References'!A${next}"`);
+    const sheet = zipEntry(buffer, 'xl/worksheets/sheet1.xml');
+    sheet.should.not.include('<f>');
+    sheet.should.include('=HYPERLINK(&quot;bad&quot;)');
+    zipEntry(buffer, 'xl/worksheets/_rels/sheet1.xml.rels').should.include('a%26b%22%3Cx%3E').and.not.include('a&b');
   });
 
   it('writes both sheets for an empty or offline dependency report without lookups', () => {
     const empty = renderComponentsXlsx({ rows: [], offline: true });
-    zipEntry(empty, 'xl/worksheets/sheet1.xml').should.include('<autoFilter ref="A1:T1"/>');
-    zipEntry(empty, 'xl/worksheets/sheet2.xml').should.include('<autoFilter ref="A1:E1"/>').and.not.include('<hyperlinks>');
-    zipEntry(empty, 'xl/worksheets/_rels/sheet2.xml.rels').should.not.include('TargetMode');
-    const offline = componentTable({ offline: true, rows: [{ name: 'local', version: '1', deprecated: true }] });
-    offline.references[0].should.deep.equal([{ label: 'npm package', url: 'https://www.npmjs.com/package/local' }]);
+    zipEntry(empty, 'xl/worksheets/sheet1.xml').should.include('<autoFilter ref="A1:N1"/>').and.not.include('<hyperlinks>');
+    zipEntry(empty, 'xl/worksheets/sheet2.xml').should.include('<autoFilter ref="A1:F1"/>');
+    zipEntry(empty, 'xl/worksheets/_rels/sheet1.xml.rels').should.not.include('TargetMode');
+    // nothing looked up: Unknown, listed in the catalog only
+    const offline = componentTable({ offline: true, rows: [{ name: 'local', version: '1', kinds: ['lockfile'], support: { status: 'unknown' } }] });
+    offline.rows.should.deep.equal([]);
+    offline.catalog.should.deep.equal([['local', 'npm package', '1', 'Lockfile', '', 'No']]);
   });
 
   it('dispatches mixed outputs through the existing writer', () => {
