@@ -4,11 +4,31 @@ on:
     branches: [validation/windows-workflows-20261002]
 permissions:
   contents: read
-concurrency:
-  group: windows-workflows-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
+  cleanup:
+    name: Stop superseded validation attempts
+    runs-on: windows-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            // Only these attempts from this validation task, never other workflows.
+            for (const run_id of [37015607140, 37016737108, 37017658872, 37017990349, 37018332152]) {
+              try {
+                const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id});
+                if (run.head_branch === 'validation/windows-workflows-20261002' && run.status !== 'completed') {
+                  await github.rest.actions.cancelWorkflowRun({...context.repo, run_id});
+                  core.info(`Stopped superseded validation run ${run_id}`);
+                }
+              } catch (error) {
+                if (error.status !== 409) throw error;
+              }
+            }
   applications:
+    needs: cleanup
     name: ${{ matrix.app }} interactive Windows workflow
     runs-on: windows-latest
     timeout-minutes: 50
