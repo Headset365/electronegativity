@@ -136,7 +136,7 @@ const CASES = [
   { practice: '#14 window open handler allowing everything', insecure: { 'main.js': `contents.setWindowOpenHandler(() => ({ action: 'allow' }));` },
     expect: [{ id: 'WINDOW_OPEN_HANDLER_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' }],
     secure: { 'main.js': `contents.setWindowOpenHandler(() => ({ action: 'deny' }));` }, absent: ['WINDOW_OPEN_HANDLER_JS_CHECK'] },
-  { practice: '#14 new windows with Node.js enabled', insecure: { 'main.js': `contents.setWindowOpenHandler(({ url }) => { if (url.startsWith('https://a.com/')) return { action: 'allow', overrideBrowserWindowOptions: { webPreferences: { nodeIntegration: true } } }; return { action: 'deny' }; });` },
+  { practice: '#14 new windows with Node.js enabled', insecure: { 'main.js': `contents.setWindowOpenHandler(({ url }) => { if (url.startsWith('https://a.example/')) return { action: 'allow', overrideBrowserWindowOptions: { webPreferences: { nodeIntegration: true } } }; return { action: 'deny' }; });` },
     expect: [{ id: 'WINDOW_OPEN_HANDLER_JS_CHECK', severity: 'HIGH', confidence: 'CERTAIN' }] },
 
   // 15. Do not use shell.openExternal with untrusted content

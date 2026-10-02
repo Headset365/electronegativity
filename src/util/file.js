@@ -385,7 +385,7 @@ export function writeIssues(root, isRelative, filename, result, isSarif, meta = 
           tool: {
             driver: {
               version: `${VER}`,
-              informationUri: "https://github.com/doyensec/electronegativity",
+              informationUri: "https://github.com/Headset365/electronegativity",
               name: "Electronegativity",
               fullName: "Electronegativity is a tool to identify misconfigurations and security anti-patterns in Electron applications",
               rules: []

@@ -45,14 +45,14 @@ function extraRedaction(text) {
     .replace(/\b(?!127\.)(\d{1,3}\.){3}\d{1,3}\b/g, '<ip>');
 }
 
-// Domain names written without a scheme (a cookie domain, "sign in at portal.contoso.com"). Only endings that are hardly ever
+// Domain names written without a scheme (a cookie domain, "sign in at portal.customer.example"). Only endings that are hardly ever
 // a file extension are matched, and Electron's own names (electron.net, app.dev...) are left alone.
 // (not endings that are common file extensions or code: .sh, .so, .md, .cc, .js, .ts, .in, .it, .to, .be...)
 const TLDS = 'com|net|org|io|dev|app|info|biz|xyz|cloud|online|site|tech|edu|gov|mil|local|internal|corp|lan|intranet|test|example|invalid|' +
   'eu|uk|us|ca|au|de|fr|nl|jp|cn|ru|br|ch|se|dk|fi|ie|nz|za|mx|ai|co|me|tv|gg|ly|im|fm|es|pt|il|ae|sg|hk|kr|tw';
-// (a leading dot, as in a cookie's domain, is kept: .linkedin.com becomes .host-1a2b3c4d)
+// (a leading dot, as in a cookie's domain, is kept: .tracker.example becomes .host-1a2b3c4d)
 const BARE_DOMAIN = new RegExp(`(?<![\\w@/-])(\\.?)((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:${TLDS}))(?![\\w-])(?!\\s*\\()`, 'gi');
-// (two labels only: app.dev is code, app.contoso.com is a host)
+// (two labels only: app.dev is code, app.customer.example is a host)
 const NOT_DOMAINS = /^(?:electron|app|net|process|window|document|global|module|exports|this|require|remote|shell|dialog|session|navigator|location|console|api)\.[^.]+$/i;
 // findings whose text carries the secret values themselves when the run used --show-secrets (traffic, data at rest, consoles)
 const REVEALS_SECRETS = /^(TRAFFIC_|STORAGE_|RUNTIME_SECRET_IN_CONSOLE)/;

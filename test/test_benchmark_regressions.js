@@ -162,7 +162,7 @@ describe('Real-app benchmark regressions', () => {
   });
   describe('Source tooling and credential placeholders', () => {
     it('suppresses only explicit username/password templates', () => {
-      for (const url of ['https://[username]:[password]@host', 'socks://username:password@some-socks-proxy.com']) assert.equal(findSecrets(url).length, 0);
+      for (const url of ['https://[username]:[password]@host', 'socks://username:password@some-socks-proxy.example']) assert.equal(findSecrets(url).length, 0);
       for (const url of ['https://username:RealSecret123@example.com', 'https://admin:password@production.example.org']) assert.equal(findSecrets(url).length, 1);
     });
     it('keeps build manifests, excludes source tooling, and includes shipped tooling', () => {

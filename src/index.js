@@ -152,10 +152,8 @@ async function main() {
   ▐█▐▐▐▀▀▪▄█ ▀█▄█▀▀█▐█.▐█▐█▐█▐█▐█.▐█▌▐█▪
   ██▐█▐█▄▄▐█▄▪▐▐█ ▪▐▐█▌▐█▌███▐█▐█▌·▐█▀·.
   ▀▀ █▪▀▀▀·▀▀▀▀ ▀  ▀▀▀▀▀▀. ▀ ▀▀▀▀▀  ▀ •
-        v`+VER+`  https://doyensec.com/
+        v`+VER+`  https://github.com/Headset365/electronegativity
     `);
-    console.log('\x1b[4m\x1b[36m%s\x1b[0m',__('tryElectroNgShort'));
-    console.log("\x1b[4m\x1b[33m%s\x1b[0m", __('contactUs'));
     console.log("\x1b[4m\x1b[33m%s\x1b[0m", __('foundBug'));
     console.log(__('startScan'));
   }

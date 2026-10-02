@@ -442,12 +442,12 @@ module.exports = { unzip, unzipSafe };` });
   describe('Shareable report (--share)', () => {
     const TOKEN = ['ghp_', 'Zq8Lm2Vt9Rk4Zp8Wn3Yb6Hs7Tx4Wv1Yp8Nb2Qm'].join('');
     const files = {
-      'package.json': '{"name":"acmematters","productName":"Acme Matters","main":"main.js","devDependencies":{"electron":"30.0.0"},"author":"Contoso Legal"}',
+      'package.json': '{"name":"acmedesk","productName":"Acme Desk","main":"main.js","devDependencies":{"electron":"30.0.0"},"author":"Contoso Ltd"}',
       'main.js': `
 const { BrowserWindow, ipcMain, shell } = require('electron');
 const { exec } = require('child_process');
 const win = new BrowserWindow({ webPreferences: { nodeIntegration: true } });
-win.loadURL('https://portal.acmematters.example/app?tenant=contoso-legal');
+win.loadURL('https://portal.acmedesk.example/app?tenant=contoso-tenant');
 ipcMain.handle('open-in-word', (event, name) => { exec(\`start winword "\${name}"\`); });
 ipcMain.handle('link', (event, url) => shell.openExternal(url));
 const support = 'jane.doe@contoso.example';
@@ -467,7 +467,7 @@ fetch('http://10.20.30.40:8080/api');`,
       await run({ input: app, offline: true, share: json, shareCode: true, redact: ['Contoso'] });
       for (const file of [md, json]) {
         const text = fs.readFileSync(file, 'utf8');
-        for (const leak of ['acmematters', 'Acme Matters', 'AcmeMatters', 'Contoso', 'contoso', 'portal.', 'tenant=', 'jane.doe', '10.20.30.40', TOKEN, dir])
+        for (const leak of ['acmedesk', 'Acme Desk', 'AcmeDesk', 'Contoso', 'contoso', 'portal.', 'tenant=', 'jane.doe', '10.20.30.40', TOKEN, dir])
           text.should.not.include(leak, `${path.basename(file)} leaks ${leak}`);
       }
       const markdown = fs.readFileSync(md, 'utf8');
@@ -500,11 +500,11 @@ fetch('http://10.20.30.40:8080/api');`,
       const app = path.join(dir, 'app');
       fs.mkdirSync(app);
       fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'desk', main: 'main.js', devDependencies: { electron: '30.0.0' },
-        author: 'Jo <jo@northwind-legal.com>', homepage: 'https://desk.northwind-legal.com', repository: 'github:northwindlaw/desk-client', build: { copyright: 'Copyright 2024 Northwind Holdings' } }));
+        author: 'Jo <jo@northwind.example>', homepage: 'https://desk.northwind.example', repository: 'github:northwind-dev/desk-client', build: { copyright: 'Copyright 2024 Northwind Holdings' } }));
       fs.writeFileSync(path.join(app, 'main.js'), `
 const { BrowserWindow, shell, ipcMain } = require('electron');
 const win = new BrowserWindow({ webPreferences: { nodeIntegration: true } });
-// sign in at sso.northwind-legal.com, cookies for .northwind-legal.com, share \\\\fs01\\cases, id 3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b
+// sign in at sso.northwind.example, cookies for .northwind.example, share \\\\fs01\\cases, id 3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b
 ipcMain.handle('link', (event, url) => shell.openExternal(url));`);
       const json = path.join(dir, 'share.json');
       await run({ input: app, offline: true, share: json });
@@ -535,16 +535,16 @@ ipcMain.handle('link', (event, url) => shell.openExternal(url));`);
     it('replaces cookie domains with a leading dot, random-looking names and numeric ids in paths', () => {
       const report = buildShare({ input: '/work/demo', version: '2.0.0', issues: [{
         id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },
-        description: 'cookie ph_phc_tRgYsMLEaQgFz9uCcRwscqRC0h5vI6GDL1huLHiz8A2_posthog for .tracker.example-corp.com and .www.example-corp.com from https://cdn.example-corp.net/release-asset/599254612/file' }] });
+        description: 'cookie ph_phc_nIQqPRRyKPfgXXuGYA40W3UTtR39sMq5VdHfHGZlaij_posthog for .tracker.example-corp.test and .www.example-corp.test from https://cdn.example-corp.test/release-asset/289887266/file' }] });
       const text = report.findings[0].description;
-      text.should.not.include('tRgYs').and.not.include('example-corp').and.not.include('599254612');
+      text.should.not.include('nIQqP').and.not.include('example-corp').and.not.include('289887266');
       text.should.match(/for \.host-[0-9a-f]{8} and \.host-[0-9a-f]{8} from/).and.include('<id>');
     });
 
     it('keeps documentation links and Electron API names that look like domains', () => {
       const report = buildShare({ input: '/work/demo', version: '2.0.0', issues: [{
         id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },
-        description: 'see www.electronjs.org and electron.net, then sso.customer-x.com and customer-x.dev' }] });
+        description: 'see www.electronjs.org and electron.net, then sso.customer-x.test and customer-x.example' }] });
       const text = report.findings[0].description;
       text.should.include('www.electronjs.org').and.include('electron.net');
       text.should.not.include('customer-x');
@@ -565,9 +565,9 @@ ipcMain.handle('link', (event, url) => shell.openExternal(url));`);
     it('replaces hosts named like code (app., api.), newer endings and hosts in runtime evidence', () => {
       const report = buildShare({ input: '/work/demo', version: '2.0.0', issues: [{
         id: 'TEST', file: '/work/demo/main.js', location: { line: 1 }, severity: { name: 'LOW' }, confidence: { name: 'FIRM' },
-        description: 'calls app.getPath at app.contoso.com, api.contoso.co.uk and portal.contoso.ai',
-        validation: { status: 'confirmed', text: 'https://billing.contoso.ai/admin loaded; also sso.contoso.me' } }] });
-      JSON.stringify(report.findings).should.not.include('contoso');
+        description: 'calls app.getPath at app.zq-fixture.com, api.zq-fixture.co.uk and portal.zq-fixture.ai',
+        validation: { status: 'confirmed', text: 'https://billing.zq-fixture.ai/admin loaded; also sso.zq-fixture.me' } }] });
+      JSON.stringify(report.findings).should.not.include('zq-fixture');
       report.findings[0].description.should.include('app.getPath');
     });
 

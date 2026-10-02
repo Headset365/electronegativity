@@ -4,7 +4,7 @@ Feel free to participate to this project, as much as you can. Even supporting ot
 
 ## Build & Run
 
-Clone [electronegativity](git@github.com:doyensec/electronegativity.git) and proceed with the following:
+Clone [electronegativity](https://github.com/Headset365/electronegativity.git) and proceed with the following:
 
 Electronegativity is written as native ES modules and runs directly from `src/` with no build step. It requires Node.js `^22.18.0` or `>=24.11.0`.
 

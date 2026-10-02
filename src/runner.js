@@ -513,7 +513,7 @@ async function scan(options, forCli) {
     const automatic = review.filter(i => /^(Automatic|Semi-automatic|Partly automatic)/.test(validationHint(i.id) || ''));
     if (review.length > 0 && !options.runtime)
       console.log(chalk.cyan(`${review.length} finding(s) need review; ${automatic.length} of them can be checked automatically in a watch session: electronegativity --app <install folder>, then follow its prompts. The report says how to check each one.`));
-    console.log('\x1b[4m\x1b[36m%s\x1b[0m',`${__('tryElectroNg')}`);
+    console.log('\x1b[4m\x1b[36m%s\x1b[0m',`${__('reportTip')}`);
   }
   if (options.diagnostics) {
     const byExtension = {};

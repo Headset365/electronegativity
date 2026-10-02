@@ -31,14 +31,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/doyensec/electronegativity.git"
+    "url": "git+https://github.com/Headset365/electronegativity.git"
   },
   "author": "info@doyensec.com",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/doyensec/electronegativity/issues"
+    "url": "https://github.com/Headset365/electronegativity/issues"
   },
-  "homepage": "https://github.com/doyensec/electronegativity#readme",
+  "homepage": "https://github.com/Headset365/electronegativity#readme",
   "dependencies": {
     "@babel/parser": "^8.0.6",
     "@babel/traverse": "^8.0.6",

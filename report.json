@@ -1,0 +1,3669 @@
+{
+  "tool": "Electronegativity",
+  "version": "2.0.0",
+  "generatedAt": "2026-10-02T11:39:54.203Z",
+  "input": "/home/user/electronegativity/test/apps/vulnerable-app",
+  "app": {
+    "name": "vulnerable-app"
+  },
+  "outputs": [],
+  "suppressedByBaseline": 0,
+  "suppressed": [],
+  "electronVersion": "11.5.0",
+  "filesScanned": 4,
+  "globalChecks": 20,
+  "atomicChecks": 98,
+  "errors": [],
+  "dependencies": {
+    "rows": [
+      {
+        "name": "electron",
+        "version": "11.5.0",
+        "kinds": [
+          "Electron runtime"
+        ],
+        "files": [],
+        "locations": [
+          "package.json"
+        ],
+        "dev": false,
+        "direct": true,
+        "advisories": [
+          {
+            "id": "GHSA-532v-xpq5-8h95",
+            "cves": [
+              "CVE-2026-34774"
+            ],
+            "summary": "Electron: Use-after-free in offscreen child window paint callback",
+            "severity": "HIGH",
+            "fixed": "39.8.1",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34774"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-532v-xpq5-8h95"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-416"
+            ],
+            "epss": {
+              "epss": 0.00552,
+              "percentile": 0.44088
+            }
+          },
+          {
+            "id": "GHSA-8337-3p73-46f4",
+            "cves": [
+              "CVE-2026-34771"
+            ],
+            "summary": "Electron: Use-after-free in WebContents fullscreen, pointer-lock, and keyboard-lock permission callbacks",
+            "severity": "HIGH",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34771"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-8337-3p73-46f4"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-416"
+            ],
+            "epss": {
+              "epss": 0.00379,
+              "percentile": 0.29426
+            }
+          },
+          {
+            "id": "GHSA-9f4c-93c8-jc8g",
+            "cves": [
+              "CVE-2026-70608"
+            ],
+            "summary": "Electron: Sandboxed iframe can bypass the allow-popups restriction via the OpenURL navigation path",
+            "severity": "HIGH",
+            "fixed": "39.8.10",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-9f4c-93c8-jc8g"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/51437"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/51438"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/51439"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/3ff23c52ab364a0afc6ab5bd7851291d3159de57"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-1021",
+              "CWE-693"
+            ],
+            "epss": {
+              "epss": 0.00449,
+              "percentile": 0.36696
+            }
+          },
+          {
+            "id": "GHSA-9qh4-3jw8-366w",
+            "cves": [
+              "CVE-2026-102676"
+            ],
+            "summary": "Electron: <webview> can enable Node.js integration in Web Workers despite embedder restrictions",
+            "severity": "HIGH",
+            "fixed": "41.10.6",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-9qh4-3jw8-366w"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/6462a2e1dc4e6adffd3b7d9b9be1474c45dcbbe2"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/9a675aef8822bae4088567822969f900b3a37671"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/b3ae0aab5cf81c2ed03d04df1ae8e69ecfab7886"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/cd34f335c8664613db5b6e61ae51e2e1846233ae"
+              }
+            ],
+            "published": "2026-09-29",
+            "cwes": [
+              "CWE-1188",
+              "CWE-269"
+            ],
+            "epss": {
+              "epss": 0.00451,
+              "percentile": 0.36856
+            }
+          },
+          {
+            "id": "GHSA-9wfr-w7mm-pc7f",
+            "cves": [
+              "CVE-2026-34769"
+            ],
+            "summary": "Electron: Renderer command-line switch injection via undocumented commandLineSwitches webPreference",
+            "severity": "HIGH",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34769"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-9wfr-w7mm-pc7f"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-88",
+              "CWE-912"
+            ],
+            "epss": {
+              "epss": 0.00395,
+              "percentile": 0.31252
+            }
+          },
+          {
+            "id": "GHSA-gr2m-v5gq-v685",
+            "cves": [
+              "CVE-2026-102674"
+            ],
+            "summary": "Electron: Windows opened from a sandboxed top-level document do not inherit its sandbox restrictions",
+            "severity": "HIGH",
+            "fixed": "41.10.6",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-gr2m-v5gq-v685"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/29fc130569f970e91e355383821a4af0f25724a2"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/3ecf3e74f4be6e2360644679b0b4698742be0e1d"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/6594d5a5b074cf501da084dc7908d3df0d68a886"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/e9c4d3cbe912e18d7c63af78e63e98ae7a48cd3a"
+              }
+            ],
+            "published": "2026-09-29",
+            "cwes": [
+              "CWE-266",
+              "CWE-693"
+            ],
+            "epss": {
+              "epss": 0.00266,
+              "percentile": 0.16985
+            }
+          },
+          {
+            "id": "GHSA-h7rp-cf8h-j98x",
+            "cves": [
+              "CVE-2026-70601"
+            ],
+            "summary": "Electron: Context isolation bypass via Function.prototype.bind hijack",
+            "severity": "HIGH",
+            "fixed": "39.8.9",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-h7rp-cf8h-j98x"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-693"
+            ],
+            "epss": {
+              "epss": 0.003,
+              "percentile": 0.20553
+            }
+          },
+          {
+            "id": "GHSA-hq2x-r82h-9wj4",
+            "cves": [
+              "CVE-2026-102673"
+            ],
+            "summary": "Electron drops inherited HTML sandbox restrictions for popups opened through OpenURLFromTab",
+            "severity": "HIGH",
+            "fixed": "41.10.4",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-hq2x-r82h-9wj4"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/52133"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/7ea14d5f55ecb11a30447701ddca16b3feee0bba"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/e26b2640e7795c42bfb111b76009cbb4327c9a69"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/ebe1165ee2b05c203c26dd2244ef1c5b9b1c04da"
+              }
+            ],
+            "published": "2026-09-29",
+            "cwes": [
+              "CWE-346",
+              "CWE-693"
+            ],
+            "epss": {
+              "epss": 0.00147,
+              "percentile": 0.03332
+            }
+          },
+          {
+            "id": "GHSA-j84w-jfhq-vhvj",
+            "cves": [
+              "CVE-2026-102675"
+            ],
+            "summary": "Electron: File and HTTP protocol handlers allow cross-origin reads without corsEnabled",
+            "severity": "HIGH",
+            "fixed": "41.10.6",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-j84w-jfhq-vhvj"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/4d2784cc8592471ee2276235b8c2a03efddf937d"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/80178e4631cb2f6a5e42f8e793b2ae9624e78a0d"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/c595b05976e7a885465b043d17e00a92fc3c3397"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/ef75c4b98caaa3ebc615f1eba302027028ee04d2"
+              }
+            ],
+            "published": "2026-09-29",
+            "cwes": [
+              "CWE-346"
+            ],
+            "epss": {
+              "epss": 0.00214,
+              "percentile": 0.10587
+            }
+          },
+          {
+            "id": "GHSA-jjp3-mq3x-295m",
+            "cves": [
+              "CVE-2026-34770"
+            ],
+            "summary": "Electron: Use-after-free in PowerMonitor on Windows and macOS",
+            "severity": "HIGH",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34770"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-jjp3-mq3x-295m"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-416"
+            ],
+            "epss": {
+              "epss": 0.00285,
+              "percentile": 0.18951
+            }
+          },
+          {
+            "id": "GHSA-qqvq-6xgj-jw8g",
+            "cves": [
+              "CVE-2023-5217"
+            ],
+            "summary": "Electron affected by libvpx's heap buffer overflow in vp8 encoding",
+            "severity": "HIGH",
+            "fixed": "22.3.25",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-5217"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/40022"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/40023"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/40024"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/40025"
+              }
+            ],
+            "published": "2023-09-28",
+            "cwes": [
+              "CWE-787"
+            ],
+            "kev": {
+              "name": "Google Chromium libvpx Heap Buffer Overflow Vulnerability",
+              "added": "2023-10-02",
+              "due": "2023-10-23",
+              "ransomware": false
+            },
+            "epss": {
+              "epss": 0.49013,
+              "percentile": 0.98848
+            }
+          },
+          {
+            "id": "GHSA-v3j7-r9gq-3gjw",
+            "cves": [
+              "CVE-2026-70604"
+            ],
+            "summary": "Electron: Custom protocol with supportFetchAPI but not corsEnabled allows cross-origin reads",
+            "severity": "HIGH",
+            "fixed": "39.8.10",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-v3j7-r9gq-3gjw"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-942"
+            ],
+            "epss": {
+              "epss": 0.00354,
+              "percentile": 0.26802
+            }
+          },
+          {
+            "id": "GHSA-3c8v-cfp5-9885",
+            "cves": [
+              "CVE-2026-34776"
+            ],
+            "summary": "Electron: Out-of-bounds read in second-instance IPC on macOS and Linux",
+            "severity": "MEDIUM",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34776"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-125"
+            ],
+            "epss": {
+              "epss": 0.00232,
+              "percentile": 0.12764
+            }
+          },
+          {
+            "id": "GHSA-4f78-qhmw-8j8m",
+            "cves": [
+              "CVE-2026-70609"
+            ],
+            "summary": "Electron: DevTools JavaScript Injection via Unsanitized Dock State Parameter",
+            "severity": "MEDIUM",
+            "fixed": "39.8.7",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-4f78-qhmw-8j8m"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50665"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50666"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50667"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50668"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-116",
+              "CWE-94"
+            ],
+            "epss": {
+              "epss": 0.0055,
+              "percentile": 0.43939
+            }
+          },
+          {
+            "id": "GHSA-4p4r-m79c-wq3v",
+            "cves": [
+              "CVE-2026-34767"
+            ],
+            "summary": "Electron: HTTP Response Header Injection in custom protocol handlers and webRequest",
+            "severity": "MEDIUM",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34767"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-4p4r-m79c-wq3v"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-113",
+              "CWE-74"
+            ],
+            "epss": {
+              "epss": 0.00258,
+              "percentile": 0.15797
+            }
+          },
+          {
+            "id": "GHSA-5c9j-mhmv-5xgx",
+            "cves": [
+              "CVE-2026-70603"
+            ],
+            "summary": "Electron: shell.openPath path validation bypass via embedded null byte",
+            "severity": "MEDIUM",
+            "fixed": "39.8.6",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-5c9j-mhmv-5xgx"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-158",
+              "CWE-20"
+            ],
+            "epss": {
+              "epss": 0.0014,
+              "percentile": 0.02764
+            }
+          },
+          {
+            "id": "GHSA-5rqw-r77c-jp79",
+            "cves": [
+              "CVE-2026-34779"
+            ],
+            "summary": "Electron: AppleScript injection in app.moveToApplicationsFolder on macOS",
+            "severity": "MEDIUM",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34779"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-5rqw-r77c-jp79"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-78"
+            ],
+            "epss": {
+              "epss": 0.00177,
+              "percentile": 0.0652
+            }
+          },
+          {
+            "id": "GHSA-6r2x-8pq8-9489",
+            "cves": [
+              "CVE-2024-46993"
+            ],
+            "summary": "Electron vulnerable to Heap Buffer Overflow in NativeImage",
+            "severity": "MEDIUM",
+            "fixed": "28.3.2",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-46993"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-6r2x-8pq8-9489"
+              }
+            ],
+            "published": "2025-06-30",
+            "cwes": [
+              "CWE-122"
+            ],
+            "epss": {
+              "epss": 0.00146,
+              "percentile": 0.03211
+            }
+          },
+          {
+            "id": "GHSA-77xc-hjv8-ww97",
+            "cves": [
+              "CVE-2022-29257"
+            ],
+            "summary": "AutoUpdater module fails to validate certain nested components of the bundle",
+            "severity": "MEDIUM",
+            "fixed": "15.5.0",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2022-29257"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-77xc-hjv8-ww97"
+              }
+            ],
+            "published": "2022-06-16",
+            "cwes": [
+              "CWE-20"
+            ],
+            "epss": {
+              "epss": 0.00894,
+              "percentile": 0.58039
+            }
+          },
+          {
+            "id": "GHSA-7m48-wc93-9g85",
+            "cves": [
+              "CVE-2023-44402"
+            ],
+            "summary": "ASAR Integrity bypass via filetype confusion in electron",
+            "severity": "MEDIUM",
+            "fixed": "22.3.24",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-44402"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-7m48-wc93-9g85"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/39788"
+              },
+              {
+                "type": "WEB",
+                "url": "https://www.electronjs.org/docs/latest/tutorial/fuses"
+              }
+            ],
+            "published": "2023-12-01",
+            "cwes": [
+              "CWE-345"
+            ],
+            "epss": {
+              "epss": 0.00207,
+              "percentile": 0.09737
+            }
+          },
+          {
+            "id": "GHSA-7x97-j373-85x5",
+            "cves": [
+              "CVE-2023-39956"
+            ],
+            "summary": "Electron vulnerable to out-of-package code execution when launched with arbitrary cwd",
+            "severity": "MEDIUM",
+            "fixed": "22.3.19",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-39956"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-7x97-j373-85x5"
+              }
+            ],
+            "published": "2023-09-06",
+            "cwes": [
+              "CWE-94"
+            ],
+            "epss": {
+              "epss": 0.00491,
+              "percentile": 0.39922
+            }
+          },
+          {
+            "id": "GHSA-9pf5-hg6p-4pwp",
+            "cves": [
+              "CVE-2026-70599"
+            ],
+            "summary": "Electron: Permission Check Handler Receives Main Frame Origin Instead of Requesting Iframe Origin",
+            "severity": "MEDIUM",
+            "fixed": "39.8.7",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-9pf5-hg6p-4pwp"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/0cbdf2f0375466d701aa393c92e0ec29eb89ea6c"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-346"
+            ],
+            "epss": {
+              "epss": 0.00193,
+              "percentile": 0.08122
+            }
+          },
+          {
+            "id": "GHSA-9w97-2464-8783",
+            "cves": [
+              "CVE-2026-34772"
+            ],
+            "summary": "Electron: Use-after-free in download save dialog callback",
+            "severity": "MEDIUM",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34772"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-9w97-2464-8783"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-416"
+            ],
+            "epss": {
+              "epss": 0.00242,
+              "percentile": 0.13932
+            }
+          },
+          {
+            "id": "GHSA-f2r8-jv7c-xqmp",
+            "cves": [
+              "CVE-2026-70611"
+            ],
+            "summary": "Electron: DevTools embedder handler executes arbitrary files via shell open",
+            "severity": "MEDIUM",
+            "fixed": "39.8.9",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-f2r8-jv7c-xqmp"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50937"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50938"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/51114"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/51115"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-78"
+            ],
+            "epss": {
+              "epss": 0.00179,
+              "percentile": 0.06701
+            }
+          },
+          {
+            "id": "GHSA-f3pv-wv63-48x8",
+            "cves": [
+              "CVE-2026-34765"
+            ],
+            "summary": "Electron: Named window.open targets not scoped to the opener's browsing context",
+            "severity": "MEDIUM",
+            "fixed": "39.8.5",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34765"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-f3pv-wv63-48x8"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/releases/tag/v39.8.5"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/releases/tag/v40.8.5"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/releases/tag/v41.1.0"
+              }
+            ],
+            "published": "2026-04-07",
+            "cwes": [
+              "CWE-668"
+            ],
+            "epss": {
+              "epss": 0.00378,
+              "percentile": 0.29323
+            }
+          },
+          {
+            "id": "GHSA-ff2p-hmqr-hxm4",
+            "cves": [
+              "CVE-2026-70610"
+            ],
+            "summary": "Electron: contextBridge object copy honors prototype setters",
+            "severity": "MEDIUM",
+            "fixed": "39.8.9",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-ff2p-hmqr-hxm4"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/51083"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/51084"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/51085"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/51086"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-1321"
+            ],
+            "epss": {
+              "epss": 0.00582,
+              "percentile": 0.45813
+            }
+          },
+          {
+            "id": "GHSA-jm7p-cc5g-qwxx",
+            "cves": [
+              "CVE-2026-70597"
+            ],
+            "summary": "Electron: Parent process code-sign check is spoofable",
+            "severity": "MEDIUM",
+            "fixed": "39.8.8",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-jm7p-cc5g-qwxx"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/0a6291a97d210db3733689e70a51f5711e38ed35"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-367"
+            ],
+            "epss": {
+              "epss": 0.00109,
+              "percentile": 0.01146
+            }
+          },
+          {
+            "id": "GHSA-m55f-7gqj-fr98",
+            "cves": [
+              "CVE-2026-70602"
+            ],
+            "summary": "Electron: Extension tab APIs operate across session boundaries",
+            "severity": "MEDIUM",
+            "fixed": "39.8.8",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-m55f-7gqj-fr98"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-284"
+            ],
+            "epss": {
+              "epss": 0.00256,
+              "percentile": 0.15694
+            }
+          },
+          {
+            "id": "GHSA-mwmh-mq4g-g6gr",
+            "cves": [
+              "CVE-2026-34773"
+            ],
+            "summary": "Electron: Registry key path injection in app.setAsDefaultProtocolClient on Windows",
+            "severity": "MEDIUM",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34773"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-mwmh-mq4g-g6gr"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-20",
+              "CWE-74"
+            ],
+            "epss": {
+              "epss": 0.00271,
+              "percentile": 0.17457
+            }
+          },
+          {
+            "id": "GHSA-p2jh-44qj-pf2v",
+            "cves": [
+              "CVE-2022-36077"
+            ],
+            "summary": "Exfiltration of hashed SMB credentials on Windows via file:// redirect",
+            "severity": "MEDIUM",
+            "fixed": "18.3.7",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2022-36077"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-p2jh-44qj-pf2v"
+              }
+            ],
+            "published": "2022-11-10",
+            "cwes": [
+              "CWE-200",
+              "CWE-522"
+            ],
+            "epss": {
+              "epss": 0.00557,
+              "percentile": 0.44398
+            }
+          },
+          {
+            "id": "GHSA-p2rr-rvmm-c5fp",
+            "cves": [
+              "CVE-2026-70612"
+            ],
+            "summary": "Electron: Sandboxed iframes can launch external protocol handlers",
+            "severity": "MEDIUM",
+            "fixed": "39.8.8",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-p2rr-rvmm-c5fp"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50961"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50962"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50963"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50964"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-284"
+            ],
+            "epss": {
+              "epss": 0.00443,
+              "percentile": 0.36229
+            }
+          },
+          {
+            "id": "GHSA-p7v2-p9m8-qqg7",
+            "cves": [
+              "CVE-2023-29198"
+            ],
+            "summary": "Electron context isolation bypass via nested unserializable return value",
+            "severity": "MEDIUM",
+            "fixed": "22.3.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-29198"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-p7v2-p9m8-qqg7"
+              },
+              {
+                "type": "WEB",
+                "url": "https://www.electronjs.org/docs/latest/api/context-bridge#parameter--error--return-type-support"
+              }
+            ],
+            "published": "2023-09-06",
+            "cwes": [
+              "CWE-754"
+            ],
+            "epss": {
+              "epss": 0.0059,
+              "percentile": 0.46225
+            }
+          },
+          {
+            "id": "GHSA-r5p7-gp4j-qhrx",
+            "cves": [
+              "CVE-2026-34777"
+            ],
+            "summary": "Electron: Incorrect origin passed to permission request handler for iframe requests",
+            "severity": "MEDIUM",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34777"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-r5p7-gp4j-qhrx"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-346"
+            ],
+            "epss": {
+              "epss": 0.00132,
+              "percentile": 0.0233
+            }
+          },
+          {
+            "id": "GHSA-v64r-4m7r-3mvq",
+            "cves": [
+              "CVE-2026-70605"
+            ],
+            "summary": "Electron: HTTP redirect followed into local file loader",
+            "severity": "MEDIUM",
+            "fixed": "39.8.8",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-v64r-4m7r-3mvq"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-918"
+            ],
+            "epss": {
+              "epss": 0.00315,
+              "percentile": 0.22068
+            }
+          },
+          {
+            "id": "GHSA-v93f-fgjr-hjrj",
+            "cves": [
+              "CVE-2026-70607"
+            ],
+            "summary": "Electron: window.open features string controls some window options considered privileged",
+            "severity": "MEDIUM",
+            "fixed": "39.8.8",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-v93f-fgjr-hjrj"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50946"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50947"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50948"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50949"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-20"
+            ],
+            "epss": {
+              "epss": 0.00581,
+              "percentile": 0.45756
+            }
+          },
+          {
+            "id": "GHSA-vmqv-hx8q-j7mg",
+            "cves": [
+              "CVE-2025-55305"
+            ],
+            "summary": "Electron has ASAR Integrity Bypass via resource modification",
+            "severity": "MEDIUM",
+            "fixed": "35.7.5",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-55305"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-vmqv-hx8q-j7mg"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/48101"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/48102"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/48103"
+              }
+            ],
+            "published": "2025-09-03",
+            "cwes": [
+              "CWE-829",
+              "CWE-94"
+            ],
+            "epss": {
+              "epss": 0.00274,
+              "percentile": 0.17947
+            }
+          },
+          {
+            "id": "GHSA-vv43-5jgx-7qv8",
+            "cves": [
+              "CVE-2026-102672"
+            ],
+            "summary": "Electron: Local race condition in Squirrel.Mac update installation on macOS",
+            "severity": "MEDIUM",
+            "fixed": "39.8.10",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-vv43-5jgx-7qv8"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50745"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/01faabfc250801a980fc94d64608046c67fc1cd9"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/15e2928a5c5f01759107b414010e220d90d59cef"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/a0f9ff4cc0340545008424232d49caadd9c0c767"
+              }
+            ],
+            "published": "2026-09-29",
+            "cwes": [
+              "CWE-367"
+            ]
+          },
+          {
+            "id": "GHSA-xj5x-m3f3-5x3h",
+            "cves": [
+              "CVE-2026-34778"
+            ],
+            "summary": "Electron: Service worker can spoof executeJavaScript IPC replies",
+            "severity": "MEDIUM",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34778"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-xj5x-m3f3-5x3h"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-290",
+              "CWE-345"
+            ],
+            "epss": {
+              "epss": 0.00139,
+              "percentile": 0.0273
+            }
+          },
+          {
+            "id": "GHSA-xwr5-m59h-vwqr",
+            "cves": [
+              "CVE-2026-34775"
+            ],
+            "summary": "Electron: nodeIntegrationInWorker not correctly scoped in shared renderer processes",
+            "severity": "MEDIUM",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34775"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-xwr5-m59h-vwqr"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-653"
+            ],
+            "epss": {
+              "epss": 0.00369,
+              "percentile": 0.28467
+            }
+          },
+          {
+            "id": "GHSA-3p22-ghq8-v749",
+            "cves": [
+              "CVE-2022-21718"
+            ],
+            "summary": "Renderers can obtain access to random bluetooth device without permission in Electron",
+            "severity": "LOW",
+            "fixed": "13.6.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2022-21718"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-3p22-ghq8-v749"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/32178"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/32240"
+              }
+            ],
+            "published": "2022-03-22",
+            "cwes": [
+              "CWE-668",
+              "CWE-862"
+            ],
+            "epss": {
+              "epss": 0.00946,
+              "percentile": 0.59693
+            }
+          },
+          {
+            "id": "GHSA-9899-m83m-qhpj",
+            "cves": [
+              "CVE-2026-34766"
+            ],
+            "summary": "Electron: USB device selection not validated against filtered device list",
+            "severity": "LOW",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34766"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-9899-m83m-qhpj"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-862"
+            ],
+            "epss": {
+              "epss": 0.00181,
+              "percentile": 0.06905
+            }
+          },
+          {
+            "id": "GHSA-f37v-82c4-4x64",
+            "cves": [
+              "CVE-2026-34781"
+            ],
+            "summary": "Electron: Crash in clipboard.readImage() on malformed clipboard image data",
+            "severity": "LOW",
+            "fixed": "39.8.5",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34781"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-f37v-82c4-4x64"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/pull/50475"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/a48f03fb8d03933547281ddb2dbb6c6b9e705287"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/releases/tag/v39.8.5"
+              }
+            ],
+            "published": "2026-04-07",
+            "cwes": [
+              "CWE-476"
+            ],
+            "epss": {
+              "epss": 0.00143,
+              "percentile": 0.03012
+            }
+          },
+          {
+            "id": "GHSA-jfqx-fxh3-c62j",
+            "cves": [
+              "CVE-2026-34768"
+            ],
+            "summary": "Electron: Unquoted executable path in app.setLoginItemSettings on Windows",
+            "severity": "LOW",
+            "fixed": "38.8.6",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34768"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-jfqx-fxh3-c62j"
+              }
+            ],
+            "published": "2026-04-03",
+            "cwes": [
+              "CWE-428"
+            ],
+            "epss": {
+              "epss": 0.00138,
+              "percentile": 0.02686
+            }
+          },
+          {
+            "id": "GHSA-mq8j-3h7h-p8g7",
+            "cves": [
+              "CVE-2022-29247"
+            ],
+            "summary": "Compromised child renderer processes could obtain IPC access without nodeIntegrationInSubFrames being enabled",
+            "severity": "LOW",
+            "fixed": "15.5.5",
+            "references": [
+              {
+                "type": "ADVISORY",
+                "url": "https://nvd.nist.gov/vuln/detail/CVE-2022-29247"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-mq8j-3h7h-p8g7"
+              }
+            ],
+            "published": "2022-06-16",
+            "cwes": [
+              "CWE-668"
+            ],
+            "epss": {
+              "epss": 0.01027,
+              "percentile": 0.62309
+            }
+          },
+          {
+            "id": "GHSA-pfmc-3mgc-p6fp",
+            "cves": [
+              "CVE-2026-70598"
+            ],
+            "summary": "Electron: Off-screen rendering trusts GPU-supplied geometry over shared-memory size",
+            "severity": "LOW",
+            "fixed": "39.8.10",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-pfmc-3mgc-p6fp"
+              },
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/commit/2c24640e7b0b9c74fe9f44bce0fde138340ff4fb"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-125"
+            ],
+            "epss": {
+              "epss": 0.00136,
+              "percentile": 0.02543
+            }
+          },
+          {
+            "id": "GHSA-x8rc-wpg4-grpf",
+            "cves": [
+              "CVE-2026-70600"
+            ],
+            "summary": "Electron: Cross-origin iframe can position native autofill popup",
+            "severity": "LOW",
+            "fixed": "39.8.8",
+            "references": [
+              {
+                "type": "WEB",
+                "url": "https://github.com/electron/electron/security/advisories/GHSA-x8rc-wpg4-grpf"
+              }
+            ],
+            "published": "2026-08-05",
+            "cwes": [
+              "CWE-1021"
+            ],
+            "epss": {
+              "epss": 0.00218,
+              "percentile": 0.11056
+            }
+          }
+        ],
+        "released": "2021-08-31",
+        "latest": "44.5.1",
+        "latestReleased": "2026-09-30",
+        "latestDeprecated": false,
+        "known": true,
+        "homepage": "https://github.com/electron/electron#readme",
+        "repository": "https://github.com/electron/electron",
+        "releaseNotes": "https://github.com/electron/electron/releases",
+        "versionsBehind": 778,
+        "majorsBehind": 33,
+        "latestInMajor": "11.5.0",
+        "support": {
+          "status": "unsupported",
+          "detail": "11.x reached end of life on 2021-08-31",
+          "eol": "2021-08-31",
+          "supported": [
+            "44.x",
+            "43.x",
+            "42.x"
+          ],
+          "policy": "https://www.electronjs.org/docs/latest/tutorial/electron-timelines",
+          "discontinued": false,
+          "source": "endoflife.date"
+        },
+        "fixedIn": "41.10.6",
+        "shipment": {
+          "status": "present-in-scanned-code",
+          "evidence": [
+            "Electron runtime"
+          ],
+          "scope": "source-inventory",
+          "note": "Presence is established; vulnerability reachability remains untested."
+        },
+        "kev": true,
+        "linkChecks": [
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    ],
+    "errors": [],
+    "offline": false,
+    "intel": {
+      "checked": true,
+      "kev": 1,
+      "malicious": 0
+    },
+    "bundled": {
+      "electron": "11.5.0",
+      "chromium": "87.0.4280.141",
+      "node": "12.18.3",
+      "v8": "8.7.220.31",
+      "openssl": "1.1.1"
+    },
+    "chromium": {
+      "chromium": "87.0.4280.141",
+      "checked": true,
+      "partial": false,
+      "total": 4280,
+      "counts": {
+        "critical": 400,
+        "high": 2013,
+        "medium": 1726,
+        "low": 141,
+        "unknown": 0
+      },
+      "kev": 51,
+      "top": [
+        {
+          "id": "CVE-2025-10585",
+          "severity": "critical",
+          "score": 9.8,
+          "fixedIn": "140.0.7339.185",
+          "published": "2025-09-24",
+          "kev": true,
+          "summary": "Type confusion in V8 in Google Chrome prior to 140.0.7339.185 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page. (Chromium security severity: High)",
+          "cwes": [
+            "CWE-843"
+          ],
+          "electronFix": "38.3.0"
+        },
+        {
+          "id": "CVE-2021-30633",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "93.0.4577.82",
+          "published": "2021-10-08",
+          "kev": true,
+          "summary": "Use after free in Indexed DB API in Google Chrome prior to 93.0.4577.82 allowed a remote attacker who had compromised the renderer process to potentially perform a sandbox escape via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "electronFix": "14.0.2"
+        },
+        {
+          "id": "CVE-2021-37973",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "94.0.4606.61",
+          "published": "2021-10-08",
+          "kev": true,
+          "summary": "Use after free in Portals in Google Chrome prior to 94.0.4606.61 allowed a remote attacker who had compromised the renderer process to potentially perform a sandbox escape via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "electronFix": "15.1.0"
+        },
+        {
+          "id": "CVE-2022-3075",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "105.0.5195.102",
+          "published": "2022-09-26",
+          "kev": true,
+          "summary": "Insufficient data validation in Mojo in Google Chrome prior to 105.0.5195.102 allowed a remote attacker who had compromised the renderer process to potentially perform a sandbox escape via a crafted HTML page.",
+          "cwes": [
+            "CWE-20"
+          ],
+          "electronFix": "21.0.0"
+        },
+        {
+          "id": "CVE-2022-4135",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "107.0.5304.121",
+          "published": "2022-11-25",
+          "kev": true,
+          "summary": "Heap buffer overflow in GPU in Google Chrome prior to 107.0.5304.121 allowed a remote attacker who had compromised the renderer process to potentially perform a sandbox escape via a crafted HTML page. (Chromium security ",
+          "cwes": [
+            "CWE-787"
+          ],
+          "electronFix": "22.0.0"
+        },
+        {
+          "id": "CVE-2023-2136",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "112.0.5615.137",
+          "published": "2023-04-19",
+          "kev": true,
+          "summary": "Integer overflow in Skia in Google Chrome prior to 112.0.5615.137 allowed a remote attacker who had compromised the renderer process to potentially perform a sandbox escape via a crafted HTML page. (Chromium security sev",
+          "cwes": [
+            "CWE-190"
+          ],
+          "electronFix": "24.1.3"
+        },
+        {
+          "id": "CVE-2023-6345",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "119.0.6045.199",
+          "published": "2023-11-29",
+          "kev": true,
+          "summary": "Integer overflow in Skia in Google Chrome prior to 119.0.6045.199 allowed a remote attacker who had compromised the renderer process to potentially perform a sandbox escape via a malicious file. (Chromium security severi",
+          "cwes": [
+            "CWE-190"
+          ],
+          "electronFix": "28.0.0"
+        },
+        {
+          "id": "CVE-2024-4671",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "124.0.6367.201",
+          "published": "2024-05-14",
+          "kev": true,
+          "summary": "Use after free in Visuals in Google Chrome prior to 124.0.6367.201 allowed a remote attacker who had compromised the renderer process to potentially perform a sandbox escape via a crafted HTML page. (Chromium security se",
+          "cwes": [
+            "CWE-416"
+          ],
+          "electronFix": "30.0.4"
+        },
+        {
+          "id": "CVE-2024-4947",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "125.0.6422.60",
+          "published": "2024-05-15",
+          "kev": true,
+          "summary": "Type Confusion in V8 in Google Chrome prior to 125.0.6422.60 allowed a remote attacker to execute arbitrary code inside a sandbox via a crafted HTML page. (Chromium security severity: High)",
+          "cwes": [
+            "CWE-843"
+          ],
+          "electronFix": "31.0.0"
+        },
+        {
+          "id": "CVE-2024-5274",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "125.0.6422.112",
+          "published": "2024-05-28",
+          "kev": true,
+          "summary": "Type Confusion in V8 in Google Chrome prior to 125.0.6422.112 allowed a remote attacker to execute arbitrary code inside a sandbox via a crafted HTML page. (Chromium security severity: High)",
+          "cwes": [
+            "CWE-843"
+          ],
+          "electronFix": "31.0.0"
+        },
+        {
+          "id": "CVE-2024-7971",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "128.0.6613.84",
+          "published": "2024-08-21",
+          "kev": true,
+          "summary": "Type confusion in V8 in Google Chrome prior to 128.0.6613.84 allowed a remote attacker to exploit heap corruption via a crafted HTML page. (Chromium security severity: High)",
+          "cwes": [
+            "CWE-843"
+          ],
+          "electronFix": "32.0.2"
+        },
+        {
+          "id": "CVE-2021-21148",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "88.0.4324.150",
+          "published": "2021-02-09",
+          "kev": true,
+          "summary": "Heap buffer overflow in V8 in Google Chrome prior to 88.0.4324.150 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-787"
+          ],
+          "electronFix": "12.0.0"
+        },
+        {
+          "id": "CVE-2021-21220",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "89.0.4389.128",
+          "published": "2021-04-26",
+          "kev": true,
+          "summary": "Insufficient validation of untrusted input in V8 in Google Chrome prior to 89.0.4389.128 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-787"
+          ],
+          "electronFix": "12.0.5"
+        },
+        {
+          "id": "CVE-2021-21224",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "90.0.4430.85",
+          "published": "2021-04-26",
+          "kev": true,
+          "summary": "Type confusion in V8 in Google Chrome prior to 90.0.4430.85 allowed a remote attacker to execute arbitrary code inside a sandbox via a crafted HTML page.",
+          "cwes": [
+            "CWE-843"
+          ],
+          "electronFix": "13.0.0"
+        },
+        {
+          "id": "CVE-2021-30632",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "93.0.4577.82",
+          "published": "2021-10-08",
+          "kev": true,
+          "summary": "Out of bounds write in V8 in Google Chrome prior to 93.0.4577.82 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-787"
+          ],
+          "electronFix": "14.0.2"
+        },
+        {
+          "id": "CVE-2021-37975",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "94.0.4606.71",
+          "published": "2021-10-08",
+          "kev": true,
+          "summary": "Use after free in V8 in Google Chrome prior to 94.0.4606.71 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "electronFix": "15.1.2"
+        },
+        {
+          "id": "CVE-2021-38003",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "95.0.4638.69",
+          "published": "2021-11-23",
+          "kev": true,
+          "summary": "Inappropriate implementation in V8 in Google Chrome prior to 95.0.4638.69 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-755"
+          ],
+          "electronFix": "16.0.0"
+        },
+        {
+          "id": "CVE-2021-4102",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "96.0.4664.110",
+          "published": "2022-02-11",
+          "kev": true,
+          "summary": "Use after free in V8 in Google Chrome prior to 96.0.4664.110 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "electronFix": "16.0.6"
+        },
+        {
+          "id": "CVE-2022-0609",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "98.0.4758.102",
+          "published": "2022-04-05",
+          "kev": true,
+          "summary": "Use after free in Animation in Google Chrome prior to 98.0.4758.102 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "electronFix": "17.1.0"
+        },
+        {
+          "id": "CVE-2022-1096",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "99.0.4844.84",
+          "published": "2022-07-23",
+          "kev": true,
+          "summary": "Type confusion in V8 in Google Chrome prior to 99.0.4844.84 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-843"
+          ],
+          "electronFix": "18.0.0"
+        },
+        {
+          "id": "CVE-2022-1364",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "100.0.4896.127",
+          "published": "2022-07-26",
+          "kev": true,
+          "summary": "Type confusion in V8 Turbofan in Google Chrome prior to 100.0.4896.127 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-843"
+          ],
+          "electronFix": "18.1.0"
+        },
+        {
+          "id": "CVE-2022-2294",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "103.0.5060.114",
+          "published": "2022-07-28",
+          "kev": true,
+          "summary": "Heap buffer overflow in WebRTC in Google Chrome prior to 103.0.5060.114 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-787"
+          ],
+          "electronFix": "20.0.0"
+        },
+        {
+          "id": "CVE-2022-3038",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "105.0.5195.52",
+          "published": "2022-09-26",
+          "kev": true,
+          "summary": "Use after free in Network Service in Google Chrome prior to 105.0.5195.52 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "electronFix": "21.0.0"
+        },
+        {
+          "id": "CVE-2022-3723",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "107.0.5304.87",
+          "published": "2022-11-01",
+          "kev": true,
+          "summary": "Type confusion in V8 in Google Chrome prior to 107.0.5304.87 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page. (Chromium security severity: High)",
+          "cwes": [
+            "CWE-843"
+          ],
+          "electronFix": "22.0.0"
+        },
+        {
+          "id": "CVE-2022-4262",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "108.0.5359.94",
+          "published": "2022-12-02",
+          "kev": true,
+          "summary": "Type confusion in V8 in Google Chrome prior to 108.0.5359.94 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page. (Chromium security severity: High)",
+          "cwes": [
+            "CWE-843"
+          ],
+          "electronFix": "22.0.1"
+        }
+      ],
+      "backported": 40,
+      "backportedTop": [
+        {
+          "id": "CVE-2021-21122",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "88.0.4324.96",
+          "published": "2021-02-09",
+          "kev": false,
+          "summary": "Use after free in Blink in Google Chrome prior to 88.0.4324.96 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.2.2"
+        },
+        {
+          "id": "CVE-2021-21160",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "89.0.4389.72",
+          "published": "2021-03-09",
+          "kev": false,
+          "summary": "Heap buffer overflow in WebAudio in Google Chrome prior to 89.0.4389.72 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-787"
+          ],
+          "backportedIn": "11.4.0"
+        },
+        {
+          "id": "CVE-2021-21162",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "89.0.4389.72",
+          "published": "2021-03-09",
+          "kev": false,
+          "summary": "Use after free in WebRTC in Google Chrome prior to 89.0.4389.72 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.0"
+        },
+        {
+          "id": "CVE-2021-21165",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "89.0.4389.72",
+          "published": "2021-03-09",
+          "kev": false,
+          "summary": "Data race in audio in Google Chrome prior to 89.0.4389.72 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-362"
+          ],
+          "backportedIn": "11.4.0"
+        },
+        {
+          "id": "CVE-2021-21166",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "89.0.4389.72",
+          "published": "2021-03-09",
+          "kev": true,
+          "summary": "Data race in audio in Google Chrome prior to 89.0.4389.72 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-362"
+          ],
+          "backportedIn": "11.4.1"
+        },
+        {
+          "id": "CVE-2021-21172",
+          "severity": "high",
+          "score": 8.1,
+          "fixedIn": "89.0.4389.72",
+          "published": "2021-03-09",
+          "kev": false,
+          "summary": "Insufficient policy enforcement in File System API in Google Chrome on Windows prior to 89.0.4389.72 allowed a remote attacker to bypass filesystem restrictions via a crafted HTML page.",
+          "cwes": [],
+          "backportedIn": "11.4.1"
+        },
+        {
+          "id": "CVE-2021-21175",
+          "severity": "medium",
+          "score": 6.5,
+          "fixedIn": "89.0.4389.72",
+          "published": "2021-03-09",
+          "kev": false,
+          "summary": "Inappropriate implementation in Site isolation in Google Chrome prior to 89.0.4389.72 allowed a remote attacker to leak cross-origin data via a crafted HTML page.",
+          "cwes": [
+            "CWE-346"
+          ],
+          "backportedIn": "11.4.1"
+        },
+        {
+          "id": "CVE-2021-21179",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "89.0.4389.72",
+          "published": "2021-03-09",
+          "kev": false,
+          "summary": "Use after free in Network Internals in Google Chrome on Linux prior to 89.0.4389.72 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.1"
+        },
+        {
+          "id": "CVE-2021-21181",
+          "severity": "medium",
+          "score": 6.5,
+          "fixedIn": "89.0.4389.72",
+          "published": "2021-03-09",
+          "kev": false,
+          "summary": "Side-channel information leakage in autofill in Google Chrome prior to 89.0.4389.72 allowed a remote attacker to obtain potentially sensitive information from process memory via a crafted HTML page.",
+          "cwes": [
+            "CWE-203"
+          ],
+          "backportedIn": "11.4.0"
+        },
+        {
+          "id": "CVE-2021-21193",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "89.0.4389.90",
+          "published": "2021-03-16",
+          "kev": true,
+          "summary": "Use after free in Blink in Google Chrome prior to 89.0.4389.90 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.0"
+        },
+        {
+          "id": "CVE-2021-21194",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "89.0.4389.114",
+          "published": "2021-04-09",
+          "kev": false,
+          "summary": "Use after free in screen sharing in Google Chrome prior to 89.0.4389.114 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.4"
+        },
+        {
+          "id": "CVE-2021-21206",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "89.0.4389.128",
+          "published": "2021-04-26",
+          "kev": true,
+          "summary": "Use after free in Blink in Google Chrome prior to 89.0.4389.128 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.4"
+        },
+        {
+          "id": "CVE-2021-21214",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "90.0.4430.72",
+          "published": "2021-04-26",
+          "kev": false,
+          "summary": "Use after free in Network API in Google Chrome prior to 90.0.4430.72 allowed a remote attacker to potentially exploit heap corruption via a crafted Chrome Extension.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.5"
+        },
+        {
+          "id": "CVE-2021-21215",
+          "severity": "medium",
+          "score": 6.5,
+          "fixedIn": "90.0.4430.72",
+          "published": "2021-04-26",
+          "kev": false,
+          "summary": "Inappropriate implementation in Autofill in Google Chrome prior to 90.0.4430.72 allowed a remote attacker to spoof security UI via a crafted HTML page.",
+          "cwes": [
+            "CWE-290"
+          ],
+          "backportedIn": "11.4.5"
+        },
+        {
+          "id": "CVE-2021-21216",
+          "severity": "medium",
+          "score": 6.5,
+          "fixedIn": "90.0.4430.72",
+          "published": "2021-04-26",
+          "kev": false,
+          "summary": "Inappropriate implementation in Autofill in Google Chrome prior to 90.0.4430.72 allowed a remote attacker to spoof security UI via a crafted HTML page.",
+          "cwes": [
+            "CWE-290"
+          ],
+          "backportedIn": "11.4.5"
+        },
+        {
+          "id": "CVE-2021-21222",
+          "severity": "medium",
+          "score": 6.5,
+          "fixedIn": "90.0.4430.85",
+          "published": "2021-04-26",
+          "kev": false,
+          "summary": "Heap buffer overflow in V8 in Google Chrome prior to 90.0.4430.85 allowed a remote attacker who had compromised the renderer process to bypass site isolation via a crafted HTML page.",
+          "cwes": [
+            "CWE-787"
+          ],
+          "backportedIn": "11.4.4"
+        },
+        {
+          "id": "CVE-2021-21226",
+          "severity": "critical",
+          "score": 9.6,
+          "fixedIn": "90.0.4430.85",
+          "published": "2021-04-26",
+          "kev": false,
+          "summary": "Use after free in navigation in Google Chrome prior to 90.0.4430.85 allowed a remote attacker who had compromised the renderer process to potentially perform a sandbox escape via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.4"
+        },
+        {
+          "id": "CVE-2021-30508",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "90.0.4430.212",
+          "published": "2021-06-04",
+          "kev": false,
+          "summary": "Heap buffer overflow in Media Feeds in Google Chrome prior to 90.0.4430.212 allowed an attacker who convinced a user to enable certain features in Chrome to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-787"
+          ],
+          "backportedIn": "11.4.8"
+        },
+        {
+          "id": "CVE-2021-30510",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "90.0.4430.212",
+          "published": "2021-06-04",
+          "kev": false,
+          "summary": "Use after free in Aura in Google Chrome prior to 90.0.4430.212 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.8"
+        },
+        {
+          "id": "CVE-2021-30512",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "90.0.4430.212",
+          "published": "2021-06-04",
+          "kev": false,
+          "summary": "Use after free in Notifications in Google Chrome prior to 90.0.4430.212 allowed a remote attacker who had compromised the renderer process to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.8"
+        },
+        {
+          "id": "CVE-2021-30513",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "90.0.4430.212",
+          "published": "2021-06-04",
+          "kev": false,
+          "summary": "Type confusion in V8 in Google Chrome prior to 90.0.4430.212 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-843"
+          ],
+          "backportedIn": "11.4.8"
+        },
+        {
+          "id": "CVE-2021-30515",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "90.0.4430.212",
+          "published": "2021-06-04",
+          "kev": false,
+          "summary": "Use after free in File API in Google Chrome prior to 90.0.4430.212 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.8"
+        },
+        {
+          "id": "CVE-2021-30516",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "90.0.4430.212",
+          "published": "2021-06-04",
+          "kev": false,
+          "summary": "Heap buffer overflow in History in Google Chrome prior to 90.0.4430.212 allowed a remote attacker who had compromised the renderer process to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-787"
+          ],
+          "backportedIn": "11.4.8"
+        },
+        {
+          "id": "CVE-2021-30518",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "90.0.4430.212",
+          "published": "2021-06-04",
+          "kev": false,
+          "summary": "Heap buffer overflow in Reader Mode in Google Chrome prior to 90.0.4430.212 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-787"
+          ],
+          "backportedIn": "11.4.8"
+        },
+        {
+          "id": "CVE-2021-30522",
+          "severity": "high",
+          "score": 8.8,
+          "fixedIn": "91.0.4472.77",
+          "published": "2021-06-07",
+          "kev": false,
+          "summary": "Use after free in WebAudio in Google Chrome prior to 91.0.4472.77 allowed a remote attacker to potentially exploit heap corruption via a crafted HTML page.",
+          "cwes": [
+            "CWE-416"
+          ],
+          "backportedIn": "11.4.10"
+        }
+      ],
+      "backportsChecked": true,
+      "source": "NVD (CPE google:chrome), CISA KEV, Electron release notes"
+    }
+  },
+  "markdown": {
+    "version": "2.0.0",
+    "findings": {
+      "Insecure Network Transport and Certificate Validation.md": {
+        "title": "Insecure Network Transport and Certificate Validation",
+        "rating": "4749caaadd30a059",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "d76892661cb4c9f3",
+          "Affected": "d4c9cc937a55b2a1",
+          "Implication": "3e8dda2764c7bb07",
+          "Reproduction and Evidence": "0c3ffe8ce48eaada",
+          "Recommendations": "7f31b0e899e38477",
+          "References": "de0d8bd939fabdf1"
+        }
+      },
+      "Insufficient Renderer Process Isolation.md": {
+        "title": "Insufficient Renderer Process Isolation",
+        "rating": "4749caaadd30a059",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "ac3610fa1c392df2",
+          "Affected": "f9e825d63202e8b3",
+          "Implication": "0fc54611b98d7805",
+          "Reproduction and Evidence": "376d6f3b19f9716f",
+          "Recommendations": "c80001d91d6aa5c9",
+          "References": "98b6245d329239f0"
+        }
+      },
+      "Privileged Functionality Exposed to Web Content.md": {
+        "title": "Privileged Functionality Exposed to Web Content",
+        "rating": "4749caaadd30a059",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "f6e0c8a6e0e2b0f0",
+          "Affected": "44113765b43e1b05",
+          "Implication": "813ef0a70c8eeea8",
+          "Reproduction and Evidence": "9f9cdd43446a4d56",
+          "Recommendations": "928352baae5f6354",
+          "References": "d2b1b2cb56f643d5"
+        }
+      },
+      "Insufficient Navigation and New Window Restrictions.md": {
+        "title": "Insufficient Navigation and New Window Restrictions",
+        "rating": "600c615173212530",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "34d577b5d16e455e",
+          "Affected": "9852f6939b3a72ca",
+          "Implication": "4f89219edaceeec2",
+          "Reproduction and Evidence": "e31fdf39ee63489a",
+          "Recommendations": "ceeabdf62b900cd7",
+          "References": "701ef7e857d8682b"
+        }
+      },
+      "Permissive Browser Permission Handling.md": {
+        "title": "Permissive Browser Permission Handling",
+        "rating": "600c615173212530",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "2103397f07c4b92c",
+          "Affected": "049bebdce471d8b1",
+          "Implication": "4515f1cb1ba55ad9",
+          "Reproduction and Evidence": "2a38e9e23cb1feed",
+          "Recommendations": "8b4e5aa8d16756bb",
+          "References": "b82e76f0f073f309"
+        }
+      },
+      "Command or Code Execution from Variable Input.md": {
+        "title": "Command or Code Execution from Variable Input",
+        "rating": "a3860bb89be3cc4c",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "cd5d1a7d8f2b0c85",
+          "Affected": "3078d982137f2730",
+          "Implication": "658ff7de77ba5744",
+          "Reproduction and Evidence": "44388e682e0cca59",
+          "Recommendations": "b2b2db78cb11a0cb",
+          "References": "54dc8d392d47d447"
+        }
+      },
+      "Insecure Handling of Deep Links and File Associations.md": {
+        "title": "Insecure Handling of Deep Links and File Associations",
+        "rating": "a3860bb89be3cc4c",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "766cf934cfe59dc9",
+          "Affected": "d1fd6e31ce763e70",
+          "Implication": "b815dc9b50ce5a7e",
+          "Reproduction and Evidence": "fe9a8d2d1b08e035",
+          "Recommendations": "d34ce0c26eae9f93",
+          "References": "266769f2c707d496"
+        }
+      },
+      "Unvalidated URLs and Files Passed to the Operating System.md": {
+        "title": "Unvalidated URLs and Files Passed to the Operating System",
+        "rating": "a3860bb89be3cc4c",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "1b25601a1c306b4b",
+          "Affected": "080f95845e00190d",
+          "Implication": "1874d43edb4910da",
+          "Reproduction and Evidence": "0c81fb9add8879b5",
+          "Recommendations": "e5a498fd5516f80d",
+          "References": "955dbb9fefd49340"
+        }
+      },
+      "Browser Security Controls Disabled.md": {
+        "title": "Browser Security Controls Disabled",
+        "rating": "5e5db32aace4e2de",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "af9b4c29fe120532",
+          "Affected": "74ae843b9a9f56e3",
+          "Implication": "6aba3f80e7577211",
+          "Reproduction and Evidence": "114987ef0051990b",
+          "Recommendations": "b991c6addc2c012c",
+          "References": "8b25f08e3f59fe81"
+        }
+      },
+      "Missing or Insufficient Content Security Policy.md": {
+        "title": "Missing or Insufficient Content Security Policy",
+        "rating": "5e5db32aace4e2de",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "4bbeb243fffffe2f",
+          "Affected": "cf7b3c5cfa173f48",
+          "Implication": "5e028dec49adf77a",
+          "Reproduction and Evidence": "3fcb970cbd95f5ab",
+          "Recommendations": "b4ef51f2c288fc89",
+          "References": "da6ecaf645aab418"
+        }
+      },
+      "Cross-Site Scripting in Content Rendering.md": {
+        "title": "Cross-Site Scripting in Content Rendering",
+        "rating": "5df6374bf58f86c0",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "47c69734d488e057",
+          "Affected": "d741d967a103eb0b",
+          "Implication": "7905cb0576b12f17",
+          "Reproduction and Evidence": "ca0a1ba305999115",
+          "Recommendations": "5fe1742744738f03",
+          "References": "cd5ecba55ba1d34f"
+        }
+      },
+      "Insufficient Validation of Inter-Process Messages.md": {
+        "title": "Insufficient Validation of Inter-Process Messages",
+        "rating": "5df6374bf58f86c0",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "c6c3b0d709b03c5c",
+          "Affected": "08053839a3cae7fc",
+          "Implication": "7cf6a85e044cadda",
+          "Reproduction and Evidence": "66d34ac565274389",
+          "Recommendations": "5df3de183cd5c6c5",
+          "References": "fc8ce7351275fb77"
+        }
+      },
+      "Debugging Features Enabled in Production.md": {
+        "title": "Debugging Features Enabled in Production",
+        "rating": "6ef9c98c632d2810",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "2f76682cd4408543",
+          "Affected": "5c943d7eb5a88431",
+          "Implication": "c2f60dd88445371e",
+          "Reproduction and Evidence": "b34136c9229d5c35",
+          "Recommendations": "8a16e9b883f76699",
+          "References": "2e6f4ee6cad548ee"
+        }
+      },
+      "Insecure Electron Fuse Configuration.md": {
+        "title": "Insecure Electron Fuse Configuration",
+        "rating": "8459fed53e0f1960",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "6f43c111e69d3abe",
+          "Affected": "66142e5d060cc2c8",
+          "Implication": "3304c5b76cf32433",
+          "Reproduction and Evidence": "544a0d2d31d793b3",
+          "Recommendations": "4000e9edd659868f",
+          "References": "5f2d008a095279ae"
+        }
+      },
+      "Outdated Software Components.md": {
+        "title": "Outdated Software Components",
+        "rating": "38b4115ae87ed0e2",
+        "notes": "4f53cda18c2baa0c",
+        "sections": {
+          "Issue Description": "4f14efcb49e5dc4b",
+          "Affected": "fc6ac8ef18f4b667",
+          "Implication": "7fa017d948ead876",
+          "Reproduction and Evidence": "5209dbfd037ba158",
+          "Recommendations": "1750ecd5323e6d70",
+          "References": "78b26abf405ea312"
+        }
+      }
+    }
+  },
+  "summary": {
+    "HIGH": 18,
+    "MEDIUM": 15,
+    "LOW": 2,
+    "INFORMATIONAL": 3
+  },
+  "scores": {
+    "risk": 99,
+    "external": 95
+  },
+  "issues": [
+    {
+      "fingerprint": "ac95dacc7c56b3149b1d5c84",
+      "id": "AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/package.json",
+      "line": 0,
+      "column": 0,
+      "description": "The Electron version in use is affected by published security advisories that are fixed in newer releases (46: GHSA-3c8v-cfp5-9885, GHSA-3p22-ghq8-v749, GHSA-4f78-qhmw-8j8m, GHSA-4p4r-m79c-wq3v, GHSA-532v-xpq5-8h95, ...)",
+      "exploitableBy": "Known vulnerabilities",
+      "consequence": "The Electron version in use lacks published security fixes; some of them are exploitable by web content (see the advisories).",
+      "interaction": "Depends on each advisory",
+      "remediation": "Upgrade Electron to the newest release of a supported major version, then re-run the scan.",
+      "reference": "https://github.com/electron/electron/security/advisories",
+      "properties": {
+        "versionNumber": "11.5.0",
+        "advisories": [
+          "GHSA-3c8v-cfp5-9885",
+          "GHSA-3p22-ghq8-v749",
+          "GHSA-4f78-qhmw-8j8m",
+          "GHSA-4p4r-m79c-wq3v",
+          "GHSA-532v-xpq5-8h95",
+          "GHSA-5c9j-mhmv-5xgx",
+          "GHSA-5rqw-r77c-jp79",
+          "GHSA-6r2x-8pq8-9489",
+          "GHSA-77xc-hjv8-ww97",
+          "GHSA-7m48-wc93-9g85",
+          "GHSA-7x97-j373-85x5",
+          "GHSA-8337-3p73-46f4",
+          "GHSA-9899-m83m-qhpj",
+          "GHSA-9f4c-93c8-jc8g",
+          "GHSA-9pf5-hg6p-4pwp",
+          "GHSA-9qh4-3jw8-366w",
+          "GHSA-9w97-2464-8783",
+          "GHSA-9wfr-w7mm-pc7f",
+          "GHSA-f2r8-jv7c-xqmp",
+          "GHSA-f37v-82c4-4x64",
+          "GHSA-f3pv-wv63-48x8",
+          "GHSA-ff2p-hmqr-hxm4",
+          "GHSA-gr2m-v5gq-v685",
+          "GHSA-h7rp-cf8h-j98x",
+          "GHSA-hq2x-r82h-9wj4",
+          "GHSA-j84w-jfhq-vhvj",
+          "GHSA-jfqx-fxh3-c62j",
+          "GHSA-jjp3-mq3x-295m",
+          "GHSA-jm7p-cc5g-qwxx",
+          "GHSA-m55f-7gqj-fr98",
+          "GHSA-mq8j-3h7h-p8g7",
+          "GHSA-mwmh-mq4g-g6gr",
+          "GHSA-p2jh-44qj-pf2v",
+          "GHSA-p2rr-rvmm-c5fp",
+          "GHSA-p7v2-p9m8-qqg7",
+          "GHSA-pfmc-3mgc-p6fp",
+          "GHSA-qqvq-6xgj-jw8g",
+          "GHSA-r5p7-gp4j-qhrx",
+          "GHSA-v3j7-r9gq-3gjw",
+          "GHSA-v64r-4m7r-3mvq",
+          "GHSA-v93f-fgjr-hjrj",
+          "GHSA-vmqv-hx8q-j7mg",
+          "GHSA-vv43-5jgx-7qv8",
+          "GHSA-x8rc-wpg4-grpf",
+          "GHSA-xj5x-m3f3-5x3h",
+          "GHSA-xwr5-m59h-vwqr"
+        ]
+      }
+    },
+    {
+      "fingerprint": "de0bdf060db783f01068fae5",
+      "id": "CSP_GLOBAL_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "N/A",
+      "line": 0,
+      "column": 0,
+      "description": "No CSP has been detected in the target application",
+      "exploitableBy": "Raises impact",
+      "consequence": "Without a Content Security Policy, injected markup can run inline script. A strict CSP is what turns an HTML injection into a harmless one.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Serve a Content-Security-Policy with every page, from a <meta> tag or the response headers, and start strict.",
+      "remediationExample": "session.defaultSession.webRequest.onHeadersReceived((d, cb) => cb({ responseHeaders: { ...d.responseHeaders, 'Content-Security-Policy': [\"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'\"] } }));",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#7-define-a-content-security-policy"
+    },
+    {
+      "fingerprint": "4fb8084fe92cc4b256fe618a",
+      "id": "LIMIT_NAVIGATION_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 20,
+      "column": 2,
+      "sample": "win.webContents.on('will-navigate', (event, url) => console.log('navigating to', url));",
+      "context": {
+        "start": 18,
+        "lines": [
+          "  protocol.handle('app', (request) => net.fetch('file://' + path.join(__dirname, new URL(request.url).pathname)));",
+          "",
+          "  win.webContents.on('will-navigate', (event, url) => console.log('navigating to', url));",
+          "  win.webContents.setWindowOpenHandler(({ url }) => {",
+          "    shell.openExternal(url);"
+        ]
+      },
+      "description": "Evaluate the implementation of the navigation limits (will-navigate, will-frame-navigate, setWindowOpenHandler): the will-navigate handler never calls event.preventDefault(), so it blocks nothing",
+      "exploitableBy": "Shared content",
+      "consequence": "Windows can be navigated to any site (e.g. by a link in shared content); that site then runs inside the app window, with its preload and IPC access.",
+      "interaction": "A click on a crafted link",
+      "remediation": "Block navigation away from your own pages and route external links through an allowlist.",
+      "remediationExample": "win.webContents.on('will-navigate', (e, url) => { if (new URL(url).origin !== ownOrigin) e.preventDefault(); });",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#13-disable-or-limit-navigation",
+      "properties": {
+        "event": "will-navigate-noop"
+      }
+    },
+    {
+      "fingerprint": "321d1b3053bc468736477665",
+      "id": "LIMIT_NAVIGATION_GLOBAL_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "N/A",
+      "line": 0,
+      "column": 0,
+      "description": "Missing will-navigate navigation limit",
+      "exploitableBy": "Shared content",
+      "consequence": "Windows can be navigated to any site (e.g. by a link in shared content); that site then runs inside the app window, with its preload and IPC access.",
+      "interaction": "A click on a crafted link",
+      "remediation": "Block navigation away from your own pages and route external links through an allowlist.",
+      "remediationExample": "win.webContents.on('will-navigate', (e, url) => { if (new URL(url).origin !== ownOrigin) e.preventDefault(); });",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#13-disable-or-limit-navigation"
+    },
+    {
+      "fingerprint": "e040e68926528e374112d938",
+      "id": "PERMISSION_REQUEST_HANDLER_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 15,
+      "column": 2,
+      "sample": "session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => callback(true));",
+      "context": {
+        "start": 13,
+        "lines": [
+          "  win.webContents.openDevTools();",
+          "",
+          "  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => callback(true));",
+          "  session.defaultSession.setCertificateVerifyProc((request, callback) => callback(0));",
+          ""
+        ]
+      },
+      "description": "Permission handler: setPermissionRequestHandler grants every permission to every origin",
+      "exploitableBy": "Shared content",
+      "consequence": "Without a permission handler, any page (including one reached through a link in shared content) gets camera, microphone, notifications and other permissions automatically.",
+      "interaction": "Viewing the content is enough when it runs as script; a click when it is a link",
+      "remediation": "Set both permission handlers, allow only what the app needs and only for your own origin, and deny everything else.",
+      "remediationExample": "ses.setPermissionRequestHandler((wc, permission, cb, details) => cb(permission === 'notifications' && new URL(details.requestingUrl).origin === ownOrigin));\nses.setPermissionCheckHandler((wc, permission, origin) => permission === 'notifications' && origin === ownOrigin);",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#5-handle-session-permission-requests-from-remote-content",
+      "properties": {
+        "handler": "setPermissionRequestHandler",
+        "assessed": true
+      }
+    },
+    {
+      "fingerprint": "75b5fdf4658d13f677b0d02e",
+      "id": "HTTP_RESOURCES_HTML_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/index.html",
+      "line": 1,
+      "column": 0,
+      "sample": "<html><body><script src=\"http://cdn.example.com/app.js\"></script><webview src=\"https://example.com\" allowpopups></webview></body></html>",
+      "context": {
+        "start": 1,
+        "lines": [
+          "<html><body><script src=\"http://cdn.example.com/app.js\"></script><webview src=\"https://example.com\" allowpopups></webview></body></html>",
+          ""
+        ]
+      },
+      "description": "Do not allow insecure HTTP connections (<script> http://cdn.example.com/app.js)",
+      "exploitableBy": "Network",
+      "consequence": "Content loaded over plain http can be modified by anyone on the network path (Wi-Fi, proxy).",
+      "interaction": "None: an attacker on the network path acts while the app talks to its servers",
+      "remediation": "Load every script, style, frame and API over HTTPS (and WebSockets over wss://).",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#1-only-load-secure-content"
+    },
+    {
+      "fingerprint": "ab8f274f228d1101d4872a6b",
+      "id": "NODE_INTEGRATION_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 10,
+      "column": 22,
+      "sample": "webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+      "context": {
+        "start": 8,
+        "lines": [
+          "app.whenReady().then(() => {",
+          "  const win = new BrowserWindow({",
+          "    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+          "  });",
+          "  win.loadURL('http://example.com');"
+        ]
+      },
+      "description": "Disable nodeIntegration for untrusted origins (nodeIntegration is enabled)",
+      "exploitableBy": "Raises impact",
+      "consequence": "Page script has full Node.js access: any XSS in this window is code execution on the user's machine.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Turn nodeIntegration off and move Node.js work into the main process behind narrow IPC handlers, with a preload script for the bridge.",
+      "remediationExample": "webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true }",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#2-do-not-enable-nodejs-integration-for-remote-content"
+    },
+    {
+      "fingerprint": "24726b336c83c1dd40aa09fe",
+      "id": "HTTP_RESOURCES_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 12,
+      "column": 2,
+      "sample": "win.loadURL('http://example.com');",
+      "context": {
+        "start": 10,
+        "lines": [
+          "    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+          "  });",
+          "  win.loadURL('http://example.com');",
+          "  win.webContents.openDevTools();",
+          ""
+        ]
+      },
+      "description": "Do not allow insecure HTTP connections",
+      "exploitableBy": "Network",
+      "consequence": "Content loaded over plain http can be modified by anyone on the network path (Wi-Fi, proxy).",
+      "interaction": "None: an attacker on the network path acts while the app talks to its servers",
+      "remediation": "Load every script, style, frame and API over HTTPS (and WebSockets over wss://).",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#1-only-load-secure-content"
+    },
+    {
+      "fingerprint": "b535ef8ecbaeeb35b8000601",
+      "id": "HTTP_RESOURCES_WITH_NODE_INTEGRATION_GLOBAL_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "CERTAIN",
+      "manualReview": true,
+      "file": "N/A",
+      "line": 0,
+      "column": 0,
+      "description": "The nodeIntegration flag is enabled for the application, but some resources are loaded over an unencrypted connection.",
+      "exploitableBy": "Network",
+      "consequence": "Plain http content is loaded into a window with Node.js: someone on the network path gets code execution on the machine.",
+      "interaction": "None: an attacker on the network path acts while the app talks to its servers",
+      "remediation": "Load only HTTPS content, and turn nodeIntegration off for any window that shows remote content.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#2-do-not-enable-nodejs-integration-for-remote-content"
+    },
+    {
+      "fingerprint": "a796ac86e6c056cde28cd17e",
+      "id": "FUSES_GLOBAL_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "FIRM",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/package.json",
+      "line": 1,
+      "column": 0,
+      "description": "No Electron Fuses configuration found. RunAsNode, NODE_OPTIONS, --inspect and ASAR integrity fuses are insecure by default (electron-builder)",
+      "exploitableBy": "Local access",
+      "consequence": "Build hardening left at insecure defaults. It matters to someone who can start or modify the app on the device (e.g. RunAsNode turns it into a Node.js interpreter), not to other users' content.",
+      "interaction": "Access to the user's device or account",
+      "remediation": "Flip the insecure fuses at package time with @electron/fuses.",
+      "remediationExample": "flipFuses(exe, { version: FuseVersion.V1, [FuseV1Options.RunAsNode]: false, [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false, [FuseV1Options.EnableNodeCliInspectArguments]: false, [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true, [FuseV1Options.OnlyLoadAppFromAsar]: true, [FuseV1Options.EnableCookieEncryption]: true, [FuseV1Options.GrantFileProtocolExtraPrivileges]: false });",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/fuses"
+    },
+    {
+      "fingerprint": "85b67b779c43ae50b4a22b09",
+      "id": "WEBVIEW_TAG_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 10,
+      "column": 106,
+      "sample": "webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+      "context": {
+        "start": 8,
+        "lines": [
+          "app.whenReady().then(() => {",
+          "  const win = new BrowserWindow({",
+          "    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+          "  });",
+          "  win.loadURL('http://example.com');"
+        ]
+      },
+      "description": "The <webview> tag is enabled",
+      "exploitableBy": "Raises impact",
+      "consequence": "The <webview> tag is enabled: script injected into the page can create webviews with its own settings.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Avoid <webview>; if it is required, remove nodeintegration, disablewebsecurity and allowpopups, set a partition, and validate src.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#12-verify-webview-options-before-creation",
+      "properties": {
+        "event": "webviewTag"
+      }
+    },
+    {
+      "fingerprint": "4b0ee660230f3bebc192a731",
+      "id": "WEBVIEW_GLOBAL_CHECK",
+      "severity": "HIGH",
+      "confidence": "FIRM",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 10,
+      "column": 106,
+      "description": "The <webview> tag is enabled but no will-attach-webview handler verifies webview options before creation",
+      "exploitableBy": "Raises impact",
+      "consequence": "A <webview> embeds other content; misconfigured, that content runs with Node.js or preload access.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Avoid <webview>. Use an iframe with sandbox, or a WebContentsView/BrowserView with contextIsolation and sandbox on. If it must stay, lock it down in will-attach-webview.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#12-verify-webview-options-before-creation"
+    },
+    {
+      "fingerprint": "5f48bab18b8a82b6c7ac006e",
+      "id": "CERTIFICATE_VERIFY_PROC_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 16,
+      "column": 2,
+      "sample": "session.defaultSession.setCertificateVerifyProc((request, callback) => callback(0));",
+      "context": {
+        "start": 14,
+        "lines": [
+          "",
+          "  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => callback(true));",
+          "  session.defaultSession.setCertificateVerifyProc((request, callback) => callback(0));",
+          "",
+          "  protocol.handle('app', (request) => net.fetch('file://' + path.join(__dirname, new URL(request.url).pathname)));"
+        ]
+      },
+      "description": "Do not allow insecure connections, by explicitly opting-out from TLS validation or importing untrusted certificates (every certificate is accepted, TLS validation is disabled)",
+      "exploitableBy": "Network",
+      "consequence": "Certificate verification is overridden: someone on the network can impersonate the server if the check is too lenient.",
+      "interaction": "None: an attacker on the network path acts while the app talks to its servers",
+      "remediation": "Do not return success (0) for every certificate in setCertificateVerifyProc; verify the chain, or fall back to Chromium's result (-3), and reject mismatches (-2).",
+      "reference": "https://www.electronjs.org/docs/latest/api/session#sessetcertificateverifyprocproc",
+      "properties": {
+        "verifyProc": true
+      }
+    },
+    {
+      "fingerprint": "e24b5d60ac14011c6575e4e9",
+      "id": "UNSUPPORTED_VERSION_GLOBAL_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/package.json",
+      "line": 0,
+      "column": 0,
+      "description": "The Electron version in use is no longer supported and does not receive security fixes: Electron 11 (supported: 44, 43, 42)",
+      "exploitableBy": "Known vulnerabilities",
+      "consequence": "This Electron version no longer receives security fixes, including for flaws exploitable by web content.",
+      "interaction": "Depends on each advisory",
+      "remediation": "Upgrade Electron to a currently supported major version; unsupported versions get no security fixes.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/electron-timelines",
+      "properties": {
+        "versionNumber": "11.5.0",
+        "supported": [
+          44,
+          43,
+          42
+        ]
+      }
+    },
+    {
+      "fingerprint": "35d4e5d776ecfb3778c9eba6",
+      "id": "SANDBOX_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "FIRM",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 10,
+      "column": 90,
+      "sample": "webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+      "context": {
+        "start": 8,
+        "lines": [
+          "app.whenReady().then(() => {",
+          "  const win = new BrowserWindow({",
+          "    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+          "  });",
+          "  win.loadURL('http://example.com');"
+        ]
+      },
+      "description": "Use sandbox for untrusted origins",
+      "exploitableBy": "Raises impact",
+      "consequence": "The renderer is not sandboxed: page content exploiting a Chromium bug escapes to the operating system more easily.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Turn the renderer sandbox on (the default since Electron 20) and do not combine it with nodeIntegration.",
+      "remediationExample": "webPreferences: { sandbox: true }",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#4-enable-process-sandboxing"
+    },
+    {
+      "fingerprint": "3688068904ca4b18ea2f15cb",
+      "id": "NODE_TLS_REJECT_UNAUTHORIZED_JSON_CHECK",
+      "severity": "LOW",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/package.json",
+      "line": 4,
+      "column": 0,
+      "sample": "\"scripts\": { \"start\": \"NODE_TLS_REJECT_UNAUTHORIZED=0 electron .\" },",
+      "context": {
+        "start": 2,
+        "lines": [
+          "  \"name\": \"vulnerable-app\",",
+          "  \"main\": \"src/main.js\",",
+          "  \"scripts\": { \"start\": \"NODE_TLS_REJECT_UNAUTHORIZED=0 electron .\" },",
+          "  \"devDependencies\": { \"electron\": \"11.5.0\" },",
+          "  \"build\": { \"appId\": \"com.example.vulnerable\" }"
+        ]
+      },
+      "description": "TLS certificate validation is disabled for Node.js connections (NODE_TLS_REJECT_UNAUTHORIZED=0 or rejectUnauthorized: false) (in the npm script \"start\": it applies when the app is started with that script, typically in development; a packaged build does not run npm scripts)",
+      "exploitableBy": "Network",
+      "consequence": "TLS certificate checks are off for Node.js requests: someone on the network can impersonate the servers the app talks to.",
+      "interaction": "None: an attacker on the network path acts while the app talks to its servers",
+      "remediation": "Remove NODE_TLS_REJECT_UNAUTHORIZED=0 and fix the certificate problem itself (trust the right CA, use a valid certificate).",
+      "reference": "https://nodejs.org/api/cli.html#node_tls_reject_unauthorizedvalue",
+      "properties": {
+        "script": "start"
+      }
+    },
+    {
+      "fingerprint": "a2c5929420607938c8fe2a31",
+      "id": "ALLOWPOPUPS_HTML_CHECK",
+      "severity": "LOW",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/index.html",
+      "line": 1,
+      "column": 0,
+      "sample": "<html><body><script src=\"http://cdn.example.com/app.js\"></script><webview src=\"https://example.com\" allowpopups></webview></body></html>",
+      "context": {
+        "start": 1,
+        "lines": [
+          "<html><body><script src=\"http://cdn.example.com/app.js\"></script><webview src=\"https://example.com\" allowpopups></webview></body></html>",
+          ""
+        ]
+      },
+      "description": "Do not allow popups in webview",
+      "exploitableBy": "Shared content",
+      "consequence": "The content shown in this <webview> can open new windows, e.g. for phishing or to get around navigation limits.",
+      "interaction": "Viewing the content is enough when it runs as script; a click when it is a link",
+      "remediation": "Remove the allowpopups attribute from the <webview>, or handle new-window requests and deny what the app does not need.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#11-do-not-use-allowpopups-for-webviews"
+    },
+    {
+      "fingerprint": "6d5e43600f440541b3068eb4",
+      "id": "CUSTOM_ARGUMENTS_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 6,
+      "column": 0,
+      "sample": "app.commandLine.appendSwitch('ignore-certificate-errors');",
+      "context": {
+        "start": 4,
+        "lines": [
+          "const path = require('path');",
+          "",
+          "app.commandLine.appendSwitch('ignore-certificate-errors');",
+          "",
+          "app.whenReady().then(() => {"
+        ]
+      },
+      "description": "Review the use of custom command line arguments: --ignore-certificate-errors",
+      "exploitableBy": "Raises impact",
+      "consequence": "Chromium switches that weaken security (e.g. disabling web security or certificate checks) apply to all content the app shows.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Remove switches that weaken the browser (--no-sandbox, --disable-web-security, --ignore-certificate-errors, --remote-debugging-port, --disable-site-isolation-trials) from app.commandLine and the launcher.",
+      "reference": "https://www.electronjs.org/docs/latest/api/command-line-switches",
+      "properties": {
+        "switch": "ignore-certificate-errors"
+      }
+    },
+    {
+      "fingerprint": "bb1250229d6cd123e0244271",
+      "id": "CONTEXT_ISOLATION_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 10,
+      "column": 45,
+      "sample": "webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+      "context": {
+        "start": 8,
+        "lines": [
+          "app.whenReady().then(() => {",
+          "  const win = new BrowserWindow({",
+          "    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+          "  });",
+          "  win.loadURL('http://example.com');"
+        ]
+      },
+      "description": "Review the use of the contextIsolation option (contextIsolation is disabled)",
+      "exploitableBy": "Raises impact",
+      "consequence": "Page script shares its JavaScript world with the preload: an XSS in this window can tamper with the preload and reach its privileged APIs, often up to Node.js.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Turn contextIsolation on (the default since Electron 12) and give the page only what it needs through contextBridge in the preload script.",
+      "remediationExample": "webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, 'preload.js') }",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#3-enable-context-isolation"
+    },
+    {
+      "fingerprint": "f6cfeb46ebe5254e93f9eb48",
+      "id": "PRELOAD_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 10,
+      "column": 124,
+      "sample": "webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+      "context": {
+        "start": 8,
+        "lines": [
+          "app.whenReady().then(() => {",
+          "  const win = new BrowserWindow({",
+          "    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+          "  });",
+          "  win.loadURL('http://example.com');"
+        ]
+      },
+      "description": "Review the use of preload scripts",
+      "exploitableBy": "Information",
+      "consequence": "A preload script runs with extra privileges in each page: review what it exposes.",
+      "interaction": "Not applicable",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#20-do-not-expose-electron-apis-to-untrusted-web-content"
+    },
+    {
+      "fingerprint": "5d2bde1ed51b7ba0bd61411a",
+      "id": "WEB_SECURITY_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 10,
+      "column": 70,
+      "sample": "webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+      "context": {
+        "start": 8,
+        "lines": [
+          "app.whenReady().then(() => {",
+          "  const win = new BrowserWindow({",
+          "    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+          "  });",
+          "  win.loadURL('http://example.com');"
+        ]
+      },
+      "description": "Do not use disablewebsecurity",
+      "exploitableBy": "Raises impact",
+      "consequence": "The same-origin policy is off: script in the page can read data from any site and local files.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Remove webSecurity: false; fix cross-origin needs with CORS headers or a request handler instead.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#6-do-not-disable-websecurity"
+    },
+    {
+      "fingerprint": "6a1bcc7da59b5c0a4b915ec1",
+      "id": "WINDOW_SUMMARY_JS_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 9,
+      "column": 14,
+      "sample": "const win = new BrowserWindow({",
+      "context": {
+        "start": 7,
+        "lines": [
+          "",
+          "app.whenReady().then(() => {",
+          "  const win = new BrowserWindow({",
+          "    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.js') }",
+          "  });"
+        ]
+      },
+      "description": "Window security settings: BrowserWindow (nodeIntegration on, contextIsolation off, sandbox off, webSecurity off, preload preload.js)",
+      "exploitableBy": "Information",
+      "consequence": "Each window's effective security settings.",
+      "interaction": "Not applicable",
+      "reference": "https://www.electronjs.org/docs/latest/api/structures/web-preferences",
+      "properties": {
+        "window": "BrowserWindow",
+        "settings": {
+          "nodeIntegration": {
+            "value": true,
+            "source": "explicit"
+          },
+          "contextIsolation": {
+            "value": false,
+            "source": "explicit"
+          },
+          "sandbox": {
+            "value": false,
+            "source": "explicit"
+          },
+          "webSecurity": {
+            "value": false,
+            "source": "explicit"
+          },
+          "nodeIntegrationInSubFrames": {
+            "value": false,
+            "source": "default"
+          },
+          "webviewTag": {
+            "value": true,
+            "source": "explicit"
+          },
+          "allowRunningInsecureContent": {
+            "value": false,
+            "source": "default"
+          }
+        },
+        "preload": "preload.js",
+        "partition": "default",
+        "urls": [
+          {
+            "kind": "loadURL",
+            "value": "http://example.com"
+          }
+        ]
+      }
+    },
+    {
+      "fingerprint": "64462cb874da15513e80bdbf",
+      "id": "DEVTOOLS_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 13,
+      "column": 2,
+      "sample": "win.webContents.openDevTools();",
+      "context": {
+        "start": 11,
+        "lines": [
+          "  });",
+          "  win.loadURL('http://example.com');",
+          "  win.webContents.openDevTools();",
+          "",
+          "  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => callback(true));"
+        ]
+      },
+      "description": "DevTools are opened programmatically; ensure this cannot happen in production builds (always opened, including in production builds)",
+      "exploitableBy": "Local access",
+      "consequence": "DevTools can be opened in the shipped app: someone at the keyboard can inspect and run code in the app's context. Other users' content cannot use this.",
+      "interaction": "Access to the user's device or account",
+      "remediation": "Disable DevTools in production builds.",
+      "remediationExample": "webPreferences: { devTools: !app.isPackaged }",
+      "reference": "https://www.electronjs.org/docs/latest/api/web-contents#contentsopendevtoolsoptions"
+    },
+    {
+      "fingerprint": "e7826b90a0b9b3f410ad58d8",
+      "id": "PROTOCOL_HANDLER_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 18,
+      "column": 2,
+      "sample": "protocol.handle('app', (request) => net.fetch('file://' + path.join(__dirname, new URL(request.url).pathname)));",
+      "context": {
+        "start": 16,
+        "lines": [
+          "  session.defaultSession.setCertificateVerifyProc((request, callback) => callback(0));",
+          "",
+          "  protocol.handle('app', (request) => net.fetch('file://' + path.join(__dirname, new URL(request.url).pathname)));",
+          "",
+          "  win.webContents.on('will-navigate', (event, url) => console.log('navigating to', url));"
+        ]
+      },
+      "description": "Review the use of custom protocol handlers (request-derived file paths have no relevant pre-operation containment guard; validate traversal and caller access)",
+      "exploitableBy": "Shared content",
+      "consequence": "A custom protocol serves files: crafted URLs in content may read files outside the app (path traversal).",
+      "interaction": "Opening a crafted deep link",
+      "remediation": "Treat deep-link URLs as untrusted: parse them, allow only known actions and hosts, and never pass them to loadURL, a shell or a file path unchecked.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#18-avoid-usage-of-the-file-protocol-and-prefer-usage-of-custom-protocols",
+      "properties": {
+        "context": {
+          "status": "analyzed",
+          "arguments": [
+            {
+              "name": "request",
+              "operations": [],
+              "validation": "no-resolved-operation"
+            },
+            {
+              "name": "request.url",
+              "operations": [
+                "file-read"
+              ],
+              "validation": "not-recognized"
+            }
+          ],
+          "effects": [
+            {
+              "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+              "line": 18,
+              "call": "fetch",
+              "kind": "file-read",
+              "capability": "files",
+              "arguments": [
+                "request.url"
+              ],
+              "pathArguments": [
+                "request.url"
+              ],
+              "guards": [],
+              "trace": [
+                {
+                  "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+                  "line": 18,
+                  "call": "fetch"
+                }
+              ],
+              "pathControl": "not-recognized",
+              "extensionControl": "not-recognized"
+            }
+          ],
+          "helpers": [],
+          "unresolved": [],
+          "credentials": [],
+          "channels": [],
+          "state": []
+        },
+        "entryPoint": "custom-protocol"
+      }
+    },
+    {
+      "fingerprint": "c041ac0d3349e25a7ec4ad34",
+      "id": "WINDOW_OPEN_HANDLER_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 23,
+      "column": 11,
+      "sample": "return { action: 'allow' };",
+      "context": {
+        "start": 21,
+        "lines": [
+          "  win.webContents.setWindowOpenHandler(({ url }) => {",
+          "    shell.openExternal(url);",
+          "    return { action: 'allow' };",
+          "  });",
+          ""
+        ]
+      },
+      "description": "setWindowOpenHandler allows new windows to be created; verify that only trusted URLs are allowed (every URL is allowed to open a new window)",
+      "exploitableBy": "Shared content",
+      "consequence": "window.open() and target=_blank links in page content open app windows the app does not vet (phishing, getting around navigation limits).",
+      "interaction": "A click on a crafted link",
+      "remediation": "Deny new windows by default and open only allowed HTTPS URLs in the system browser.",
+      "remediationExample": "win.webContents.setWindowOpenHandler(({ url }) => { if (isAllowed(url)) shell.openExternal(url); return { action: 'deny' }; });",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#14-disable-or-limit-creation-of-new-windows"
+    },
+    {
+      "fingerprint": "f500659f827106d45fe4c323",
+      "id": "OPEN_EXTERNAL_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "FIRM",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 22,
+      "column": 4,
+      "sample": "shell.openExternal(url);",
+      "context": {
+        "start": 20,
+        "lines": [
+          "  win.webContents.on('will-navigate', (event, url) => console.log('navigating to', url));",
+          "  win.webContents.setWindowOpenHandler(({ url }) => {",
+          "    shell.openExternal(url);",
+          "    return { action: 'allow' };",
+          "  });"
+        ]
+      },
+      "description": "Review the use of openExternal (the value comes from a window.open() call or link in web content and is not validated)",
+      "exploitableBy": "Shared content",
+      "consequence": "A URL is handed to the operating system: if page content controls it, a crafted link (file:, smb:, a custom protocol) in shared content can launch programs or leak credentials.",
+      "interaction": "A click on a crafted link",
+      "remediation": "Parse the URL and open it only for allowed schemes and hosts; never pass raw page input to shell.openExternal.",
+      "remediationExample": "const u = new URL(url); if (u.protocol === 'https:' && allowedHosts.has(u.hostname)) shell.openExternal(u.href);",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#15-do-not-use-shellopenexternal-with-untrusted-content",
+      "properties": {
+        "source": "a window.open() call or link in web content"
+      }
+    },
+    {
+      "fingerprint": "f1d05d282841914310ca3951",
+      "id": "IPC_SENDER_VALIDATION_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 26,
+      "column": 2,
+      "sample": "ipcMain.handle('run', (event, command) => exec(command));",
+      "context": {
+        "start": 24,
+        "lines": [
+          "  });",
+          "",
+          "  ipcMain.handle('run', (event, command) => exec(command));",
+          "  ipcMain.on('open', (event, file) => shell.openPath(file));",
+          "});"
+        ]
+      },
+      "description": "IPC handler does not appear to validate the sender (event.senderFrame) before acting on the message",
+      "exploitableBy": "Raises impact",
+      "consequence": "The IPC handler does not check which page sent the message: script injected into any window, or a foreign page the window navigated to, can call it with the app's privileges.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "howToValidate": "Manual: read the handler and check that it verifies event.senderFrame (its URL or origin) before acting. A watch session lists the origins that used each channel, and whether content carrying the marker reached it.",
+      "remediation": "Check who sent the message before acting on it: compare event.senderFrame.url's origin with your own, and ignore other frames.",
+      "remediationExample": "function validateSender(frame) { return new URL(frame.url).origin === 'app://main'; }\nipcMain.handle('ch', (e, ...args) => { if (!validateSender(e.senderFrame)) return; /* … */ });",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#17-validate-the-sender-of-all-ipc-messages",
+      "properties": {
+        "channel": "run"
+      }
+    },
+    {
+      "fingerprint": "4ef680accd4c639b94b7b976",
+      "id": "IPC_HANDLER_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 26,
+      "column": 2,
+      "sample": "ipcMain.handle('run', (event, command) => exec(command));",
+      "context": {
+        "start": 24,
+        "lines": [
+          "  });",
+          "",
+          "  ipcMain.handle('run', (event, command) => exec(command));",
+          "  ipcMain.on('open', (event, file) => shell.openPath(file));",
+          "});"
+        ]
+      },
+      "description": "IPC handler: 'run' uses processes with arguments from the page (command); no rejecting input guard was recognized by this analysis; operations: process at main.js:26; argument checks: command not-recognized",
+      "exploitableBy": "Raises impact",
+      "consequence": "What a page can make the main process do through this channel: script injected into a window that can reach it inherits these capabilities.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Validate the shape and type of every argument in the main process, give each channel one narrow job, keep shell, file and window access out of handlers that take page input, and never send credentials back to the page.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#17-validate-the-sender-of-all-ipc-messages",
+      "properties": {
+        "channel": "run",
+        "capabilities": [
+          "processes"
+        ],
+        "argumentsUsed": true,
+        "validatesArguments": false,
+        "context": {
+          "status": "analyzed",
+          "arguments": [
+            {
+              "name": "command",
+              "operations": [
+                "process"
+              ],
+              "validation": "not-recognized"
+            }
+          ],
+          "effects": [
+            {
+              "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+              "line": 26,
+              "call": "exec",
+              "kind": "process",
+              "capability": "processes",
+              "arguments": [
+                "command"
+              ],
+              "pathArguments": [],
+              "guards": [],
+              "trace": [
+                {
+                  "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+                  "line": 26,
+                  "call": "exec"
+                }
+              ],
+              "pathControl": "not-applicable",
+              "extensionControl": "not-applicable"
+            }
+          ],
+          "helpers": [],
+          "unresolved": [],
+          "credentials": [],
+          "channels": [],
+          "state": []
+        },
+        "issue": "unvalidated"
+      }
+    },
+    {
+      "fingerprint": "74cb977b0d9bd1be75db1d00",
+      "id": "COMMAND_INJECTION_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "FIRM",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 26,
+      "column": 44,
+      "sample": "ipcMain.handle('run', (event, command) => exec(command));",
+      "context": {
+        "start": 24,
+        "lines": [
+          "  });",
+          "",
+          "  ipcMain.handle('run', (event, command) => exec(command));",
+          "  ipcMain.on('open', (event, file) => shell.openPath(file));",
+          "});"
+        ]
+      },
+      "description": "A child process is started with a dynamic command (exec receives data from an IPC message from a renderer)",
+      "exploitableBy": "Shared content",
+      "consequence": "Data from a page or an IPC message reaches a shell command: content that gets a message to it can run programs on the user's machine.",
+      "interaction": "Whatever sends the data (often a click or a document)",
+      "remediation": "Never build a command line from input. Use execFile or spawn with an argument array and no shell, validate each argument against an allowlist, and prefer a library call to a command.",
+      "remediationExample": "execFile('converter', ['--input', validatedPath]);   // not exec(`converter ${name}`)",
+      "reference": "https://nodejs.org/api/child_process.html#child_processexeccommand-options-callback",
+      "properties": {
+        "source": "an IPC message from a renderer"
+      }
+    },
+    {
+      "fingerprint": "29828bb2548104b012991af9",
+      "id": "IPC_SENDER_VALIDATION_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 27,
+      "column": 2,
+      "sample": "ipcMain.on('open', (event, file) => shell.openPath(file));",
+      "context": {
+        "start": 25,
+        "lines": [
+          "",
+          "  ipcMain.handle('run', (event, command) => exec(command));",
+          "  ipcMain.on('open', (event, file) => shell.openPath(file));",
+          "});",
+          ""
+        ]
+      },
+      "description": "IPC handler does not appear to validate the sender (event.senderFrame) before acting on the message",
+      "exploitableBy": "Raises impact",
+      "consequence": "The IPC handler does not check which page sent the message: script injected into any window, or a foreign page the window navigated to, can call it with the app's privileges.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "howToValidate": "Manual: read the handler and check that it verifies event.senderFrame (its URL or origin) before acting. A watch session lists the origins that used each channel, and whether content carrying the marker reached it.",
+      "remediation": "Check who sent the message before acting on it: compare event.senderFrame.url's origin with your own, and ignore other frames.",
+      "remediationExample": "function validateSender(frame) { return new URL(frame.url).origin === 'app://main'; }\nipcMain.handle('ch', (e, ...args) => { if (!validateSender(e.senderFrame)) return; /* … */ });",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#17-validate-the-sender-of-all-ipc-messages",
+      "properties": {
+        "channel": "open"
+      }
+    },
+    {
+      "fingerprint": "004bc8387a8dd2eb557f0aab",
+      "id": "IPC_HANDLER_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 27,
+      "column": 2,
+      "sample": "ipcMain.on('open', (event, file) => shell.openPath(file));",
+      "context": {
+        "start": 25,
+        "lines": [
+          "",
+          "  ipcMain.handle('run', (event, command) => exec(command));",
+          "  ipcMain.on('open', (event, file) => shell.openPath(file));",
+          "});",
+          ""
+        ]
+      },
+      "description": "IPC handler: 'open' uses shell with arguments from the page (file); no rejecting input guard was recognized by this analysis; operations: shell-openPath at main.js:27; argument checks: file not-recognized; path containment not recognized for file",
+      "exploitableBy": "Raises impact",
+      "consequence": "What a page can make the main process do through this channel: script injected into a window that can reach it inherits these capabilities.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Validate the shape and type of every argument in the main process, give each channel one narrow job, keep shell, file and window access out of handlers that take page input, and never send credentials back to the page.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#17-validate-the-sender-of-all-ipc-messages",
+      "properties": {
+        "channel": "open",
+        "capabilities": [
+          "shell"
+        ],
+        "argumentsUsed": true,
+        "validatesArguments": false,
+        "context": {
+          "status": "analyzed",
+          "arguments": [
+            {
+              "name": "file",
+              "operations": [
+                "shell-openPath"
+              ],
+              "validation": "not-recognized"
+            }
+          ],
+          "effects": [
+            {
+              "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+              "line": 27,
+              "call": "openPath",
+              "kind": "shell-openPath",
+              "capability": "shell",
+              "arguments": [
+                "file"
+              ],
+              "pathArguments": [
+                "file"
+              ],
+              "guards": [],
+              "trace": [
+                {
+                  "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+                  "line": 27,
+                  "call": "openPath"
+                }
+              ],
+              "pathControl": "not-recognized",
+              "extensionControl": "not-recognized"
+            }
+          ],
+          "helpers": [],
+          "unresolved": [],
+          "credentials": [],
+          "channels": [],
+          "state": []
+        },
+        "issue": "unvalidated"
+      }
+    },
+    {
+      "fingerprint": "7beec24d20cd7be21be9152f",
+      "id": "OPEN_PATH_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "FIRM",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 27,
+      "column": 38,
+      "sample": "ipcMain.on('open', (event, file) => shell.openPath(file));",
+      "context": {
+        "start": 25,
+        "lines": [
+          "",
+          "  ipcMain.handle('run', (event, command) => exec(command));",
+          "  ipcMain.on('open', (event, file) => shell.openPath(file));",
+          "});",
+          ""
+        ]
+      },
+      "description": "Review the use of shell.openPath with non-constant paths: opening attacker-influenced paths can execute files (the value comes from an IPC message from a renderer and is not validated)",
+      "exploitableBy": "Shared content",
+      "consequence": "A path is opened with its default program: if page content or an IPC message controls it, it can run an executable or script on the machine.",
+      "interaction": "Opening a crafted attachment or file",
+      "remediation": "Resolve the path against a base folder, reject anything outside it, block executable extensions, and prefer shell.showItemInFolder over opening the file. Check the result string, because openPath returns an error message instead of throwing.",
+      "remediationExample": "const full = path.resolve(base, name); if (!full.startsWith(base + path.sep) || /\\.(exe|bat|cmd|ps1|js|lnk|msi|scr)$/i.test(full)) return;",
+      "reference": "https://www.electronjs.org/docs/latest/api/shell#shellopenpathpath",
+      "properties": {
+        "source": "an IPC message from a renderer"
+      }
+    },
+    {
+      "fingerprint": "9612aa2fbf5fa78a091e6746",
+      "id": "CERTIFICATE_ERROR_EVENT_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/main.js",
+      "line": 30,
+      "column": 0,
+      "sample": "app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {",
+      "context": {
+        "start": 28,
+        "lines": [
+          "});",
+          "",
+          "app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {",
+          "  event.preventDefault();",
+          "  callback(true);"
+        ]
+      },
+      "description": "Do not allow insecure connections, by explicitly opting-out from TLS validation (every invalid certificate is accepted)",
+      "exploitableBy": "Network",
+      "consequence": "Invalid TLS certificates are accepted: someone on the network can impersonate the server and inject content.",
+      "interaction": "None: an attacker on the network path acts while the app talks to its servers",
+      "remediation": "Do not call callback(true) for the certificate-error event. Let the load fail, and pin the expected certificate if a private CA is used.",
+      "remediationExample": "app.on('certificate-error', (event, wc, url, error, cert, callback) => { callback(false); });",
+      "reference": "https://www.electronjs.org/docs/latest/api/app#event-certificate-error"
+    },
+    {
+      "fingerprint": "76f109e383b39ad25420ca68",
+      "id": "CONTEXT_BRIDGE_EXPOSURE_JS_CHECK",
+      "severity": "HIGH",
+      "confidence": "CERTAIN",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/preload.js",
+      "line": 2,
+      "column": 39,
+      "sample": "contextBridge.exposeInMainWorld('ipc', ipcRenderer);",
+      "context": {
+        "start": 1,
+        "lines": [
+          "const { contextBridge, ipcRenderer } = require('electron');",
+          "contextBridge.exposeInMainWorld('ipc', ipcRenderer);",
+          "window.render = (html) => { document.body.innerHTML = html; };",
+          ""
+        ]
+      },
+      "description": "Powerful Electron/Node.js APIs are exposed to the renderer through contextBridge (exposes ipcRenderer)",
+      "exploitableBy": "Raises impact",
+      "consequence": "The preload exposes powerful APIs (e.g. raw ipcRenderer) to the page: any script injected into the page (XSS) can use them.",
+      "interaction": "None of its own: it decides how far content that is already injected gets",
+      "remediation": "Expose one narrow function per action through contextBridge, validate its arguments in the main process, and never expose ipcRenderer, require or send/on wrappers that accept any channel name.",
+      "remediationExample": "contextBridge.exposeInMainWorld('api', { openDocument: (id) => ipcRenderer.invoke('document:open', String(id)) });",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#20-do-not-expose-electron-apis-to-untrusted-web-content",
+      "properties": {
+        "reason": "exposes ipcRenderer"
+      }
+    },
+    {
+      "fingerprint": "e609f4f4095546a7575e5230",
+      "id": "EXPOSED_API_JS_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "FIRM",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/preload.js",
+      "line": 2,
+      "column": 0,
+      "sample": "contextBridge.exposeInMainWorld('ipc', ipcRenderer);",
+      "context": {
+        "start": 1,
+        "lines": [
+          "const { contextBridge, ipcRenderer } = require('electron');",
+          "contextBridge.exposeInMainWorld('ipc', ipcRenderer);",
+          "window.render = (html) => { document.body.innerHTML = html; };",
+          ""
+        ]
+      },
+      "description": "API exposed to web content: window.ipc (value that can't be listed statically)",
+      "exploitableBy": "Information",
+      "consequence": "What the preload exposes to pages: everything an XSS in those pages could call.",
+      "interaction": "Not applicable",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#20-do-not-expose-electron-apis-to-untrusted-web-content",
+      "properties": {
+        "world": "ipc",
+        "members": [],
+        "capabilities": {},
+        "channels": [],
+        "memberChannels": {}
+      }
+    },
+    {
+      "fingerprint": "9b7184939fe2b8475a8da346",
+      "id": "GLOBAL_EXPOSURE_JS_CHECK",
+      "severity": "INFORMATIONAL",
+      "confidence": "CERTAIN",
+      "manualReview": false,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/preload.js",
+      "line": 3,
+      "column": 0,
+      "sample": "window.render = (html) => { document.body.innerHTML = html; };",
+      "context": {
+        "start": 1,
+        "lines": [
+          "const { contextBridge, ipcRenderer } = require('electron');",
+          "contextBridge.exposeInMainWorld('ipc', ipcRenderer);",
+          "window.render = (html) => { document.body.innerHTML = html; };",
+          ""
+        ]
+      },
+      "description": "Global object exposed by an assignment: window.render assigned; whether untrusted pages receive it depends on the script context and isolation",
+      "exploitableBy": "Information",
+      "consequence": "Direct global assignments found in source. Whether an untrusted page receives them depends on the script context and isolation.",
+      "interaction": "Not applicable",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/context-isolation",
+      "properties": {
+        "world": "window",
+        "members": [
+          "render"
+        ],
+        "capabilities": []
+      }
+    },
+    {
+      "fingerprint": "d5a7ded460a610321c3d5bf0",
+      "id": "XSS_SINK_JS_CHECK",
+      "severity": "MEDIUM",
+      "confidence": "FIRM",
+      "manualReview": true,
+      "file": "/home/user/electronegativity/test/apps/vulnerable-app/src/preload.js",
+      "line": 3,
+      "column": 28,
+      "sample": "window.render = (html) => { document.body.innerHTML = html; };",
+      "context": {
+        "start": 1,
+        "lines": [
+          "const { contextBridge, ipcRenderer } = require('electron');",
+          "contextBridge.exposeInMainWorld('ipc', ipcRenderer);",
+          "window.render = (html) => { document.body.innerHTML = html; };",
+          ""
+        ]
+      },
+      "description": "HTML is built from dynamic data; unsanitized input leads to XSS in the renderer (innerHTML with a dynamic value)",
+      "exploitableBy": "Shared content",
+      "consequence": "Dynamic data is inserted as HTML: if it can hold content stored by another user, their markup runs as script in this window (XSS).",
+      "interaction": "Viewing the content",
+      "howToValidate": "Automatic: in a watch session (electronegativity --app <install folder>), save content carrying the HTML marker the tool prints, in the fields this code shows, then view it. If the markup reaches this code, the finding is confirmed at this location.",
+      "remediation": "Write text with textContent or a framework binding instead of innerHTML, document.write or insertAdjacentHTML. Where HTML is required, sanitize it with DOMPurify first.",
+      "remediationExample": "el.textContent = value;   // or el.innerHTML = DOMPurify.sanitize(value)",
+      "reference": "https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html",
+      "properties": {
+        "sink": "innerHTML",
+        "serverFed": false
+      }
+    },
+    {
+      "fingerprint": "179f9d6553306cac1a188b8f",
+      "id": "CHROMIUM_ADVISORIES",
+      "severity": "HIGH",
+      "confidence": "FIRM",
+      "manualReview": false,
+      "file": "Chromium 87.0.4280.141",
+      "line": 0,
+      "column": 0,
+      "sample": "",
+      "description": "The Chromium 87.0.4280.141 in this Electron version misses 4280 upstream security fixes (400 critical, 2013 high), 51 of them for vulnerabilities exploited in the wild (CISA KEV: CVE-2025-10585, CVE-2021-30633, CVE-2021-37973, CVE-2022-3075, CVE-2022-4135); 40 backported fixes are already subtracted. Upgrade Electron.",
+      "exploitableBy": "Known vulnerabilities",
+      "consequence": "The browser engine inside the app misses security fixes; the renderer bugs among them are exploitable by any web content the app shows, and those in CISA's KEV list are exploited in the wild.",
+      "interaction": "Depends on each advisory",
+      "remediation": "Upgrade Electron to a release whose Chromium includes the fixes (newest release of a supported major version), and re-run the scan.",
+      "reference": "https://www.electronjs.org/docs/latest/tutorial/security#16-use-a-current-version-of-electron",
+      "properties": {
+        "chromium": "87.0.4280.141",
+        "total": 4280,
+        "counts": {
+          "critical": 400,
+          "high": 2013,
+          "medium": 1726,
+          "low": 141,
+          "unknown": 0
+        },
+        "kev": 51,
+        "backported": 40
+      }
+    }
+  ]
+}
