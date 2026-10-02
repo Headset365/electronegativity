@@ -4,6 +4,7 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { StringDecoder } = require('node:string_decoder');
 
 function powershell(script, data, { run = spawn, timeout = 12000 } = {}) {
   return new Promise(resolve => {
@@ -12,16 +13,17 @@ function powershell(script, data, { run = spawn, timeout = 12000 } = {}) {
     const child = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
       windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ENG_WINDOWS_INPUT: JSON.stringify(data) },
     });
+    const decoder = new StringDecoder('utf8');
     let out = '', done = false;
     const finish = result => { if (done) return; done = true; clearTimeout(timer); resolve(result); };
     const timer = setTimeout(() => { child.kill(); finish({ status: 'timeout' }); }, timeout);
-    child.stdout.on('data', b => { out += b; if (out.length > 2 * 1024 * 1024) { child.kill(); finish({ status: 'limit' }); } });
+    child.stdout.on('data', b => { out += decoder.write(b); if (out.length > 2 * 1024 * 1024) { child.kill(); finish({ status: 'limit' }); } });
     // stderr can contain app data; report the failure category only.
     child.stderr.on('data', () => {});
     child.once('error', () => finish({ status: 'unavailable' }));
     child.once('exit', code => {
       if (code !== 0) return finish({ status: 'access-error' });
-      try { finish({ status: 'observed', data: JSON.parse(out.replace(/^\uFEFF/, '').trim()) }); }
+      try { finish({ status: 'observed', data: JSON.parse((out + decoder.end()).replace(/^\uFEFF/, '').trim()) }); }
       catch { finish({ status: 'invalid-output' }); }
     });
   });

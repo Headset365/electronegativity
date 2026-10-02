@@ -137,13 +137,17 @@ describe('Windows watch proof contracts and evidence', () => {
     let call;
     const run = (command, args, options) => {
       call = { command, args, options }; const c = new EventEmitter(); c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); c.kill = () => {};
-      queueMicrotask(() => { c.stdout.emit('data', Buffer.from('{"paths":[]}')); c.emit('exit', 0); }); return c;
+      queueMicrotask(() => {
+        const encoded = Buffer.from(JSON.stringify({ paths: ['C:\\caf\u00e9\\\u6d4b\u8bd5'] }));
+        for (const byte of encoded) c.stdout.emit('data', Buffer.from([byte]));
+        c.emit('exit', 0);
+      }); return c;
     };
     const input = { paths: ["C:\\app'; Start-Process calc; '"] };
     const result = await powershell('$d | ConvertTo-Json -Compress', input, { run });
     assert.equal(result.status, 'observed'); assert.deepEqual(JSON.parse(call.options.env.ENG_WINDOWS_INPUT), input);
     assert.equal(Buffer.from(call.args.at(-1), 'base64').toString('utf16le').includes('Start-Process calc'), false);
-    assert.match(Buffer.from(call.args.at(-1), 'base64').toString('utf16le'), /OutputEncoding/);
+    assert.deepEqual(result.data.paths, ['C:\\caf\u00e9\\\u6d4b\u8bd5']);
   });
   it('reads only local observed ADS paths and separates absent stream from missing file and denial', () => {
     const stat = () => ({ isFile: () => true });
