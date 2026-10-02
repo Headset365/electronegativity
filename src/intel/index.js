@@ -245,7 +245,8 @@ export async function chromiumAdvisories({ electron, chromium, releases = [], ke
     if (!hit) continue;
     const [sev, score] = cvssOf(cve);
     const row = { id: cve.id, severity: sev || 'unknown', score, fixedIn: fixed, published: String(cve.published || '').slice(0, 10), kev: kev.has(cve.id),
-      summary: ((cve.descriptions || []).find(d => d.lang === 'en') || {}).value?.slice(0, 220) };
+      summary: ((cve.descriptions || []).find(d => d.lang === 'en') || {}).value?.slice(0, 220),
+      cwes: [...new Set((cve.weaknesses || []).flatMap(w => (w.description || []).map(d => d.value)).filter(id => /^CWE-\d+$/.test(id || '')))] };
     if (backports.inBuild.has(cve.id)) {
       backported.push({ ...row, backportedIn: backports.inBuild.get(cve.id) });
       continue;

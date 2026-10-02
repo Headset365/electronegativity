@@ -39,7 +39,9 @@ describe('Code review regression coverage', () => {
       '--offline', '--no-report-dir', '-l', 'NodeIntegrationJSCheck', '--fail-on', 'high'];
     const failed = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15000 });
     assert.equal(failed.status, 1, failed.stderr);
-    const report = JSON.parse(fs.readFileSync(path.join(output, 'static-report.json'), 'utf8'));
+    // the report of the whole run, and the static step's backup
+    const report = JSON.parse(fs.readFileSync(path.join(output, 'report.json'), 'utf8'));
+    assert.ok(fs.existsSync(path.join(output, 'steps', 'static-report.json')));
     assert.equal(report.issues.filter(issue => issue.severity === 'HIGH').length, 1);
     const accepted = spawnSync(process.execPath, [...args, '--write-baseline', baseline], { encoding: 'utf8', timeout: 15000 });
     assert.equal(accepted.status, 1, accepted.stderr);

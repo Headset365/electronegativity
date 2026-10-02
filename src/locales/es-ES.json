@@ -209,7 +209,7 @@
 	"appAskFirstSession": "¿Iniciar la sesión de observación {{n}}? La aplicación se abre: inicie sesión, recorra sus funciones y después ciérrela por completo. [Intro = iniciar, s = omitir]",
 	"appAskNextSession": "¿Iniciar la sesión de observación {{n}} (por ejemplo, con una segunda cuenta)? [Intro = iniciar, s = terminar]",
 	"appStepDone": "{{{file}}}: {{high}} altos, {{medium}} medios, {{low}} bajos, {{info}} informativos",
-	"appDone": "Terminado. Los informes están en {{{dir}}}. Comparta solo los archivos *-diag.json (y los *-share, con --share o --report-dir), después de leerlos; conserve los informes .html:",
+	"appDone": "Terminado. Los informes están en {{{dir}}}: el informe de toda la ejecución, sus hallazgos para el cliente y el libro de componentes en reports, y los informes de cada paso en steps. Comparta solo diagnostics.json (y los archivos shareable-report, con --share o --report-dir), después de leerlos; conserve los informes .html:",
 	"diagnosticsOptionDescription": "escribir un informe de diagnóstico saneado para compartir al solucionar problemas: qué se analizó u omitió, errores, tiempos de las comprobaciones y estado del modo de observación; sin código ni texto de los hallazgos",
 	"redactOptionDescription": "términos adicionales separados por comas que se sustituirán en el informe de diagnóstico (nombres de empresa, producto o servidores); el nombre de la aplicación, del usuario y del equipo siempre se sustituyen",
 	"diagnosticsWritten": "Diagnóstico escrito en {{{file}}}: revíselo antes de compartirlo",

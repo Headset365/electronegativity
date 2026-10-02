@@ -212,7 +212,9 @@ describe('Markdown validation evidence', () => {
       issue('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', { properties: { package: 'fixture', version: '1', advisories: ['OSV-1', { id: 'OSV-2', cves: ['CVE-2026-1234'] }] } }),
       issue('XSS_SINK_JS_CHECK', { validation: { status: 'observed', text: '<script>evil()</script>', evidence: ['<img src=x> **fake**'] } }),
     ]);
-    for (const value of ['expected: aaa', 'actual: bbb', 'enforced: false', 'verifiedBy: os', 'store: Local Storage', 'basis: canary', 'OSV-1', 'CVE-2026-1234']) assert.ok(md.includes(value), value);
+    for (const value of ['expected: aaa', 'actual: bbb', 'enforced: false', 'verifiedBy: os', 'store: Local Storage', 'basis: canary']) assert.ok(md.includes(value), value);
+    // advisories are listed in the components workbook, which the outdated components finding refers to
+    assert.ok(md.includes('# Outdated Software Components') && md.includes('the attached spreadsheet - `components.xlsx`'));
     assert.ok(!md.includes('<script>evil()'));
     assert.ok(!md.includes('<img src=x>'));
   });
@@ -243,7 +245,7 @@ describe('Markdown validation evidence', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-md-owned-'));
     try {
       const [prior] = writeClientMarkdown(dir, [issue('DEVTOOLS_JS_CHECK')]);
-      const collision = path.join(dir, 'markdown', 'Renderer Isolation Weakened.md');
+      const collision = path.join(dir, 'reports', 'Renderer Isolation Weakened.md');
       fs.writeFileSync(collision, '---\nTitle: Renderer Isolation Weakened\n---\nUser notes\n');
       assert.throws(() => writeClientMarkdown(dir, [issue('NODE_INTEGRATION_JS_CHECK')]), /Refusing to overwrite/);
       assert.ok(fs.existsSync(prior));

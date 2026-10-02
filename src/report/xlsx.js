@@ -1,5 +1,5 @@
-// The components workbook (-o components.xlsx) that the client report's "Outdated Third-Party Components" finding refers
-// to. Sheet 1, "Components needing action": one row per component that is outdated, unsupported, end of life, malicious or
+// The components workbook (reports/components.xlsx, or -o components.xlsx) that the client report's "Outdated Software
+// Components" finding refers to. Sheet 1, "Components needing action": one row per component that is outdated, unsupported, end of life, malicious or
 // has known advisories, with its status, what to do and links to its version pages and advisories. Sheet 2, "All
 // components": every component found, its version and where it was found. Written as SpreadsheetML with the zip writer
 // of the Word report, no dependencies.
@@ -85,7 +85,15 @@ const link = (target) => target ? { value: target.text, url: target.url } : '';
 
 export const ACTION_HEADER = ['Component', 'Type', 'Installed version', 'Installed version release date', 'Latest version', 'Latest version release date',
   'Support status', 'Recommended action', 'Path found', 'Installed version link', 'Latest version link',
-  'Advisories: deps.dev (this version)', 'Advisories: Snyk (this version)', 'Advisories: GitHub (all versions)'];
+  'Advisories: deps.dev (this version)', 'Advisories: Snyk (this version)', 'Advisories: GitHub (all versions)', 'Links to validate manually'];
+// the links, as the "Links to validate manually" column names them
+const LINK_NAMES = ['Installed version link', 'Latest version link', 'deps.dev', 'Snyk', 'GitHub'];
+
+/** The links that could not be confirmed (all five when they were not checked: offline, or never looked up). */
+export function linksToValidate(row) {
+  const checks = row.linkChecks || [];
+  return LINK_NAMES.filter((name, i) => checks[i] !== true).join(', ');
+}
 export const CATALOG_HEADER = ['Component', 'Type', 'Version', 'Identified from', 'Path found', 'Needs action'];
 
 const FOUND_AS = { 'Electron runtime': "App's Electron version", lockfile: 'Lockfile', node_modules: 'Installed package (node_modules)', 'bundled library': 'Library file in the app' };
@@ -104,7 +112,7 @@ export function componentTable(dependencies) {
       sort: [row.malicious ? 1 : 0, advisories.some(a => a.kev) ? 1 : 0, highest, advisories.length,
         labels.includes('End of life') || labels.includes('Unsupported') ? 1 : 0, row.majorsBehind || 0],
       cells: [row.name, typeOf(row), row.version, date(row.released), row.latest || '', date(row.latestReleased), labels.join(', '), action(row, labels), paths(row),
-        ...links.map(link)],
+        ...links.map(link), linksToValidate(row)],
     };
   }).sort((a, b) => { for (let i = 0; i < a.sort.length; i++) if (a.sort[i] !== b.sort[i]) return b.sort[i] - a.sort[i]; return 0; });
   const catalog = [...all].sort((a, b) => a.name.localeCompare(b.name) || String(a.version).localeCompare(String(b.version), undefined, { numeric: true }))
@@ -156,7 +164,7 @@ const CATALOG_SHEET = 'All components';
 /** The workbook as a Buffer. */
 export function renderComponentsXlsx(dependencies, { appName } = {}) {
   const { header, rows, catalogHeader, catalog } = componentTable(dependencies);
-  const actions = worksheet(header, rows, [26, 16, 14, 14, 14, 14, 30, 50, 50, 30, 30, 30, 30, 36]);
+  const actions = worksheet(header, rows, [26, 16, 14, 14, 14, 14, 30, 50, 50, 30, 30, 30, 30, 36, 30]);
   const inventory = worksheet(catalogHeader, catalog, [30, 16, 14, 34, 70, 12]);
   const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">

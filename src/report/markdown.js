@@ -7,6 +7,7 @@ import { consequenceOf, interactionOf, validationHint } from '../finder/conseque
 import { remediationOf } from '../finder/remediation.js';
 import { matchingVariations } from './markdown_variations.js';
 import { executionConfirmed, mergeFindingEvidence, validationResults } from '../finder/validation.js';
+import { OUTDATED_TITLE, outdatedSections } from './markdown_outdated.js';
 
 const definitions = [
   ['Renderer Isolation Weakened', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|PRELOAD|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX)|RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$)/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
@@ -32,8 +33,8 @@ const definitions = [
   ['Certificate Pinning Not Implemented (hardening)', /^CERTIFICATE_PINNING/, 'Backend connections trust any certificate the operating system trusts.', 'Pin backend certificates or keys where the threat model requires it.', 'CWE-295: Improper Certificate Validation'],
   ['Insecure Transport and Certificate Validation', /^(HTTP_RESOURCES|RUNTIME_INSECURE_LOAD|TRAFFIC_(CLEARTEXT_HTTP|WS_CLEARTEXT|BASIC_AUTH|INSECURE_COOKIE)|COOKIE_FLAGS|CERTIFICATE|NODE_TLS_REJECT_UNAUTHORIZED|RUNTIME_CERTIFICATE_ERROR)/, 'Traffic or credentials may be exposed in transit.', 'Use HTTPS and WSS, validate certificates and set secure cookie attributes.', 'CWE-319: Cleartext Transmission of Sensitive Information'],
   ['Sensitive Data Exposed in Network Traffic', /^(TRAFFIC_(SECRET_IN_URL|SECRET_IN_RESPONSE|WS_SECRET|AUTH_TO_THIRD_PARTY|USER_INPUT_TO_THIRD_PARTY))/, 'Network requests may expose credentials or user data to unintended recipients.', 'Restrict data sent to each host and remove secrets from URLs and responses.', 'CWE-201: Insertion of Sensitive Information Into Sent Data'],
-  ['Outdated Electron Runtime', /^(AVAILABLE_SECURITY_FIXES|UNSUPPORTED_VERSION|CHROMIUM_ADVISORIES)/, 'The Electron runtime may lack security fixes or support.', 'Upgrade to a supported Electron release with the relevant fixes.', 'CWE-1104: Use of Unmaintained Third Party Components'],
-  ['Outdated Third-Party Components', /^(DEPENDENCY_VULNERABILITIES|END_OF_LIFE_LIBRARY)/, 'Application dependencies may be outdated or affected by published advisories.', 'Upgrade affected dependencies to supported, fixed releases.', 'CWE-1104: Use of Unmaintained Third Party Components'],
+  // the Electron runtime and third-party components, in one finding that refers to the components workbook
+  [OUTDATED_TITLE, /^(AVAILABLE_SECURITY_FIXES|UNSUPPORTED_VERSION|CHROMIUM_ADVISORIES|DEPENDENCY_VULNERABILITIES|END_OF_LIFE_LIBRARY)/, 'The application uses outdated software components.', 'Upgrade or replace each affected component.', 'CWE-1104: Use of Unmaintained Third Party Components'],
   ['Known Malicious Package', /^MALICIOUS_DEPENDENCY/, 'A known malicious package was detected in the dependency inventory.', 'Remove the package immediately and rotate potentially exposed secrets.', 'CWE-506: Embedded Malicious Code'],
 ];
 
@@ -63,8 +64,6 @@ const introductions = {
   'Certificate Pinning Not Implemented (hardening)': '{app} validates server certificates against the certificate authorities the operating system trusts, without pinning the certificates or keys of its own backends. Certificates are still validated; pinning is an additional safeguard whose need depends on the threat model.',
   'Insecure Transport and Certificate Validation': '{app} loads or sends data through insecure transport settings or bypasses certificate checks. The affected URL, certificate path or cookie determines which traffic may be exposed.',
   'Sensitive Data Exposed in Network Traffic': 'The captured traffic from {app} contains data or destinations that may disclose credentials or user input. The listed hosts and fields need to be checked against the client’s intended data flows.',
-  'Outdated Electron Runtime': 'The Electron release used by {app} may be outside support or missing upstream security fixes. The relevant installed version and advisory evidence determine the upgrade target.',
-  'Outdated Third-Party Components': '{app} contains dependencies with a reported advisory or unsupported release line. The component inventory lists versions, support information and available fixes for prioritisation.',
   'Known Malicious Package': 'A package version identified as malicious is present in the dependency inventory for {app}. Its role in the build and any exposure of credentials or developer machines should be investigated promptly.',
   'Other Security Observations': '{app} has a reportable scanner observation outside the named groups. The check description and evidence below identify the affected component and what needs to be assessed.',
 };
@@ -132,8 +131,7 @@ function evidenceGroupOf(i) {
   if (/^(RUNTIME_MARKER|RUNTIME_MARKER_SENT)$/.test(id)) return 'Cross-Site Scripting Exposure in Content Rendering';
   if (/^(IPC_HANDLER|IPC_CHANNEL_MAP|IPC_RENDERER_CHANNEL|RUNTIME_IPC|RUNTIME_MARKER_IPC)$/.test(id)) return 'IPC Handlers Trust Renderer Input';
   if (/^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|PRELOAD)$/.test(id)) return 'Renderer Isolation Weakened';
-  if (id === 'DEPENDENCY_INVENTORY') return 'Outdated Third-Party Components';
-  if (id === 'ELECTRON_VERSION') return 'Outdated Electron Runtime';
+  if (id === 'DEPENDENCY_INVENTORY' || id === 'ELECTRON_VERSION') return OUTDATED_TITLE;
   if (id === 'CREDENTIAL_ACCESS') return 'Sensitive Data Stored Insecurely';
   if (id === 'DOCUMENT_PIPELINE') return 'Document Parsing Risks';
   return undefined;
@@ -142,10 +140,9 @@ function evidenceGroupOf(i) {
 export function ratingOf(i, title) {
   const id = normalId(i.id);
   const severity = nameOf(i.severity);
-  const advisories = i.properties?.advisories?.length || i.properties?.packages?.some(p => p.advisories?.length);
-  // an outdated component is hardening unless it has advisories or its release line is no longer supported
-  if (severity === 'INFORMATIONAL' ||
-      title === 'Outdated Third-Party Components' && id !== 'END_OF_LIFE_LIBRARY' && !advisories ||
+  // outdated components are rated Informational: the tool does not exploit the published vulnerabilities, and a tester
+  // who does raises the rating by hand
+  if (severity === 'INFORMATIONAL' || title === OUTDATED_TITLE ||
       title === 'Executable Signing and Exploit Mitigations (hardening)' && severity === 'LOW') return { consequence: 'N/A', likelihood: 'N/A' };
   const route = consequenceOf(i.id)?.route;
   let c = ({ HIGH: 3, MEDIUM: 2, LOW: 1 })[severity] ?? 0;
@@ -214,7 +211,7 @@ function context(meta) {
     for (const base of bases) out = out.split(base + path.sep).join('').split(base).join(path.basename(base));
     return home && home.length > 1 ? out.split(home).join('~') : out;
   };
-  return { app: meta.app?.name || 'the application', bases, scrub, outputFile: meta.outputFile,
+  return { app: meta.app?.name || 'the application', bases, scrub, outputFile: meta.outputFile, dependencies: meta.dependencies,
     reportRoot: meta.reportRoot || (meta.outputFile && path.dirname(path.resolve(meta.outputFile))), outputs: meta.outputs || [] };
 }
 
@@ -324,6 +321,8 @@ function recordedEvidence(i, ctx) {
 
 function proseNotes(g, ctx) {
   const i = g.basis;
+  if (g.definition[0] === OUTDATED_TITLE) return ['Rated Informational: the known vulnerabilities of the listed components were not exploited during the engagement.',
+    ...g.issues.filter(x => x.suppression).map(s => `Accepted risk — ${s.id} at ${text(place(s, ctx), ctx)}. ${s.suppression.reason ? text(s.suppression.reason, ctx) : 'No reason supplied.'}`)];
   const status = isConfirmed(i) ? 'runtime evidence recorded' : /^RUNTIME_/.test(i.id) ? 'observed at runtime; exploitability not established' : 'runtime exploitability not established';
   const notes = [`Rating basis: ${i.id} at ${text(place(i, ctx), ctx)}; scanner severity ${nameOf(i.severity)}, confidence ${nameOf(i.confidence)}; ${status}.`];
   notes.push('The scenarios below are conditional where the scan did not establish input control, reachability or the affected trust boundary. Impact is limited to the circumstances supported by the evidence.');
@@ -341,8 +340,24 @@ function proseNotes(g, ctx) {
   return notes;
 }
 
+// the outdated components finding: its own sections, pointing at the components workbook
+function renderOutdated(g, ctx) {
+  const [title, , , , cwe] = g.definition;
+  const sections = outdatedSections({ app: text(ctx.app, ctx), dependencies: ctx.dependencies });
+  const front = YAML.stringify({ Title: title, GeneratedBy: 'Electronegativity', Consequence: g.rating.consequence, Likelihood: g.rating.likelihood, Notes: proseNotes(g, ctx) }).trimEnd();
+  const lines = [`---\n${front}\n---`, `# ${title}`,
+    '## Issue Description', ...sections.description,
+    '## Affected', ...sections.affected,
+    '## Implication', ...sections.implication,
+    '## Reproduction and Evidence', ...sections.evidence,
+    '## Recommendations', ...sections.recommendations,
+    '## References', ...sections.references, `- ${cwe}\n\n  https://cwe.mitre.org/data/definitions/${/^CWE-(\d+)/.exec(cwe)?.[1]}.html`];
+  return lines.reduce((out, line) => out + (out && out.split('\n').at(-1).startsWith('- ') && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();
+}
+
 function renderGroup(g, ctx) {
   const [title, , about, recommendation, cwe] = g.definition;
+  if (title === OUTDATED_TITLE) return renderOutdated(g, ctx);
   const app = text(ctx.app, ctx);
   const ids = unique(g.issues.map(i => i.id));
   const variations = matchingVariations(title, g.issues, normalId);
@@ -370,11 +385,6 @@ function renderGroup(g, ctx) {
     const example = remediationOf(id)?.example;
     return example ? [`- **Illustrative implementation pattern (${id}):**\n\n${codeBlock(example, exampleLanguage(example))}`] : [];
   });
-  const sheet = title === 'Outdated Third-Party Components' && ctx.outputs.find(o => /\.xlsx$/i.test(o));
-  const sheetLink = sheet && (() => {
-    const relative = ctx.outputFile ? path.relative(path.dirname(path.resolve(ctx.outputFile)), path.resolve(sheet)) : path.basename(sheet);
-    return `- Review each component needing action, its support status and the recommended action in [${text(path.basename(sheet), ctx)}](${linkTarget(relative.split(path.sep).join('/'))}).`;
-  })();
 
   // references: the CWE, each check's own guidance with the scenarios it supports, then Electron's security guidance.
   // Each is a list item: its title, then the address on its own line.
@@ -417,7 +427,7 @@ function renderGroup(g, ctx) {
     ...(COMMANDS[title] ? [`- **Validation command:** ${codeSpan(COMMANDS[title])}`] : []),
     '## Recommendations', recommendation,
     ...variations.map(v => `- **${v.label}:** ${v.recommendation}`), ...notes('recommendation'),
-    ...examples, ...(sheetLink ? [sheetLink] : []),
+    ...examples,
     '## References', reference(cwe, cweUrl), ...guidance];
   if (!references.has('https://www.electronjs.org/docs/latest/tutorial/security'))
     lines.push(reference('Electron security guidance', 'https://www.electronjs.org/docs/latest/tutorial/security'));
@@ -460,7 +470,8 @@ export function renderClientFindings(issues, meta = {}) {
   return findings;
 }
 
-export const MARKDOWN_FOLDER = 'markdown';
+// the client deliverables of a run: the findings and the components workbook they refer to
+export const MARKDOWN_FOLDER = 'reports';
 // a finding file this report wrote: an earlier run's, replaced by this one's (other files in the folder are left alone)
 const isFindingFile = (file) => {
   try {
@@ -480,7 +491,7 @@ const isFindingFile = (file) => {
 };
 
 /**
- * Writes the client findings into <folder>/markdown, one file per finding named after its title, replacing the finding
+ * Writes the client findings into <folder>/reports, one file per finding named after its title, replacing the finding
  * files an earlier run left there. Returns the files written.
  */
 export function writeClientMarkdown(folder, issues, meta = {}) {

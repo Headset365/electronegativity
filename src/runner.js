@@ -14,7 +14,8 @@ import { loadBaseline, applyBaseline, writeBaseline } from './util/baseline.js';
 import { reconcileRuntime } from './watch/reconcile.js';
 import { analyzePackagedFuses, packagedBinaryFor, readElectronVersion, fuseBinaryFor } from './watch/fuses.js';
 import { GlobalChecks, severity, confidence } from './finder/index.js';
-import { extension, input_exists, is_directory, writeIssues, getRelativePath } from './util/index.js';
+import { extension, input_exists, is_directory, writeIssues, writeReports, getRelativePath } from './util/index.js';
+import { checkComponentLinks } from './util/link_check.js';
 import { isSourceBuildTooling } from './util/file.js';
 import { dependencyReport, sortRows } from './util/dependencies.js';
 import { validationHint } from './finder/consequences.js';
@@ -435,25 +436,41 @@ async function scan(options, forCli) {
   // new, unchanged or changed since an earlier JSON report (--compare), and what was fixed since
   const comparison = options.compare ? compareWithReport(reported, options.compare, options.input, suppressed) : undefined;
   const manifest = topManifest(filenames, loader) || {};
-  for (const output of outputs) {
-    writeIssues(options.input, options.isRelative, output, reported, options.isSarif && outputs.length === 1, {
-      app: { name: manifest.productName || manifest.name, version: manifest.version },
-      outputs,
-      suppressedByBaseline: baselineSuppressed,
-      suppressed,
-      comparison,
-      electronVersion: electronVersion || null,
-      filesScanned: filenames.length,
-      globalChecks: globalChecker._enabled_checks.length,
-      atomicChecks: finder._enabled_checks.length,
-      errors,
-      runtime: options.runtime && options.runtime.summary,
-      traffic: traffic && traffic.summary,
-      atRest: atRest && atRest.summary,
-      binary: binary && binary.summary.executable ? binary.summary : undefined,
-      installer: options.installer && { kind: options.installer.kind, file: options.installer.target, sha256: options.installer.installer.sha256, size: options.installer.installer.size, nsis: options.installer.installer.nsis },
-      dependencies
-    });
+  // the client deliverables (reports/: the findings and the components workbook) go with every run: next to the .md asked
+  // for, or else the first output, or else where the caller says (the CLI: the folder it was run from). options.reports === false
+  // leaves them out (each step of a guided run: the run writes them once, for all its steps).
+  const markdownOutput = outputs.find(o => /\.md$/i.test(o));
+  const reportsBase = options.reports === false ? undefined
+    : markdownOutput ? path.dirname(path.resolve(markdownOutput)) : outputs[0] ? path.dirname(path.resolve(outputs[0])) : options.reportsBase;
+  // the workbook's links are checked before they are written
+  if (dependencies && options.checkLinks !== false && (reportsBase || outputs.some(o => /\.xlsx$/i.test(o)))) {
+    if (forCli) console.log(chalk.gray('Checking the links of the components workbook...'));
+    await checkComponentLinks(dependencies);
+  }
+  const outputMeta = {
+    app: { name: manifest.productName || manifest.name, version: manifest.version },
+    outputs,
+    suppressedByBaseline: baselineSuppressed,
+    suppressed,
+    comparison,
+    electronVersion: electronVersion || null,
+    filesScanned: filenames.length,
+    globalChecks: globalChecker._enabled_checks.length,
+    atomicChecks: finder._enabled_checks.length,
+    errors,
+    runtime: options.runtime && options.runtime.summary,
+    traffic: traffic && traffic.summary,
+    atRest: atRest && atRest.summary,
+    binary: binary && binary.summary.executable ? binary.summary : undefined,
+    installer: options.installer && { kind: options.installer.kind, file: options.installer.target, sha256: options.installer.installer.sha256, size: options.installer.installer.size, nsis: options.installer.installer.nsis },
+    dependencies
+  };
+  for (const output of outputs.filter(o => o !== markdownOutput && !/\.md$/i.test(o)))
+    writeIssues(options.input, options.isRelative, output, reported, options.isSarif && outputs.length === 1, outputMeta);
+  let reports;
+  if (reportsBase) {
+    reports = writeReports(reportsBase, reported, { version: pkg.version, generatedAt: new Date().toISOString(), input: options.input, ...outputMeta, root: options.input });
+    if (forCli) console.log(chalk.gray(`Client findings and components workbook written to ${reports.dir}`));
   }
 
   // the same findings, redacted for sharing (--share): names, hosts, paths, secrets and code removed
@@ -530,7 +547,10 @@ async function scan(options, forCli) {
     traffic: traffic && traffic.summary,
     atRest: atRest && atRest.summary,
     binary: binary && binary.summary,
-    installer: options.installer && { kind: options.installer.kind, ...options.installer.installer }
+    installer: options.installer && { kind: options.installer.kind, ...options.installer.installer },
+    // what the reports were written from, for a guided run's combined report
+    outputMeta,
+    reports,
   };
 }
 

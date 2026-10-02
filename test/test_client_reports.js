@@ -45,7 +45,9 @@ describe('Client report outputs', () => {
       ...checks.map(id => issue(id)), issue('CSP_JS_CHECK', severity.INFORMATIONAL),
       issue('WINDOW_SUMMARY_JS_CHECK', severity.INFORMATIONAL),
     ]);
-    groups.length.should.equal(25);
+    // the Electron runtime and third-party components are one finding
+    groups.length.should.equal(24);
+    groups.filter(g => g.definition[0] === 'Outdated Software Components').length.should.equal(1);
     groups.find(g => g.definition[0] === 'Missing or Weak Content Security Policy').evidence.map(i => i.id).should.include('CSP_JS_CHECK');
     groups.some(g => g.definition[0] === 'Other Security Observations').should.equal(false);
     for (const group of groups) {
@@ -53,6 +55,11 @@ describe('Client report outputs', () => {
       variants.length.should.be.greaterThan(0);
       for (const finding of group.issues) variants.some(v => v.issues.includes(finding)).should.equal(true);
       const one = renderClientMarkdown(group.issues, { app: { name: 'Example App' } });
+      // the outdated components finding refers to the components workbook instead of listing its scenarios
+      if (group.definition[0] === 'Outdated Software Components') {
+        for (const heading of ['Affected', 'Reproduction and Evidence', 'References']) one.split(`## ${heading}\n`)[1].should.include('the attached spreadsheet - `components.xlsx`');
+        continue;
+      }
       for (const heading of ['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References']) {
         const section = one.split(`## ${heading}\n`)[1].split(/^## /m)[0];
         for (const variant of variants) section.should.include(variant.label, `${group.definition[0]} ${heading} omitted ${variant.label}`);
@@ -60,7 +67,7 @@ describe('Client report outputs', () => {
     }
     const markdown = renderClientMarkdown(checks.map(id => issue(id, severity.MEDIUM, confidence.FIRM, { sample: '' })), { app: { name: 'Example App' } });
     const headings = ['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References'];
-    for (const heading of headings) (markdown.match(new RegExp(`^## ${heading}$`, 'gm')) || []).length.should.equal(25);
+    for (const heading of headings) (markdown.match(new RegExp(`^## ${heading}$`, 'gm')) || []).length.should.equal(24);
     for (const section of markdown.split(/^## (?:Issue Description|Affected|Implication|Reproduction and Evidence|Recommendations|References)$/m).slice(1))
       section.trim().length.should.be.greaterThan(0);
     markdown.should.include('Static observations identify code or configuration');
@@ -93,17 +100,15 @@ describe('Client report outputs', () => {
       .should.deep.equal({ consequence: 'N/A', likelihood: 'N/A' });
     ratingOf(issue('FUSES_GLOBAL_CHECK', severity.HIGH, confidence.CERTAIN), 'Insecure Electron Fuse Configuration')
       .should.deep.equal({ consequence: 'Medium', likelihood: 'Unlikely' });
-    ratingOf(issue('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', severity.MEDIUM), 'Outdated Third-Party Components')
-      .should.deep.equal({ consequence: 'N/A', likelihood: 'N/A' });
-    // an unsupported release line is rated like an unsupported Electron, advisories or not
-    ratingOf(issue('END_OF_LIFE_LIBRARY_GLOBAL_CHECK', severity.MEDIUM), 'Outdated Third-Party Components')
-      .should.deep.equal({ consequence: 'Medium', likelihood: 'Possible' });
+    // outdated components are Informational: their published vulnerabilities were not exploited
+    for (const id of ['DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', 'END_OF_LIFE_LIBRARY_GLOBAL_CHECK', 'UNSUPPORTED_VERSION_GLOBAL_CHECK', 'AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK'])
+      ratingOf(issue(id, severity.HIGH, confidence.CERTAIN), 'Outdated Software Components').should.deep.equal({ consequence: 'N/A', likelihood: 'N/A' });
     ratingOf(issue('RUNTIME_ACTIVE_SCRIPT', severity.MEDIUM, confidence.FIRM, { properties: { execution: 'observed' } }),
       'Cross-Site Scripting Exposure in Content Rendering').consequence.should.equal('Medium');
     ratingOf(issue('MALICIOUS_DEPENDENCY', severity.HIGH), 'Known Malicious Package').consequence.should.equal('Critical');
   });
 
-  it('emits parseable YAML and unredacted evidence, accepted risks, references and a spreadsheet link', () => {
+  it('emits parseable YAML and unredacted evidence, accepted risks, references and the components workbook', () => {
     const findings = renderClientMarkdown([
       issue('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { properties: { advisories: ['OSV-1'] } }),
       issue('WORD_LAUNCH_JS_CHECK', severity.INFORMATIONAL),
@@ -121,7 +126,7 @@ describe('Client report outputs', () => {
     findings.should.include('Client: Example #1');
     findings.should.include('/client/app/main.js:8');
     blocks.map(block => YAML.parse(block)).flatMap(front => front.Notes).join(' ').should.include('Approved: #42');
-    findings.should.include('[components.xlsx](components.xlsx)');
+    findings.should.include('Refer to the attached spreadsheet - `components.xlsx` for a list of affected components.');
     findings.should.include('https://cwe.mitre.org/data/definitions/');
     /^(?:\s*)\d+[.)]\s/m.test(findings).should.equal(false);
   });
@@ -207,7 +212,7 @@ describe('Client report outputs', () => {
   });
 
   it('defines several complete variants for every named group and falls back for new checks', () => {
-    Object.keys(VARIATIONS).length.should.equal(26);
+    Object.keys(VARIATIONS).length.should.equal(25);
     for (const entries of Object.values(VARIATIONS)) {
       entries.length.should.be.at.least(2);
       for (const entry of entries) {
@@ -237,7 +242,7 @@ describe('Client report outputs', () => {
     const table = componentTable({ rows });
     table.header.should.deep.equal(['Component', 'Type', 'Installed version', 'Installed version release date', 'Latest version', 'Latest version release date',
       'Support status', 'Recommended action', 'Path found', 'Installed version link', 'Latest version link',
-      'Advisories: deps.dev (this version)', 'Advisories: Snyk (this version)', 'Advisories: GitHub (all versions)']);
+      'Advisories: deps.dev (this version)', 'Advisories: Snyk (this version)', 'Advisories: GitHub (all versions)', 'Links to validate manually']);
     const byName = Object.fromEntries(table.rows.map(r => [r[0], r]));
     table.rows.map(r => r[0]).should.deep.equal(['malicious', 'electron', 'lodash', 'request', 'old']);
     byName.malicious[1].should.equal('JS library');
@@ -287,7 +292,7 @@ describe('Client report outputs', () => {
     const buffer = renderComponentsXlsx({ rows: [row, electron] });
     const sheet = zipEntry(buffer, 'xl/worksheets/sheet1.xml');
     const rels = zipEntry(buffer, 'xl/worksheets/_rels/sheet1.xml.rels');
-    sheet.should.include('state="frozen"').and.include('<autoFilter ref="A1:N3"/>');
+    sheet.should.include('state="frozen"').and.include('<autoFilter ref="A1:O3"/>');
     // five links a row, each its own cell and relationship
     (sheet.match(/<hyperlink ref=/g) || []).length.should.equal(10);
     (rels.match(/TargetMode="External"/g) || []).length.should.equal(10);
@@ -312,7 +317,7 @@ describe('Client report outputs', () => {
 
   it('writes both sheets for an empty or offline dependency report without lookups', () => {
     const empty = renderComponentsXlsx({ rows: [], offline: true });
-    zipEntry(empty, 'xl/worksheets/sheet1.xml').should.include('<autoFilter ref="A1:N1"/>').and.not.include('<hyperlinks>');
+    zipEntry(empty, 'xl/worksheets/sheet1.xml').should.include('<autoFilter ref="A1:O1"/>').and.not.include('<hyperlinks>');
     zipEntry(empty, 'xl/worksheets/sheet2.xml').should.include('<autoFilter ref="A1:F1"/>');
     zipEntry(empty, 'xl/worksheets/_rels/sheet1.xml.rels').should.not.include('TargetMode');
     // nothing looked up: Unknown, listed in the catalog only
@@ -332,7 +337,9 @@ describe('Client report outputs', () => {
       for (const output of [md, xlsx]) writeIssues(dir, false, output, [issue('NODE_INTEGRATION_JS_CHECK')], false,
         { app: { name: 'Example' }, outputs: [md, xlsx], dependencies: { rows: [] } });
       fs.existsSync(md).should.equal(false);
-      fs.readFileSync(path.join(dir, 'markdown', 'Renderer Isolation Weakened.md'), 'utf8').should.include('# Renderer Isolation Weakened');
+      // the .md asks for the reports folder: the findings and the components workbook they refer to
+      fs.readFileSync(path.join(dir, 'reports', 'Renderer Isolation Weakened.md'), 'utf8').should.include('# Renderer Isolation Weakened');
+      zipEntry(fs.readFileSync(path.join(dir, 'reports', 'components.xlsx')), 'xl/worksheets/sheet1.xml').should.include('Component');
       zipEntry(fs.readFileSync(xlsx), 'xl/worksheets/sheet1.xml').should.include('Component');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
@@ -404,25 +411,25 @@ describe('Client report outputs', () => {
     renderClientMarkdown([], { app: { name: 'Example' } }).should.equal('No reportable findings were identified in Example.\n');
   });
 
-  it('writes one file per finding, named after its title, into a markdown folder', () => {
+  it('writes one file per finding, named after its title, into a reports folder', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-md-'));
     try {
-      fs.mkdirSync(path.join(dir, 'markdown'));
-      fs.writeFileSync(path.join(dir, 'markdown', 'Fixed Since.md'), '---\nTitle: Fixed Since\n---\n');
+      fs.mkdirSync(path.join(dir, 'reports'));
+      fs.writeFileSync(path.join(dir, 'reports', 'Fixed Since.md'), '---\nTitle: Fixed Since\n---\n');
       // A legacy generated report is recognisable by its known title and six report sections.
-      fs.writeFileSync(path.join(dir, 'markdown', 'Development and Debugging Features in Production.md'), renderClientMarkdown([issue('DEVTOOLS_JS_CHECK')]).replace('GeneratedBy: Electronegativity\n', ''));
-      fs.writeFileSync(path.join(dir, 'markdown', 'my notes.md'), 'kept');
+      fs.writeFileSync(path.join(dir, 'reports', 'Development and Debugging Features in Production.md'), renderClientMarkdown([issue('DEVTOOLS_JS_CHECK')]).replace('GeneratedBy: Electronegativity\n', ''));
+      fs.writeFileSync(path.join(dir, 'reports', 'my notes.md'), 'kept');
       const files = writeClientMarkdown(dir, [issue('NODE_INTEGRATION_JS_CHECK', severity.HIGH), issue('CSP_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { file: 'N/A' }),
         issue('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { properties: { advisories: ['OSV-1'] } })],
       { app: { name: 'Example' }, outputs: [path.join(dir, 'components.xlsx')] });
-      files.map(f => path.basename(f)).sort().should.deep.equal(['Missing or Weak Content Security Policy.md', 'Outdated Third-Party Components.md', 'Renderer Isolation Weakened.md']);
-      fs.readdirSync(path.join(dir, 'markdown')).should.include('my notes.md').and.include('Fixed Since.md').and.not.include('Development and Debugging Features in Production.md');
+      files.map(f => path.basename(f)).sort().should.deep.equal(['Missing or Weak Content Security Policy.md', 'Outdated Software Components.md', 'Renderer Isolation Weakened.md']);
+      fs.readdirSync(path.join(dir, 'reports')).should.include('my notes.md').and.include('Fixed Since.md').and.not.include('Development and Debugging Features in Production.md');
       for (const file of files) {
         const text = fs.readFileSync(file, 'utf8');
         (text.match(/^---$/gm) || []).length.should.equal(2);
         YAML.parse(text.split(/^---$/m)[1]).Title.should.equal(path.basename(file, '.md'));
       }
-      fs.readFileSync(path.join(dir, 'markdown', 'Outdated Third-Party Components.md'), 'utf8').should.include('[components.xlsx](../components.xlsx)');
+      fs.readFileSync(path.join(dir, 'reports', 'Outdated Software Components.md'), 'utf8').should.include('the attached spreadsheet - `components.xlsx`');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     findingFileName('A/B: C?').should.equal('A-B- C-.md');
     renderClientFindings([]).should.deep.equal([]);

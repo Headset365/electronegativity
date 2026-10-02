@@ -157,8 +157,10 @@ export function advisoryFacts(vulns, name, version) {
     const references = (v.references || []).filter(r => /^https?:\/\//.test(r.url || '') && ['ADVISORY', 'FIX', 'REPORT', 'WEB', 'ARTICLE'].includes(r.type))
       .sort((a, b) => ['ADVISORY', 'FIX', 'REPORT', 'ARTICLE', 'WEB'].indexOf(a.type) - ['ADVISORY', 'FIX', 'REPORT', 'ARTICLE', 'WEB'].indexOf(b.type))
       .filter((r, i, all) => all.findIndex(o => o.url === r.url) === i).slice(0, 5).map(r => ({ type: r.type, url: r.url }));
+    // the weakness types (CWE-79...), for the kinds of vulnerability the client report names
+    const cwes = ((v.database_specific && v.database_specific.cwe_ids) || []).filter(id => /^CWE-\d+$/.test(id));
     return { id: v.id, cves, summary: v.summary || (v.details || '').split('\n')[0].slice(0, 200), severity: level ? String(level).toUpperCase().replace('MODERATE', 'MEDIUM') : undefined, fixed, references,
-      published: day(v.published) };
+      published: day(v.published), cwes };
   }).sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
 }
 const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', undefined];

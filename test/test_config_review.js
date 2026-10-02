@@ -411,7 +411,7 @@ module.exports = { unzip, unzipSafe };` });
       splitOutputs('my report.html').should.deep.equal(['my report.html']);
     });
 
-    it('writes the -o reports for each step of a guided run (--app), and the client findings once', function () {
+    it('writes one report of a guided run (--app) with each step kept in steps/, and the client findings once', function () {
       this.timeout(120000);
       const out = tmp('eng-guided-');
       const app = path.join(import.meta.dirname, 'apps', 'vulnerable-app');
@@ -419,11 +419,17 @@ module.exports = { unzip, unzipSafe };` });
         '-o', 'report.html,findings.md,components.xlsx', '--share', 'shareable-report.md'];
       const result = spawnSync(process.execPath, cli, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
       result.status.should.equal(0, result.stderr);
-      for (const file of ['static-report.html', 'static-components.xlsx', 'static-share.md', 'static-diag.json'])
+      // the report of the whole run
+      for (const file of ['report.html', 'components.xlsx', 'shareable-report.md', 'diagnostics.json', 'reports/components.xlsx'])
         fs.existsSync(path.join(out, file)).should.equal(true, file);
+      // each step's reports, as backups
+      for (const file of ['static-report.html', 'static-components.xlsx', 'static-share.md', 'static-diag.json'])
+        fs.existsSync(path.join(out, 'steps', file)).should.equal(true, file);
+      JSON.parse(fs.readFileSync(path.join(out, 'diagnostics.json'), 'utf8')).steps.static.tool.should.be.an('object');
       // the client findings are written once for the whole run, one file per finding
-      fs.existsSync(path.join(out, 'static-findings.md')).should.equal(false);
-      fs.readFileSync(path.join(out, 'markdown', 'Renderer Isolation Weakened.md'), 'utf8').should.include('# Renderer Isolation Weakened');
+      fs.existsSync(path.join(out, 'steps', 'static-findings.md')).should.equal(false);
+      fs.existsSync(path.join(out, 'steps', 'reports')).should.equal(false);
+      fs.readFileSync(path.join(out, 'reports', 'Renderer Isolation Weakened.md'), 'utf8').should.include('# Renderer Isolation Weakened');
       fs.rmSync(out, { recursive: true, force: true });
     });
 

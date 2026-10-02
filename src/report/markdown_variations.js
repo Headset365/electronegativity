@@ -207,13 +207,11 @@ export const VARIATIONS = {
     ['Third-party destination', /^(TRAFFIC_AUTH_TO_THIRD_PARTY|TRAFFIC_USER_INPUT_TO_THIRD_PARTY)/,
       'Confirm host ownership, request purpose and whether the value can be removed or minimised.'],
   ],
-  'Outdated Electron Runtime': [
+  'Outdated Software Components': [
     ['Unsupported release line', /^UNSUPPORTED_VERSION/,
       'Confirm the packaged version and the current supported release lines.'],
     ['Missing Electron or Chromium fixes', /^(AVAILABLE_SECURITY_FIXES|CHROMIUM_ADVISORIES)/,
       'Compare the exact bundled versions and applicable advisories, including backports.'],
-  ],
-  'Outdated Third-Party Components': [
     ['Published dependency advisory', /^DEPENDENCY_VULNERABILITIES/,
       'Match package and version to advisory conditions and the affected import or bundle.'],
     ['Unsupported library', /^END_OF_LIFE_LIBRARY/,

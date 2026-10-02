@@ -78,18 +78,24 @@ What happens:
    blocked, ✗ confirmed). A summary is printed when the app closes.
 3. **Optional, tests the server:** before the next session, in Burp, take account A's request that saves a document and
    put this harmless markup in the body: `<span data-ENGK7Q2XM="1">ENGK7Q2XM</span>` (with your marker). The endpoint is
-   in `session-1.html` under "API endpoint called", flagged "contains HTML".
+   in `steps\session-1-report.html` under "API endpoint called", flagged "contains HTML".
 4. It asks: **Start watch session 2?** Press Enter. As **account B**: log in, open everything that shows account A's
    content (the document, previews, search results, notifications, comments, exports or print preview), then close the
    app completely.
-5. Press `s` when asked about session 3 to finish. The results folder then holds `static.html`, `session-1.html`,
-   `session-2.html` and a `-diag.json` file for each.
+5. Press `s` when asked about session 3 to finish. The results folder then holds:
+   - `report.html` and `report.json`: **one report of the whole run**, the static findings with what each session
+     validated (marked with the session that showed it) and what the sessions found;
+   - `reports\`: the client findings, one Markdown file per finding, and `components.xlsx`, the components workbook the
+     "Outdated Software Components" finding refers to (its links are checked; any that couldn't be are named in its
+     "Links to validate manually" column);
+   - `diagnostics.json`, with a section per step;
+   - `steps\`: each step's own reports (`static-report.html`, `session-1-report.html`, ...), kept as backups.
 
-In each session report, use the **Validation** filter: "Seen at runtime" lists the findings the marker reached (with the
+In the report, use the **Validation** filter: "Seen at runtime" lists the findings the marker reached (with the
 script line for HTML sinks), "Confirmed at runtime" the ones the captured traffic proved (requests over plain http, an
 intercepting proxy's certificate accepted), and "Needs review, not validated" what is left, each with how to check it.
 
-In `session-2.html`, `RUNTIME_MARKER` LOW (with `live` in its details) means the marker came back as live markup (stored
+In `report.html`, `RUNTIME_MARKER` LOW (with `live` in its details) means the marker came back as live markup (stored
 content reaches another user's view unneutralized, script execution not proven); INFORMATIONAL means it was shown safely
 as text. Don't filter the report to HIGH only: this finding would be hidden.
 
@@ -129,11 +135,13 @@ electronegativity --watch-log "$env:TEMP\electronegativity-watch-XXXXXX\session.
 ```
 
 The individual options still work on their own: `-i "C:\Program Files\MyApp" -o static.html` for a static scan, and
-`--watch "C:\Program Files\MyApp" -o session.html` for one watch session.
+`--watch "C:\Program Files\MyApp" -o session.html` for one watch session. Every run also writes the client findings and
+the components workbook to a `reports` folder: in the run's report folder, next to the first `-o` file, or in the folder
+you ran it from.
 
 ## 5. What to send back
 
-Only the `*-diag.json` files. Open each one first and check it contains nothing identifying: the app name, user name,
+Only `diagnostics.json`. Open it first and check it contains nothing identifying: the app name, user name,
 machine name, home folder and the `--redact` words are replaced, and hosts are pseudonymized. Keep the `.html` reports
 yourself: they contain code locations and URLs.
 

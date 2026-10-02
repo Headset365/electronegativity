@@ -10,7 +10,8 @@ import { consequenceOf, validationHint, interactionOf } from '../finder/conseque
 import { remediationOf } from '../finder/remediation.js';
 import { cycloneDx } from '../report/cyclonedx.js';
 import { renderDocx } from '../report/docx.js';
-import { writeClientMarkdown } from '../report/markdown.js';
+import { writeClientMarkdown, MARKDOWN_FOLDER } from '../report/markdown.js';
+import { COMPONENTS_SHEET } from '../report/markdown_outdated.js';
 import { renderComponentsXlsx } from '../report/xlsx.js';
 import { scores } from '../report/scores.js';
 import { fingerprints } from './baseline.js';
@@ -300,6 +301,18 @@ function jsonReport(result, meta) {
   }, null, 2);
 }
 
+/**
+ * The client deliverables of a run in <base>/reports: one Markdown file per finding and the components workbook
+ * (components.xlsx) the outdated components finding refers to. Returns { dir, findings, sheet }.
+ */
+export function writeReports(base, result, meta = {}) {
+  const dir = path.join(path.resolve(base), MARKDOWN_FOLDER);
+  const findings = writeClientMarkdown(path.resolve(base), result, meta);
+  const sheet = path.join(dir, COMPONENTS_SHEET);
+  fs.writeFileSync(sheet, renderComponentsXlsx(meta.dependencies, { appName: meta.app?.name }));
+  return { dir, findings, sheet };
+}
+
 export function writeIssues(root, isRelative, filename, result, isSarif, meta = {}){
   let output = '';
   const format = outputFormat(filename, isSarif);
@@ -321,9 +334,9 @@ export function writeIssues(root, isRelative, filename, result, isSarif, meta = 
     fs.writeFileSync(filename, renderDocx(result, meta));
     return;
   }
-  // client findings: one file per finding, in a markdown folder where the .md file was asked for
+  // client findings: one file per finding, with the components workbook, in a reports folder where the .md file was asked for
   if (format === 'md') {
-    writeClientMarkdown(path.dirname(path.resolve(filename)), result, { ...meta, root });
+    writeReports(path.dirname(path.resolve(filename)), result, { ...meta, root });
     return;
   }
   if (format === 'xlsx') {

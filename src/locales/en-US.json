@@ -209,7 +209,7 @@
 	"appAskFirstSession": "Start watch session {{n}}? The app opens: log in, go through its features, then close it completely. [Enter = start, s = skip]",
 	"appAskNextSession": "Start watch session {{n}} (for example as a second account)? [Enter = start, s = finish]",
 	"appStepDone": "{{{file}}}: {{high}} high, {{medium}} medium, {{low}} low, {{info}} informational",
-	"appDone": "Done. Reports are in {{{dir}}}. Share only the *-diag.json files (and the *-share files, with --share or --report-dir), after reading them; keep the .html reports:",
+	"appDone": "Done. Reports are in {{{dir}}}: the report of the whole run, its client findings and components workbook in reports, and each step's reports in steps. Share only diagnostics.json (and the shareable-report files, with --share or --report-dir), after reading them; keep the .html reports:",
 	"diagnosticsOptionDescription": "write a sanitized diagnostics report to share for troubleshooting: what was scanned or skipped, errors, check timings, watch mode status; no code or findings text",
 	"redactOptionDescription": "extra comma-separated terms to replace in the diagnostics report (company, product or host names); the app name, user name and machine name are always replaced",
 	"diagnosticsWritten": "Diagnostics written to {{{file}}}: review it before sharing",

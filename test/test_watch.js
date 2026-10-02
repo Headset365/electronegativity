@@ -649,12 +649,19 @@ describe('Watch mode', () => {
       const guidedRun = runCli(guided);
       (guidedRun.status === 0).should.equal(true, why(guidedRun));
       const files = fs.readdirSync(out).sort();
-      files.filter(f => !/^ENG[A-Z0-9]{6}/.test(f)).should.deep.equal(['session-1-diag.json', 'session-1-share.json', 'session-1-share.md', 'session-1.html',
-        'static-diag.json', 'static-share.json', 'static-share.md', 'static.html']);
+      // one report of the whole run, its client findings and components workbook, and each step kept as a backup
+      files.filter(f => !/^ENG[A-Z0-9]{6}/.test(f)).should.deep.equal(['diagnostics.json', 'report.html', 'report.json', 'reports', 'shareable-report.json', 'shareable-report.md', 'steps']);
+      fs.readdirSync(path.join(out, 'steps')).sort().should.deep.equal(['session-1-diag.json', 'session-1-report.html', 'session-1-report.json', 'session-1-share.json', 'session-1-share.md',
+        'static-diag.json', 'static-report.html', 'static-report.json', 'static-share.json', 'static-share.md']);
+      fs.readdirSync(path.join(out, 'reports')).should.include('components.xlsx');
+      // the final report holds the static findings and what the session observed
+      const whole = JSON.parse(fs.readFileSync(path.join(out, 'report.json'), 'utf8')).issues.map(i => i.id);
+      whole.should.include('NODE_INTEGRATION_JS_CHECK');
+      whole.some(id => /^RUNTIME_/.test(id)).should.equal(true, 'the session\'s findings are in the final report');
       // the marker files the assistant hands the tester: a page to copy formatted content from, and a file to attach
       files.filter(f => /^ENG[A-Z0-9]{6}/.test(f)).map(f => f.replace(/^ENG[A-Z0-9]{6}/, 'M')).sort().should.deep.equal(['M-paste-me.html', 'M.txt']);
       guidedRun.stdout.should.match(/\[validate\] Validation across all sessions:/);
-      JSON.parse(fs.readFileSync(path.join(out, 'session-1-diag.json'), 'utf8')).watch.hookStarted.should.equal(true);
+      JSON.parse(fs.readFileSync(path.join(out, 'diagnostics.json'), 'utf8')).steps['session-1'].watch.hookStarted.should.equal(true);
       guidedRun.stdout.should.match(/marker for this run: ENG[A-Z0-9]{6}/);
       // the backend page's script was captured with the app's session, and its original source (from the source map)
       // scanned: the finding points at the URL it was served from
