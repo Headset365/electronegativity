@@ -36,7 +36,7 @@ describe('Re-rendering the client findings of an earlier scan (--rerender)', fun
   });
 
   it('writes the findings again from report.json into newReports and lists the manual edits to carry over', () => {
-    const name = 'Renderer Isolation Weakened.md';
+    const name = 'Insufficient Renderer Process Isolation.md';
     const original = fs.readFileSync(findingFile(name), 'utf8');
     // the tester raised the rating, added a sentence, added a section and deleted References; saved with Windows line endings
     const edited = original.replace(/^Consequence: .*$/m, 'Consequence: Critical').replace('## Implication\n\n', '## Implication\n\nConfirmed by the tester in build 4.2.\n\n')
@@ -62,7 +62,7 @@ describe('Re-rendering the client findings of an earlier scan (--rerender)', fun
 
     const review = fs.readFileSync(path.join(reports(), 'newReports-review.md'), 'utf8');
     const section = review.split('## Manual changes to carry over')[1].split(/^## /m)[0];
-    section.should.include(`### Renderer Isolation Weakened (\`${name}\`)`);
+    section.should.include(`### Insufficient Renderer Process Isolation (\`${name}\`)`);
     section.should.include('**Rating**: edited by hand').and.include('> Consequence: Critical');
     section.should.include('**Implication**: edited by hand').and.include('> Confirmed by the tester in build 4.2.');
     section.should.include('**Tester Appendix**: a section added by hand').and.include('> Screens 3 and 4.');
@@ -84,14 +84,22 @@ describe('Re-rendering the client findings of an earlier scan (--rerender)', fun
     fs.renameSync(reports(), old);
     fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(data));
     fs.writeFileSync(path.join(old, 'Outdated Electron Runtime.md'), '---\nTitle: Outdated Electron Runtime\nGeneratedBy: Electronegativity\n---\n\n# Outdated Electron Runtime\n\n## Affected\n\npackage.json\n');
-    const name = 'Renderer Isolation Weakened.md';
-    fs.writeFileSync(path.join(old, name), fs.readFileSync(path.join(old, name), 'utf8').replace('## Implication\n\n', '## Implication\n\nTester text.\n\n'));
+    // a finding written under its earlier title
+    const name = 'Insufficient Renderer Process Isolation.md';
+    const earlier = fs.readFileSync(path.join(old, name), 'utf8').replace(/Insufficient Renderer Process Isolation/g, 'Renderer Isolation Weakened')
+      .replace('## Implication\n\n', '## Implication\n\nTester text.\n\n');
+    fs.rmSync(path.join(old, name));
+    fs.writeFileSync(path.join(old, 'Renderer Isolation Weakened.md'), earlier);
 
     const result = rerender({ dataFile: path.join(dir, 'report.json'), version: 'test' });
     result.dir.should.equal(path.join(old, 'newReports'));
+    fs.readdirSync(path.join(old, 'newTesterNotes')).should.include('Insufficient Renderer Process Isolation - tester notes.md');
     const review = fs.readFileSync(result.review, 'utf8');
     review.should.include('## Differences that may be manual changes');
-    review.split('## Differences that may be manual changes')[1].should.include('**Implication** (differs)').and.include('> Tester text.');
+    const differences = review.split('## Differences that may be manual changes')[1];
+    differences.should.include('### Renderer Isolation Weakened (`Renderer Isolation Weakened.md`, now `Insufficient Renderer Process Isolation.md`)');
+    differences.should.include('**Implication** (differs)').and.include('> Tester text.');
+    review.should.not.include('- `Insufficient Renderer Process Isolation.md`');
     review.should.include('## Earlier findings not written any more');
     review.should.include('`Outdated Electron Runtime.md` (Outdated Electron Runtime)');
     review.should.include('## Identical to the new findings');

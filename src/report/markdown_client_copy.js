@@ -1,359 +1,435 @@
-// Reviewed, client-facing scenario copy. Each entry is [condition, consequence, action and closure test].
-// A matching check selects a scenario; it does not establish the scenario's preconditions.
+// Client-facing scenario copy, in Australian English and an impersonal voice. Each entry is [issue, implication,
+// recommendation]: what the condition is, what it could lead to, and what to do about it (with how to verify the fix).
+// A matching check selects a scenario. Limits of testing are stated once per finding, in its note, not in each scenario.
 export const CLIENT_COPY = {
   'Node access in a renderer': [
-    'The affected window is configured to expose Node.js capability to page code. The relevant trust boundary is whether content outside the application’s control can run in that window.',
-    'Where untrusted script executes in this renderer, Node.js access can turn a page-level injection into access to local files, processes or application data within the user’s privileges. The scan does not establish that an untrusted script path exists.',
-    'Disable Node integration for the affected window. Expose only required operations through a narrowly scoped preload and verify that untrusted page code cannot access Node.js or unrestricted main-process functions.'
+    'Node.js integration is enabled for an application window, which gives any script running in that window direct access to Node.js and, through it, to the operating system.',
+    'If an attacker can run script in the window, for example through cross-site scripting or a compromised remote resource, they could read and modify local files, run programs and access application data with the privileges of the logged-in user.',
+    'Disable Node.js integration for every window that renders web content, and expose only the operations the interface needs through a narrowly scoped preload script. Verify in the packaged application that page script can no longer access `require` or `process`.'
   ],
   'Isolation or sandbox disabled': [
-    'The affected window has a configuration that can reduce separation between its page, preload and operating-system process. The effective settings must be confirmed in the packaged application.',
-    'If less trusted script runs in that window, reduced isolation can expose preload state or increase the consequences of a renderer compromise. The degree of access depends on the actual preload API and effective sandbox.',
-    'Enable context isolation and renderer sandboxing in the production window configuration. Retest the intended preload functions and confirm the effective settings after packaging.'
+    'Context isolation or the renderer sandbox is disabled for an application window, which removes the separation between page script, the preload script and the operating system.',
+    'Script running in the page could tamper with the preload script’s objects and reach the privileged functions it holds, and a compromise of the renderer process would not be contained by the sandbox.',
+    'Enable context isolation and the renderer sandbox for every window. Verify in the packaged application that the preload functions still work and that page script cannot access the preload script’s objects.'
   ],
   'Additional privilege sharing': [
-    'The application uses a legacy remote capability or process affinity that can connect renderers across different trust levels. The affected windows and imports determine whether this creates an accessible boundary.',
-    'If lower-trust content shares a privileged process or remote interface, it could reach application state or operations reserved for trusted content. A configuration match alone does not demonstrate that access.',
-    'Remove remote-module access and separate renderers with different trust levels. Verify the shipped windows no longer share privileged process state or a remote interface.'
-  ],
-  'Origin or transport protections': [
-    'The identified setting or Chromium switch can relax origin, mixed-content or transport protections for an affected window. The precise protection affected depends on the recorded setting.',
-    'Where the window loads lower-trust resources, a weakened browser boundary can permit cross-origin access or content loading that the default configuration would restrict. This outcome requires an applicable content path.',
-    'Restore the relevant Chromium security setting and remove security-disabling launch switches. Implement any legitimate cross-origin exchange through narrowly scoped server policy and confirm the packaged window enforces the intended boundary.'
-  ],
-  'Experimental or legacy capability': [
-    'An optional Chromium capability is enabled or available in the affected renderer. Its security relevance depends on whether the production workflow actually uses it.',
-    'An unnecessary capability expands the browser features reachable by page content; its practical impact depends on the feature, loaded origin and any separate vulnerability. Enabling it alone does not demonstrate exploitation.',
-    'Disable capabilities that the production workflow does not require. For required features, restrict their use to trusted windows and verify the packaged configuration and expected functionality.'
-  ],
-  'Warning or keyboard safeguard': [
-    'A browser warning or platform safeguard for sensitive input is disabled or not applied in the identified context. The impact differs between developer diagnostics and operating-system input protection.',
-    'Disabled warnings can conceal insecure configuration during development; absent secure keyboard entry can matter when a user types a secret on a platform with a relevant local interception threat. Neither observation establishes disclosure by itself.',
-    'Restore Electron security warnings in the development and release verification process. Enable secure keyboard entry for sensitive-input workflows where supported, and confirm the setting is active during entry and released afterwards.'
-  ],
-  'Broad preload bridge': [
-    'The preload exposes application operations to a page or runs on an origin outside the intended trust boundary. The callable methods and actual loaded origin define the exposure.',
-    'If a lower-trust page can invoke a broad bridge, it may request privileged main-process actions with the application’s authority. The impact is limited by the operations exposed and the handler-side checks.',
-    'Expose a small, typed API limited to required operations. Validate the calling frame, arguments and authorisation in each main-process handler, then confirm an unapproved origin cannot invoke the operations.'
-  ],
-  'Shared session between trust levels': [
-    'The affected windows may reuse a session partition despite loading content with different trust levels. Confirm their live origins and effective partition identifiers.',
-    'A lower-trust window using a trusted session could gain access to cookies, storage or permission decisions available in that partition. The consequence depends on which data and grants are actually shared.',
-    'Assign separate session partitions and permission policies to windows with different trust levels. Verify isolation of cookies, storage and grants in the packaged workflow.'
-  ],
-  'Sender not restricted': [
-    'The identified IPC handler does not establish an explicit caller boundary in the observed path. A renderer’s ability to name a channel should not itself authorise the requested operation.',
-    'If an untrusted frame can send on that channel, it could invoke the handler’s privileged behaviour. The scan identifies a validation gap; actual exploitability depends on the sender and operation.',
-    'Check the sender frame and its origin before processing the message, then authorise the requested operation separately. Confirm that calls from an unapproved frame are rejected in a representative runtime test.'
-  ],
-  'Arguments or file paths trusted': [
-    'A main-process handler receives renderer-supplied values that may influence a sensitive operation. The handler’s use of each value determines the security boundary.',
-    'If a caller can supply an unconstrained path or command argument, the handler could read, modify or open resources outside the caller’s intended scope. This requires a reachable caller and a permissive handler.',
-    'Validate input types and allowed operations at the handler, and resolve file paths within an approved base directory. Test an out-of-scope value and confirm it is rejected before the sensitive action.'
-  ],
-  'Unused or unexpected channel': [
-    'An exposed IPC channel was not seen in the observed renderer traffic. Absence from a scan session does not establish that the channel is unused across all workflows.',
-    'A retained handler can expand the set of privileged actions available to a renderer if it can be called by served or injected content. The risk depends on reachability and handler controls.',
-    'Trace the channel across shipped renderers and representative workflows. Remove it if unused; otherwise document its intended callers and enforce sender, input and operation checks in the handler.'
-  ],
-  'External URL or protocol': [
-    'The application passes a URL to an operating-system hand-off API. The relevant boundary is whether a page, document or other external input can select the destination.',
-    'If a user follows an attacker-selected destination, an unsafe scheme or host may invoke another local handler or disclose information through a network request. The outcome depends on the accepted schemes and user action.',
-    'Parse the URL and allow only approved schemes and destinations before the hand-off. Verify that crafted but harmless disallowed links are rejected in the affected workflow.'
-  ],
-  'Non-web protocol launch': [
-    'The URL hand-off could include file, custom or application protocols unless the application constrains its input. This scenario requires confirmation of the accepted scheme.',
-    'If external content selects such a protocol, the operating system may launch a local handler or open a resource outside the intended web-link flow. The behaviour is platform and handler dependent.',
-    'Reject non-web schemes by default and allow a specific protocol only for a documented business need with a restricted destination. Verify disallowed schemes cannot reach the operating-system API.'
-  ],
-  'Network-share credential exposure': [
-    'The hand-off path may accept a UNC, SMB or equivalent network-share destination. Confirm that an external input can supply such a target before applying this scenario.',
-    'On a host configured to authenticate to a remote share, opening an attacker-selected network location could disclose authentication material. The preconditions include destination control, user action and host authentication behaviour.',
-    'Block network-share paths and equivalent URL forms from untrusted content. Validate with a benign destination that the application rejects the path before any operating-system hand-off.'
-  ],
-  'File path handed to the host': [
-    'The application passes a local path to an API that opens or reveals a file. The path’s source, canonical form and permitted directory determine the exposure.',
-    'If lower-trust input controls the path, a user may be directed to an unintended document or location. An executable outcome depends on the file type and the particular operating-system API.',
-    'Resolve and validate the final path within an approved directory, reject traversal and disallowed file types, and confirm that an out-of-scope test path never reaches the host API.'
-  ],
-  'Executable file path': [
-    'An open-path operation may receive a script, shortcut or executable path. The scenario applies only if an external or lower-trust source can select that final path.',
-    'Where the host opens an executable file selected by untrusted content, it could run under the current user’s account. The scan does not establish execution or attacker control from the API call alone.',
-    'Deny executable file types in document-opening workflows and require an explicit, separately authorised action for program launch. Confirm path validation using a harmless file without executing untrusted code.'
-  ],
-  'Download or shortcut destination': [
-    'A download or shortcut operation writes to a destination that may be influenced by content or configuration. The final folder, filename and target require review.',
-    'If an untrusted source controls these values, the application could place an unexpected file or launcher in a sensitive location. The consequence depends on write permissions and whether the artefact is later opened.',
-    'Constrain output directories and shortcut targets to approved locations, validate the final resolved path and require user intent for sensitive writes. Verify a path outside the approved location is rejected.'
-  ],
-  'Shell command construction': [
-    'The observed process-launch path may place a variable value into a command string or invocation. The input source and shell option determine whether the value is executable syntax.',
-    'If an untrusted actor controls shell metacharacters or executable arguments, the process could run unintended commands with the application’s privileges. A data-flow match alone does not confirm command execution.',
-    'Call a fixed executable with a validated argument array and disable shell interpretation. Confirm that a harmless metacharacter-bearing input remains data and cannot change the invoked program or arguments.'
-  ],
-  'Dynamic code evaluation': [
-    'The application uses a code-evaluation function on a value whose provenance requires review. The security boundary depends on whether external data reaches that value.',
-    'If lower-trust content is evaluated as code, it can execute in the relevant JavaScript context and inherit its available APIs. The scan does not establish an attacker-controlled input path by itself.',
-    'Replace dynamic evaluation with structured data parsing or a fixed dispatch table. Confirm that externally supplied strings cannot become executable code in the affected context.'
-  ],
-  'Word launch command': [
-    'The Microsoft Word launch flow constructs an invocation or document path that may include external input. The final executable, argument array and document location define the boundary.',
-    'If the input is not constrained, a user may open an unintended document or launch Word with unintended arguments. The impact depends on the actual invocation and file provenance.',
-    'Invoke a fixed Word executable with a separate, validated argument array and restrict document paths to the authorised workflow. Confirm the resolved path and arguments using a benign document.'
-  ],
-  'Document provenance and Protected View': [
-    'A document-opening flow may copy or transform a downloaded file before Word receives it. Confirm whether its Mark-of-the-Web provenance survives that transition.',
-    'If an untrusted document loses its zone information, Word may no longer apply the Protected View treatment expected for downloaded files. The outcome depends on the file, host policy and actual open path.',
-    'Preserve the document’s zone provenance through download, copy and launch, or apply an equivalent isolated review process. Confirm the stream on the exact file opened by Word and verify the expected Protected View behaviour.'
-  ],
-  'External handler input': [
-    'A registered protocol or file association accepts parameters supplied outside the application. Those parameters cross into an application action or file-opening path.',
-    'If the handler trusts an external action or path, a crafted link or associated file could trigger behaviour beyond the intended entry point. The result depends on parsing, routing and downstream authorisation.',
-    'Parse handler input against a fixed schema, allow only documented actions and canonicalise permitted paths. Confirm unknown actions and out-of-scope paths are rejected before any privileged operation.'
-  ],
-  'Privileged custom scheme or file URL': [
-    'The application registers or loads a custom scheme or file URL with privileges that may exceed its intended resource scope. The effective privilege set and resolver need confirmation.',
-    'If an external input selects a resource through that scheme, it may reach local files or a privileged renderer. The consequence depends on resource mapping and which origins can initiate the load.',
-    'Grant only the scheme privileges needed for the documented workflow and resolve resources from an explicit allowlist. Verify that traversal and unauthorised origins cannot load protected resources.'
-  ],
-  'Top-level navigation or redirect': [
-    'An affected window can navigate, or follow a redirect, beyond its intended origin unless both direct and redirected destinations are checked.',
-    'If a foreign page loads in a window that retains preload, session or other application capability, that page may gain access to privileges intended for trusted content. The scan does not establish this outcome without the final URL and window settings.',
-    'Deny unapproved destinations in navigation and redirect handlers. Confirm that a benign redirect to an external origin is blocked and that the final loaded page cannot inherit privileged window settings.'
-  ],
-  'Popup or middle-click': [
-    'Page content can request a new window or a link hand-off through popup or auxiliary-click behaviour. The child window policy and destination restrictions determine the risk.',
-    'A crafted link could create a child with unintended privileges or pass an unsafe destination to the operating system if the request is accepted without policy checks.',
-    'Deny new windows by default and route approved links through a scheme and destination allowlist. Test ordinary clicks, middle-clicks and scripted popups in the packaged renderer.'
-  ],
-  'Embedded content': [
-    'An embedded frame or webview may load a resource without the intended sandbox or attachment policy. Its source and effective preferences require inspection.',
-    'If it loads lower-trust content, the child’s privileges, preload or navigation behaviour could expose application capability beyond the parent page’s intended boundary.',
-    'Avoid webviews where the workflow permits. Otherwise validate each source, enforce restrictive attachment preferences and sandbox attributes, and verify the effective child settings at runtime.'
-  ],
-  'Permission request callback': [
-    'The affected session lacks an explicit, restrictive decision for a browser permission request. The requesting origin and capability must be evaluated together.',
-    'If an unapproved page can request a capability such as camera, location or notifications, it may obtain access the application did not intend. The actual grant depends on the runtime handler and platform decision.',
-    'Install a permission request handler with an explicit origin and capability allowlist and deny all other requests. Verify both an approved request and an unapproved-origin request.'
-  ],
-  'Synchronous permission check': [
-    'The synchronous permission-check path may not apply the same policy as the request handler. Some browser APIs consult this path independently.',
-    'An API could proceed under a permissive check even where interactive permission requests are constrained. The outcome depends on the API, origin and effective session handlers.',
-    'Implement a permission check handler using the same origin and capability policy as the request handler. Confirm that an unapproved origin is denied on both decision paths.'
-  ],
-  'HTML sink or editor': [
-    'A content-rendering sink or rich-text editor may place externally supplied markup into a page. The source of that markup and its interpretation in the destination view determine the finding.',
-    'If another actor controls markup that executes in a viewer’s renderer, it could act within that viewer’s session and available application APIs. A flagged sink alone does not establish cross-user execution.',
-    'Render plain text as text and sanitise the narrow HTML subset the workflow needs at the output boundary. Verify that a benign script probe is inert in the destination view.'
-  ],
-  'Sanitiser or framework bypass': [
-    'A sanitiser configuration or framework trust override may allow active HTML, event attributes or unsafe URLs through a rendering path. Confirm the exact input and binding.',
-    'If untrusted content enters that path, the override could bypass the expected output encoding and permit script execution in the receiving renderer. This depends on the actual allowed constructs.',
-    'Remove trust overrides for user content, restore a restrictive allowlist and encode output in the destination context. Verify representative active markup is rejected without breaking permitted formatting.'
-  ],
-  'Runtime reflection or message': [
-    'A tracked value appeared in a rendered response, DOM path or WebSocket message during the observed workflow. Reflection and script execution are distinct evidence states.',
-    'Where the value is rendered as active content for another user, it can affect that user’s renderer. The scan must show the source, destination account and execution signal before stating a cross-account compromise.',
-    'Encode or sanitise at the final rendering boundary and apply a restrictive Content Security Policy as a secondary control. Repeat the same source-to-destination workflow and confirm the marker cannot execute.'
-  ],
-  'Markup without proven execution': [
-    'A marker reached an HTML sink or appeared as live markup. This observation supports a rendering boundary concern but does not confirm that a script ran.',
-    'If active attributes or elements survive the same path, a script-execution scenario may be possible. Cross-account reach and resulting privileges remain unproven until the destination workflow is observed.',
-    'Replace the unsafe sink or sanitise its HTML input. Confirm the marker is rendered safely, and use a harmless execution probe only where the authorised test workflow permits it.'
-  ],
-  'Script execution observed': [
-    'A benign script probe executed during the recorded workflow. The source input, destination account and renderer context must remain linked in the evidence.',
-    'The confirmed execution can act within the affected renderer; access to another account or to privileged APIs depends on the observed account boundary and window configuration. Do not infer those additional effects from execution alone.',
-    'Repair the exact input-to-output path, add appropriate encoding or sanitisation and restrict renderer privileges. Repeat the recorded benign probe and confirm execution no longer occurs.'
-  ],
-  'No effective policy': [
-    'The affected page may lack an enforceable Content Security Policy in its final loaded response. A report-only policy or a policy on a different page does not provide the same protection.',
-    'If markup injection reaches this page, the browser has fewer restrictions on what injected script can load or execute. A missing policy is a defence gap and does not itself demonstrate an injection path.',
-    'Define and enforce a restrictive policy for each relevant page, including redirect and frame flows. Confirm the effective policy in the packaged renderer and exercise legitimate content loading.'
-  ],
-  'Unsafe script directives': [
-    'A present policy may permit inline script, evaluation or overly broad script sources. Its actual enforcement depends on the final directives, nonces and report-only status.',
-    'Where untrusted markup reaches the page, permissive script rules can allow execution that a stricter policy would block. The policy weakness does not establish that such markup is reachable.',
-    'Remove unsafe script permissions where feasible and narrowly define approved sources, nonces or hashes. Verify that legitimate scripts run and a benign injected script is blocked by the enforced policy.'
-  ],
-  'Runtime violation or mismatch': [
-    'The runtime policy or a recorded violation differs from the expected release configuration. A violation can indicate either an effective block or a legitimate resource that needs policy work.',
-    'A configuration mismatch may leave an intended control absent, while an effective violation can interrupt a business flow. The direction and consequence require the actual directive and blocked resource.',
-    'Reconcile the packaged policy with the intended resource list, fix the underlying loading path and keep enforcement restrictive. Verify both the expected business flow and rejection of an unapproved source.'
-  ],
-  'Untrusted document intake': [
-    'The application accepts a document format and passes it to a parser or converter. The source, parser version and execution boundary determine the exposure.',
-    'If an externally supplied malformed file reaches vulnerable parser code, it could disrupt the process or exploit a separate parser defect. An intake path alone is not evidence of such a defect.',
-    'Constrain file type and size, maintain the parser and isolate conversion with minimal privileges. Confirm unsupported formats are rejected and a benign malformed fixture does not affect the host application.'
-  ],
-  'Rendered conversion output': [
-    'A document conversion flow may produce HTML or external resource references for a renderer. The output needs its own trust boundary even when the input was a valid document.',
-    'If active markup or external relationships survive conversion, a viewer could run unintended page code or load resources selected by the document author. The outcome depends on the converter output and renderer policy.',
-    'Sanitise converted HTML, block unapproved external resources and render the result in a restricted context. Verify a benign document containing active markup and a remote link remains inert.'
-  ],
-  'Local Node entry points': [
-    'Packaged Electron fuses may leave RunAsNode, Node options or inspector entry points available. The exact fuse values must be read from the distributed executable.',
-    'Someone with local ability to launch the application could use an enabled entry point under the application’s identity. This is a local hardening concern and does not establish a remote compromise.',
-    'Disable unnecessary Node and inspector entry points at package time. Read the fuses from the shipped executable and verify the production launch and supported diagnostics still work.'
-  ],
-  'Asar integrity and loading': [
-    'The package may lack embedded asar integrity enforcement or a restriction on loading code outside the application archive. Both the fuse state and embedded digest matter.',
-    'If a local actor can alter the installation, missing enforcement can allow modified application code to load without this integrity check. The scenario presupposes local write access.',
-    'Enable embedded asar integrity validation and load only from the asar, with a valid embedded digest. Verify the packaged executable rejects a deliberately altered test archive.'
-  ],
-  'Cookie or file-protocol privileges': [
-    'The cookie-encryption or file-protocol fuse may differ from the intended release configuration. The affected storage or file-URL workflow determines relevance.',
-    'Unencrypted cookies may be more accessible to a local profile reader; unnecessary file-protocol privileges can expand what a renderer may load. Neither effect follows without the corresponding workflow.',
-    'Enable cookie encryption where supported and grant file-protocol privileges only for documented needs. Check the shipped fuse values, stored cookie behaviour and actual file-URL access.'
-  ],
-  'Source map exposure': [
-    'Production source maps are present in the distributed application and may include original source content and internal paths. Their presence is observable by anyone who obtains the package.',
-    'The maps can aid inspection of application logic and expose implementation details. This is an information-exposure concern; source maps alone do not confer privileged access.',
-    'Exclude maps containing original source from distributable artefacts or upload them to a restricted diagnostic service. Inspect the final package to confirm no unintended maps or embedded sources remain.'
-  ],
-  'Asar integrity': [
-    'The packaged application archive may not be checked against an embedded trusted digest. The relevant fuses and actual archive must be reviewed together.',
-    'If a local actor can replace packaged files, absent integrity enforcement can permit modified application code to run. The control does not protect against a fully compromised host or authorised update channel.',
-    'Enable embedded asar integrity validation and restrict application loading to the archive. Verify the shipped digest and confirm a modified test archive is rejected.'
-  ],
-  'Publisher signature': [
-    'The distributed executable or installer may lack a verifiable publisher signature or trusted timestamp. The exact shipped artefact is the subject of this observation.',
-    'Without a valid signature, recipients have less assurance of publisher identity and whether the artefact changed after release. This does not prove that the current binary has been tampered with.',
-    'Sign and timestamp each release executable and installer using the authorised publisher identity. Verify the signature chain, signer and timestamp on the distributed artefacts.'
-  ],
-  'Platform exploit mitigations': [
-    'One or more platform exploit mitigations may be absent from a shipped binary or native module. The relevant flags vary by operating system and build target.',
-    'If a separate memory-corruption flaw is present, missing mitigations can make exploitation easier. The mitigation gap alone is not evidence of a memory-corruption vulnerability.',
-    'Build Electron and native modules with supported platform hardening options. Inspect the exact release binaries and verify the expected mitigation flags are present.'
-  ],
-  'Update feed transport': [
-    'The configured update feed may use a transport that does not authenticate the server or protect metadata in transit. The effective packaged URL and updater behaviour determine this scenario.',
-    'An actor on the network path could alter update metadata or release selection if the client lacks independent verification. Package signature enforcement may limit the resulting installation risk.',
-    'Serve update metadata and packages over HTTPS with normal certificate validation. Inspect a release build during an update check and confirm the final feed and package URLs use the intended transport.'
-  ],
-  'Update signature or publisher': [
-    'The update workflow may install a package without enforcing its expected publisher or cryptographic signature. The updater’s actual verification step requires inspection.',
-    'If an attacker can substitute a release and the client accepts it, untrusted code could be installed for users. This requires both a substitution path and a missing or bypassed trust check.',
-    'Enforce package signature and publisher verification before installation, including failed-download and rollback paths. In an isolated test, confirm a package with an invalid signature is rejected.'
-  ],
-  'Developer tooling or test hooks': [
-    'A production build may retain a developer-tools entry point or test-only operation. The relevant question is whether it is reachable in the shipped configuration.',
-    'A local user or an actor already able to run page script could gain additional inspection or actions through these facilities. The finding does not imply unauthenticated remote access to developer tools.',
-    'Remove test hooks and restrict developer tools in production unless there is an approved operational need. Verify the release build blocks the documented entry points while required support workflows remain available.'
-  ],
-  'Logs, console secrets or exceptions': [
-    'A recorded log, console event or exception may contain a sensitive value or internal implementation detail. The data’s classification and log destination define the exposure.',
-    'Anyone with access to the affected log or console could obtain information outside their intended role if the value is sensitive. A generic exception without such content has a different impact.',
-    'Remove credentials and sensitive fields from logs, control access and retention, and handle exceptions without disclosing internals. Check representative release events for the previously observed value.'
-  ],
-  'Credential or token in code': [
-    'A credential-like value appears in a distributable file. Its provider, validity and privileges must be established before treating it as a live secret.',
-    'If the value is a shared live credential, anyone with the package could reuse it within its granted scope until it is revoked. Public identifiers and inert test fixtures do not carry that consequence.',
-    'Confirm the value’s classification and scope with its owner, rotate any live secret and remove it from the client package. Keep privileged credentials server side or in an appropriate operating-system store and rescan the release.'
-  ],
-  'Public key or false positive': [
-    'The detected value may be a public identifier, public key or non-production fixture rather than a secret. Its classification requires provider and privilege evidence.',
-    'If the value cannot authenticate or authorise an operation, its presence does not establish credential compromise. Any separate quota or identifier-abuse exposure should be assessed on its own terms.',
-    'Record the provider’s classification and effective permissions. Scope public client identifiers as tightly as the provider permits and remove unnecessary fixtures from the production package.'
-  ],
-  'Plaintext credential or file': [
-    'A credential or other sensitive value may be persisted in a file or store without operating-system-backed protection. The actual value, write path and protection must be confirmed.',
-    'Someone who can read the affected user profile, backup or file may recover the value and exercise its privileges. The access required and value lifetime govern practical impact.',
-    'Store secrets in the operating-system credential store or an appropriate protected API, remove obsolete plaintext copies and limit retention. Verify a benign canary is protected in the final storage location.'
-  ],
-  'Application settings or cached responses': [
-    'Settings, cookies or cached responses may retain data that the application regards as sensitive. Confirm the stored fields, profile permissions and effective encryption settings.',
-    'If credentials or protected content persist in a general-purpose store, a person with profile or backup access may retrieve them. The impact depends on the fields and their protection at rest.',
-    'Keep secrets out of general settings, enable supported cookie encryption and prevent caching of sensitive responses. Inspect the resulting profile with benign test data to confirm the retention policy.'
-  ],
-  'Cleartext HTTP or WebSocket': [
-    'An affected request, socket or page resource may use an unencrypted final transport. The captured scheme, host and data identify the specific exposure.',
-    'An actor able to observe or alter the network path could read or modify that traffic. Script resources and authentication data have greater potential impact than public static content.',
-    'Use HTTPS or WSS for the affected endpoint and its redirects, with valid certificates. Confirm the final request and socket scheme in a representative packaged run.'
-  ],
-  'Certificate validation bypass': [
-    'The application may override a certificate error or disable TLS verification for an affected request. A logged error that the client rejected is not an accepted bypass.',
-    'If an invalid certificate is accepted, an actor on the network path could impersonate the affected server and read or alter that connection. The impacted host and session must be identified.',
-    'Remove permissive certificate callbacks and global verification overrides; trust only the intended server identity or CA. Verify a deliberately invalid test certificate is rejected.'
-  ],
-  'Credential transport or cookie flags': [
-    'An authentication request or cookie may lack a transport or browser attribute appropriate to its use. The final scheme and exact cookie attributes determine the case.',
-    'Credentials sent over cleartext transport can be observed on the network; missing Secure, HttpOnly or SameSite attributes can enable distinct exposure paths. Do not treat the presence of Basic authentication over valid TLS as cleartext disclosure.',
-    'Use authenticated transport and set Secure, HttpOnly and SameSite according to the session workflow. Recheck the final requests and Set-Cookie response for the affected host.'
-  ],
-  'Secret in URL or response': [
-    'A captured URL or response may contain a sensitive value. The value’s classification, recipients and retention channels require confirmation using redacted evidence.',
-    'Secrets in URLs can enter logs, history or diagnostics; an overbroad response can expose data to a client not entitled to receive it. The latter requires a separate access-control determination.',
-    'Move credentials to a suitable protected request channel, minimise response fields and enforce recipient authorisation. Verify the value is absent from URLs, logs and unauthorised responses.'
-  ],
-  'WebSocket secret': [
-    'A WebSocket URL or message may carry a credential or other sensitive value. Endpoint logging and server-side recipient routing define who can see it.',
-    'A secret in the URL may persist in infrastructure logs; a misrouted message may expose it to another subscriber. The scan does not establish a cross-user disclosure without a recipient trace.',
-    'Use short-lived connection credentials outside logged URLs where feasible and authorise each message recipient. Confirm redacted traces show the intended subscriber and no secret in the URL.'
-  ],
-  'Third-party destination': [
-    'Captured traffic sends authentication material or user input to a host outside the initially identified first-party set. Host ownership and contractual purpose must be confirmed.',
-    'If the host is an unapproved third party, it may receive data beyond the intended service boundary. A client-owned or approved service should be assessed against its actual data-handling purpose.',
-    'Allow authentication headers only for their intended API and minimise data sent to other destinations. Verify host ownership, approved purpose and the resulting request fields.'
-  ],
-  'Unsupported release line': [
-    'The packaged Electron major release may be outside its upstream support window. Confirm the exact shipped version and support status at the report date.',
-    'An unsupported line may not receive future security fixes, leaving the application exposed to defects found after support ends. This does not establish that a specific exploitable defect exists today.',
-    'Move to a supported Electron release through a tested upgrade path. Confirm the version in the packaged executable and rerun the compatibility and security checks.'
-  ],
-  'Missing Electron or Chromium fixes': [
-    'The bundled Electron or Chromium build may predate an applicable upstream security fix. Version comparisons must account for affected platforms and backports.',
-    'If the application exposes the vulnerable browser feature or API, it may remain susceptible to the advisory’s stated conditions. A version match alone does not establish reachability.',
-    'Upgrade to an Electron build containing the relevant fixes, or document a verified backport. Confirm the shipped component versions and reassess the cited advisory conditions.'
-  ],
-  'Published dependency advisory': [
-    'A shipped dependency version matches the range in a published advisory. The affected code path and its presence in the application require assessment.',
-    'If the vulnerable function is present and reachable, the advisory’s stated impact may apply to this application. A package-version match is not proof that the exploit conditions hold.',
-    'Upgrade to a fixed version, prioritising components used in exposed workflows. Verify the resolved lockfile and packaged artefact, then reassess the advisory conditions.'
-  ],
-  'Unsupported library': [
-    'A dependency release line may no longer receive maintenance. Confirm the shipped copy, runtime use and upstream support status.',
-    'A maintained fix may be unavailable if a vulnerability is later identified. Unsupported status alone does not establish a present exploitable flaw.',
-    'Replace or upgrade the component to a maintained line and test the affected application paths. Confirm that the old version is absent from the final dependency inventory.'
-  ],
-  'Malicious version in inventory': [
-    'The dependency inventory includes a package version identified by a malicious-package source. Its installation and execution in the build environment must be established promptly.',
-    'If that version executed during installation or build, it could have accessed available credentials or modified produced artefacts. Inventory presence alone does not prove execution or exfiltration.',
-    'Remove the affected version, pin a trusted replacement and rebuild from a clean environment. Establish installation and execution history, then verify the resulting artefacts and dependency graph.'
-  ],
-  'Exposure response': [
-    'The response to a malicious dependency may need to cover developer machines, CI and release artefacts as well as the distributed application. Scope follows where the package actually executed.',
-    'Credentials or signing material available in an affected environment may be exposed; artefacts produced there may require independent verification. The affected set must be based on execution and access evidence.',
-    'Review install scripts, build logs, environment access and release provenance. Rotate credentials that were accessible during execution and rebuild and verify impacted artefacts from a trusted environment.'
-  ],
-  'Untrusted module path': [
-    'A module path in the main process or a preload is built from a value that may come from a renderer, a navigation or a deep link, and is passed to require() or import(). Whether a caller outside the application controls that value needs confirmation.',
-    'If a lower-trust caller can choose the path, the application may load and run a different module or file, including one reached through directory traversal, with the privileges of the process that loads it. The scan does not establish that such a caller exists.',
-    'Load modules only from a fixed map of known names to fixed paths, and reject any other value before resolution. Verify that a traversal value and an unlisted module name are rejected in the packaged application.'
+    'The application uses the deprecated remote module or process affinity, which connects renderer processes to privileged functionality or to each other.',
+    'Content in a less trusted window could reach application state or privileged operations intended only for trusted windows.',
+    'Remove the remote module and process affinity, and provide required functionality through validated inter-process communication (IPC) handlers. Verify that no window can reach the main process other than through those handlers.'
   ],
   'Injected script reached Node or Electron APIs': [
-    'A configured test payload, delivered through the application’s own save and view workflow, executed in a renderer and reported access to Node.js, the Electron module or the local file system from page script.',
-    'Content that reaches this view as script can use the same access: reading local files, loading modules or calling Electron APIs with the user’s privileges. The recorded signal establishes this access for the tested view; other views and accounts need separate evidence.',
-    'Disable Node integration and enable context isolation and the sandbox for windows that render stored or external content, and render that content as text or sanitised HTML. Repeat the same campaign case and confirm that the payload no longer reports Node, Electron or file access.'
+    'During testing, a harmless test payload saved through the application’s normal workflow executed when the content was viewed, and confirmed access to Node.js, the Electron module or the local file system from page script.',
+    'Any content that reaches this view as script has the same access, and could read local files, load modules or call Electron functions with the privileges of the logged-in user.',
+    'Disable Node.js integration and enable context isolation and the sandbox for windows that display stored or external content, and render that content as text or sanitised HTML. Repeat the same test and confirm the payload no longer executes or reports privileged access.'
   ],
-  'Script evaluation permitted': [
-    'A configured test payload executed in a renderer and was able to call eval(). The effective Content Security Policy of the tested view does not block string evaluation.',
-    'Where injected content runs as script, permitted evaluation makes it easier to turn a data value into executable code and weakens a policy’s ability to contain an injection. It does not by itself show how the content was injected.',
-    'Remove unsafe-eval from the policy of the affected view and replace string evaluation in the application code. Repeat the campaign case and confirm the evaluation attempt is blocked and reported as a violation.'
+  'Origin or transport protections': [
+    'A browser security protection, such as the same-origin policy or the blocking of insecure content, is disabled for an application window or for the whole application.',
+    'Content loaded in the affected window could read data from other origins or load scripts over unencrypted connections, which the browser would otherwise prevent.',
+    'Re-enable the affected protection and remove security-disabling command-line switches. Where the application needs to exchange data across origins, allow it through narrowly scoped server-side policy, and verify the packaged window enforces the default protections.'
   ],
-  'No certificate pinning': [
-    'The scanner did not identify certificate or public-key pinning in the reviewed paths. Confirm the exact backend connection before concluding pinning is absent. This is a hardening observation, not a certificate validation failure.',
-    'If the affected connection accepts an intercepting proxy’s certificate, an actor able to supply such a trusted certificate could read or alter that connection. A supplied capture alone does not establish which app accepted which certificate.',
-    'Decide from the threat model whether pinning is required for the backend hosts. Where it is, verify the server certificate or public key in session.setCertificateVerifyProc against an allowlist with a rotation plan, and confirm an intercepting proxy’s certificate is rejected.'
+  'Experimental or legacy capability': [
+    'An experimental, deprecated or unnecessary browser feature is enabled for an application window.',
+    'Each enabled feature adds browser functionality that page content can use, which increases the attack surface available to any script running in the window.',
+    'Disable features the application does not need. Where a feature is required, enable it only for trusted windows and verify the packaged configuration.'
+  ],
+  'Warning or keyboard safeguard': [
+    'Electron security warnings are suppressed, or Secure Keyboard Entry is not enabled where users type passwords on macOS.',
+    'Suppressed warnings can hide insecure configuration from developers, and without Secure Keyboard Entry other software on the same Mac could observe what users type into password fields.',
+    'Remove the setting that suppresses Electron security warnings, and enable Secure Keyboard Entry while password fields have focus on macOS. Verify the warnings appear in development builds and that Secure Keyboard Entry is active during password entry.'
+  ],
+  'Broad preload bridge': [
+    'The preload script exposes privileged functionality to page script, such as the whole inter-process communication (IPC) interface rather than a small set of specific functions.',
+    'Any script running in the page, including injected script, could use the exposed functionality to invoke privileged operations in the main process with the authority of the application.',
+    'Expose only a small, specific set of functions through the context bridge, each passing validated arguments to a dedicated handler, and never expose Electron or Node.js objects directly. Verify that page script cannot reach any other privileged functionality.'
+  ],
+  'Shared session between trust levels': [
+    'Application windows that display content of different trust levels share the same browser session, and with it the same cookies, storage and permission decisions.',
+    'Content in a less trusted window could use the session’s cookies, stored data or permissions granted to a trusted window.',
+    'Assign separate session partitions to windows that display content of different trust levels, with their own permission handling. Verify that cookies, storage and permissions are no longer shared.'
+  ],
+  'Sender not restricted': [
+    'An inter-process communication (IPC) handler in the main process acts on messages without checking which page or frame sent them.',
+    'Any page able to send a message on the channel, including a page loaded from an unexpected origin or a frame within it, could trigger the handler’s privileged operation.',
+    'Validate the sender of every IPC message against the expected application origin before acting on it, and authorise the requested operation separately. Verify that a message sent from an unapproved page or frame is rejected.'
+  ],
+  'Arguments or file paths trusted': [
+    'An inter-process communication (IPC) handler in the main process uses values received from the renderer in a sensitive operation, such as a file system, process or shell operation, without validating them.',
+    'A page able to send the message could choose the value and make the handler read, modify or open files, or run programs, outside the intended scope of the operation.',
+    'Validate the type and value of every argument at the handler, allow only the specific operations required, and resolve file paths within an approved directory. Verify that an out-of-scope value is rejected before the sensitive operation.'
+  ],
+  'Unused or unexpected channel': [
+    'The main process exposes an inter-process communication (IPC) channel that was not used by the application during testing.',
+    'An unused handler still adds privileged functionality that a page could call, without serving a business need.',
+    'Remove handlers that are not required. For each one that is, document its intended callers and validate the sender, arguments and requested operation.'
+  ],
+  'External URL or protocol': [
+    'The application passes a URL to the operating system to open, using `shell.openExternal()`, without restricting which schemes and destinations are allowed.',
+    'A link or value controlled by an attacker could make the operating system open an arbitrary destination or launch the handler for another protocol on the user’s computer.',
+    'Parse every URL before passing it to the operating system and allow only approved schemes, normally `https:`, and approved destinations. Verify that links using other schemes or destinations are rejected.'
+  ],
+  'Non-web protocol launch': [
+    'The URLs passed to the operating system are not restricted to web protocols, so `file:` URLs and custom application protocols are also opened.',
+    'An attacker-controlled link could launch another application registered for a custom protocol, or open a local file, which on some systems can lead to running a program.',
+    'Reject every scheme other than `https:` (and `mailto:` where required) before passing a URL to the operating system. Verify that `file:` and custom protocol links are rejected.'
+  ],
+  'Network-share credential exposure': [
+    'The URLs and paths passed to the operating system are not checked for network-share locations, such as UNC (`\\\\server\\share`) or `file://server/` paths.',
+    'Opening an attacker-chosen network share can make Windows send the user’s credentials to the attacker’s server, where they could be captured and cracked or relayed.',
+    'Block UNC paths and `file:` URLs that refer to remote hosts before any hand-off to the operating system. Verify with a harmless test location that such paths are rejected.'
+  ],
+  'File path handed to the host': [
+    'The application passes a file path to the operating system to open or reveal, without validating the path.',
+    'If the path can be influenced by a page, document or message, the user could be presented with, or made to open, a file other than the one intended.',
+    'Resolve each path to its final location, allow only paths within an approved directory and reject path traversal. Verify that a path outside the approved directory never reaches the operating system.'
+  ],
+  'Executable file path': [
+    'The paths the application asks the operating system to open are not restricted by file type, so executables, scripts and shortcuts are also opened.',
+    'If an attacker can choose the path, opening an executable file would run it with the privileges of the logged-in user.',
+    'Reject executable file types (such as `.exe`, `.bat`, `.cmd`, `.ps1`, `.js`, `.lnk`, `.msi` and `.scr`) in document-opening workflows, and require an explicit user action to launch a program. Verify the restriction with a harmless test file.'
+  ],
+  'Download or shortcut destination': [
+    'A download or shortcut is written to a location, or points to a target, that is derived from content or configuration without validation.',
+    'An attacker able to influence these values could place an unexpected file or launcher in a sensitive location, such as a startup folder.',
+    'Restrict download destinations and shortcut targets to approved locations, validate the final path and require the user’s confirmation for sensitive writes. Verify that a destination outside the approved location is rejected.'
+  ],
+  'Shell command construction': [
+    'The application starts a process with a command that is built from a variable value, using a function that runs the command through the system shell.',
+    'An attacker able to influence the value could add shell syntax and run arbitrary commands with the privileges of the logged-in user.',
+    'Run a fixed program with a separate, validated argument list (for example `execFile()` rather than `exec()`) so that input is never interpreted by a shell. Verify that input containing shell syntax is treated as data.'
+  ],
+  'Dynamic code evaluation': [
+    'The application evaluates a string as code, for example with `eval()`, `new Function()` or `executeJavaScript()`, where the string is built from a variable value.',
+    'If an attacker can influence the string, their input would run as code with the privileges of the context that evaluates it.',
+    'Replace dynamic evaluation with structured data parsing or a fixed set of operations, so that input can never become code. Verify that externally supplied strings are not executed.'
+  ],
+  'Untrusted module path': [
+    'The main process or a preload script loads a module with `require()` or `import()` from a path built from a value received from a renderer, a navigation or a deep link.',
+    'An attacker able to choose the path could make the application load and run a different module or file, including one reached through path traversal, with the privileges of the process that loads it.',
+    'Load modules only from a fixed list of known names mapped to fixed paths, and reject any other value before it is resolved. Verify that a traversal path and an unlisted module name are rejected.'
+  ],
+  'Word launch command': [
+    'The application launches Microsoft Word with a command line or document path that is built from variable values.',
+    'If an attacker can influence these values, the user could be made to open an unintended document, or Word could be started with unintended arguments.',
+    'Start Word through a fixed executable path with a separate, validated argument list, and restrict document paths to the approved workflow. Verify the final command line with a harmless test document.'
+  ],
+  'Document provenance and Protected View': [
+    'The application copies or converts documents before opening them in Microsoft Word, which can remove the Mark of the Web that records a file was downloaded from the internet.',
+    'Without the Mark of the Web, Word opens a downloaded document outside Protected View, so macros and other active content in a malicious document are not held back for the user’s approval.',
+    'Preserve the Mark of the Web (the `Zone.Identifier` stream) when downloading, copying and opening documents, or open them through an equivalent isolated review process. Verify the stream is present on the exact file Word opens, and that Word opens it in Protected View.'
+  ],
+  'External handler input': [
+    'The application registers a custom protocol or file association, and acts on the parameters it receives from outside the application without validating them.',
+    'A crafted link on a web page or in an email, or a crafted file, could make the application perform an unintended action or open a file of the attacker’s choosing.',
+    'Parse deep link and file association input against a fixed format, allow only documented actions and resolve file paths within approved locations. Verify that unknown actions and out-of-scope paths are rejected.'
+  ],
+  'Privileged custom scheme or file URL': [
+    'The application registers a custom protocol with elevated privileges, or loads its content over `file:` URLs, which have additional privileges in Electron.',
+    'Content that can load resources through the scheme could reach local files or other privileged resources beyond those the application intends to serve.',
+    'Grant custom protocols only the privileges they need and serve resources from an explicit list of allowed files. Prefer a custom protocol over `file:` URLs. Verify that path traversal and unauthorised pages cannot load protected resources.'
   ],
   'Untrusted URL loaded in an app window': [
-    'An application window loads a URL that is taken from a less trusted input, such as a deep link, an IPC message or navigation data, without an allowlist of destinations being established by the scan.',
-    'If an external party can choose that URL, their page runs inside the application window with that window’s preload, session and permissions. The consequence depends on what the window exposes to page content.',
-    'Parse the incoming URL and allow only known application origins and paths before loading it; open everything else in the system browser after scheme validation. Verify that a crafted link to an unapproved origin is not loaded in the window.'
+    'An application window loads a URL taken from external input, such as a deep link, an inter-process communication (IPC) message or navigation data, without checking it against the destinations the application expects.',
+    'An attacker able to choose the URL could load their own page inside the application window, where it would inherit the window’s preload script, session and permissions.',
+    'Parse every URL before loading it in a window and allow only known application origins and paths. Open other links in the system browser after validating their scheme. Verify that a link to an unapproved origin is not loaded in the window.'
+  ],
+  'Top-level navigation or redirect': [
+    'Application windows are not prevented from navigating, or following a server redirect, to destinations outside the application.',
+    'A link or redirect could load an external page in an application window, where it would inherit the window’s preload script, session and other privileges.',
+    'Block navigation to unapproved destinations in `will-navigate` and `will-redirect` handlers, allowing only the application’s own origins. Verify that links and redirects to an external origin are blocked.'
+  ],
+  'Popup or middle-click': [
+    'Page content can open new windows, through scripted popups, links or middle-clicks, without restriction.',
+    'A crafted link could open an external page in a new application window with privileges it should not have, or pass an unsafe destination to the operating system.',
+    'Deny new windows by default in `setWindowOpenHandler()`, and open approved external links in the system browser after validating their scheme and destination. Verify ordinary clicks, middle-clicks and scripted popups.'
+  ],
+  'Embedded content': [
+    'The application allows embedded content, through `<webview>` tags or iframes, without restricting its source and privileges.',
+    'Less trusted embedded content could gain privileges, such as Node.js access or the parent window’s preload script, that should be limited to the application’s own pages.',
+    'Avoid `<webview>` where possible. Otherwise, validate the source and settings of each embedded view before it is created (`will-attach-webview`) and apply the `sandbox` attribute to iframes. Verify the settings in effect at runtime.'
+  ],
+  'Permission request callback': [
+    'The application grants browser permission requests, such as camera, microphone, location or notifications, without checking which page is asking or which permission is requested.',
+    'Any page loaded in the application, including injected or external content, could obtain these capabilities without the user being asked.',
+    'Handle permission requests with `setPermissionRequestHandler()`, granting only the specific permissions the application needs to its own origins and denying all others. Verify that a request from an unapproved origin is denied.'
+  ],
+  'Synchronous permission check': [
+    'Permission checks made by browser features are allowed by default, because the application does not handle them with `setPermissionCheckHandler()`.',
+    'Some features consult this check rather than a permission request, so they could be used even where permission requests are restricted.',
+    'Handle permission checks with `setPermissionCheckHandler()`, applying the same rules as for permission requests. Verify that an unapproved origin is denied on both paths.'
+  ],
+  'HTML sink or editor': [
+    'The application inserts dynamic content into a page as HTML, for example through `innerHTML` or a rich-text editor, without sanitising it first.',
+    'If an attacker can influence that content, for example by saving it for another user to view, their markup and script would run in the viewer’s application window, with access to the user’s session and to any privileged functions available to the page.',
+    'Render untrusted content as text. Where HTML formatting is required, sanitise it with a maintained library (such as DOMPurify) before insertion, allowing only the elements and attributes needed. Verify that a harmless script test is displayed as text.'
+  ],
+  'Sanitiser or framework bypass': [
+    'An HTML sanitiser or framework protection is configured, or overridden in code, so that it allows script-bearing markup through.',
+    'Content that passes through the affected path could run script in the application window, despite the expected protection.',
+    'Remove trust overrides for user content and restore a restrictive sanitiser configuration. Verify that markup containing script is removed while permitted formatting still works.'
+  ],
+  'Runtime reflection or message': [
+    'During testing, test input was returned by the application and rendered or relayed as markup, for example in a page, a response or a WebSocket message.',
+    'Content that reaches another user in this way could run in their application window if it contains script.',
+    'Encode or sanitise content where it is rendered, and apply a restrictive Content Security Policy as an additional control. Repeat the same test and confirm the test input is displayed as text.'
+  ],
+  'Markup without proven execution': [
+    'During testing, a harmless test marker containing HTML was rendered as live markup rather than as text.',
+    'Because the application renders this content as HTML, markup carrying script could run in the same view, which is the condition required for cross-site scripting.',
+    'Replace the unsafe rendering with text output, or sanitise the HTML before it is inserted. Repeat the test and confirm the marker is displayed as text.'
+  ],
+  'Script execution observed': [
+    'During testing, a harmless test script entered through the application’s normal workflow executed in an application window.',
+    'An attacker able to enter content in the same way could run script in the window of any user who views it, with access to that user’s session and to any privileged functions available to the page.',
+    'Fix the rendering path so the content is displayed as text or sanitised HTML, and restrict the window’s privileges. Repeat the same test and confirm the script no longer executes.'
+  ],
+  'No effective policy': [
+    'No Content Security Policy is applied to the application’s pages.',
+    'Without a policy, the browser places no restrictions on the scripts and other resources that injected content can load and run, so an injection flaw has its full effect.',
+    'Define a restrictive Content Security Policy for every page, for example `default-src \'self\'; script-src \'self\'; object-src \'none\'`, delivered as a response header or meta tag. Verify the policy is applied in the packaged application and that legitimate content still loads.'
+  ],
+  'Unsafe script directives': [
+    'The Content Security Policy in use allows inline script, string evaluation or script from overly broad sources, or omits directives that restrict injected content.',
+    'Injected markup could still run script that a stricter policy would block, which reduces the protection the policy provides.',
+    'Remove `unsafe-inline` and `unsafe-eval` from script directives where possible, limit script sources to specific origins, nonces or hashes, and set `object-src \'none\'`, `base-uri` and `form-action`. Verify that legitimate scripts run and injected script is blocked.'
+  ],
+  'Runtime violation or mismatch': [
+    'During testing, the Content Security Policy applied at runtime differed from the expected configuration, or the policy reported violations.',
+    'A policy that differs from the intended one may leave pages without the expected protection, or block functionality users rely on.',
+    'Align the policy delivered at runtime with the intended policy and fix the resources that trigger violations. Verify the expected functionality works and that an unapproved source is blocked.'
+  ],
+  'Script evaluation permitted': [
+    'During testing, a harmless test payload executed in an application window and was able to call `eval()`, because the page’s Content Security Policy does not block string evaluation.',
+    'Where injected content runs as script, permitted evaluation makes it easier to turn data into executable code and limits the policy’s ability to contain the injection.',
+    'Remove `unsafe-eval` from the policy of the affected page and replace string evaluation in the application code. Repeat the test and confirm the evaluation is blocked.'
+  ],
+  'Untrusted document intake': [
+    'The application accepts documents from users or external sources and processes them with a parser or converter.',
+    'A malformed or malicious document could exploit a flaw in the parser, causing the application to fail or, in the worst case, run code.',
+    'Restrict accepted file types and sizes, keep parsers up to date, and process documents in an isolated process with minimal privileges. Verify that unsupported formats are rejected.'
+  ],
+  'Rendered conversion output': [
+    'Documents are converted to HTML and displayed in an application window, without the converted output being sanitised.',
+    'A document containing active markup or links to external resources could run script or load attacker-chosen content when it is viewed.',
+    'Sanitise converted HTML, block external resources and display the result in a restricted window. Verify that a test document containing markup and an external link is displayed without executing or loading them.'
+  ],
+  'Local Node entry points': [
+    'The application’s Electron fuses leave Node.js entry points enabled, such as `RunAsNode`, the `NODE_OPTIONS` environment variable or the `--inspect` debugging arguments.',
+    'Someone able to start the application on the device, including malware running as the user, could use these entry points to run arbitrary code under the application’s identity and with any trust the application has been granted, for example by security software.',
+    'Disable the `RunAsNode`, `EnableNodeOptionsEnvironmentVariable` and `EnableNodeCliInspectArguments` fuses when packaging the application. Verify the values with `npx @electron/fuses read --app <executable>`.'
+  ],
+  'Asar integrity and loading': [
+    'The application’s Electron fuses do not enforce the integrity of the application archive (`app.asar`) or restrict loading code to it.',
+    'Someone able to modify the installation folder could change the application’s code without detection, and the modified code would run whenever a user starts the application.',
+    'Enable the `EnableEmbeddedAsarIntegrityValidation` and `OnlyLoadAppFromAsar` fuses when packaging the application. Verify that the application refuses to start with a modified test archive.'
+  ],
+  'Cookie or file-protocol privileges': [
+    'The application’s Electron fuses leave cookie encryption disabled, or grant extra privileges to content loaded over `file:` URLs.',
+    'Cookies, including session cookies, are stored unencrypted in the user’s profile, and `file:` content has more access than the application needs.',
+    'Enable the `EnableCookieEncryption` fuse and disable `GrantFileProtocolExtraPrivileges` when packaging the application. Verify the values in the shipped executable.'
+  ],
+  'Source map exposure': [
+    'The distributed application includes source maps, which contain or point to the application’s original source code.',
+    'Anyone who obtains the application can read its original source code and internal file paths, which makes it easier to understand its logic and identify weaknesses.',
+    'Remove source maps from distributed builds, or upload them only to a restricted error-reporting service. Verify that the final package contains no source maps.'
+  ],
+  'Asar integrity': [
+    'The application archive (`app.asar`) is not checked against an integrity hash embedded in the executable.',
+    'Someone able to modify the installation folder could change the application’s code without detection, and the modified code would run whenever a user starts the application.',
+    'Enable embedded archive integrity validation and the `OnlyLoadAppFromAsar` fuse. Verify that the application refuses to start with a modified test archive.'
+  ],
+  'Publisher signature': [
+    'The distributed executable or installer does not have a valid publisher signature and timestamp.',
+    'Users and security software cannot verify who published the software or whether it has been modified since release, and Windows displays security warnings when it is run.',
+    'Sign and timestamp every released executable and installer with the organisation’s code-signing certificate. Verify the signature, signer and timestamp on the distributed files.'
+  ],
+  'Platform exploit mitigations': [
+    'One or more exploit mitigations provided by the operating system, such as Address Space Layout Randomisation (ASLR) or Data Execution Prevention (DEP), are not enabled for a distributed executable or native module.',
+    'If a memory corruption flaw exists in the affected file, the missing mitigation makes it easier to exploit.',
+    'Build executables and native modules with the platform’s exploit mitigations enabled. Verify the flags on the released files.'
+  ],
+  'Update feed transport': [
+    'The application’s update feed is configured to use a connection that does not protect the update information in transit, such as unencrypted HTTP.',
+    'An attacker on the network path could change the update information the application receives, for example to offer an older or malicious release.',
+    'Serve update information and packages over HTTPS with certificate validation. Verify the URLs used during an update check.'
+  ],
+  'Update signature or publisher': [
+    'The update process can install an update without verifying its publisher signature.',
+    'An attacker able to substitute an update, for example through a compromised server or network path, could have malicious software installed for every user.',
+    'Verify the publisher signature of every update before it is installed, including on retries and rollbacks. Verify in a test environment that an update with an invalid signature is rejected.'
+  ],
+  'Developer tooling or test hooks': [
+    'The production build retains developer functionality, such as code that opens the Chromium developer tools or test-only functions.',
+    'A user, or someone with access to the device, could use these functions to inspect and modify the application’s behaviour and data, or bypass controls enforced in the user interface.',
+    'Disable developer tools and remove test-only functionality from production builds, for example by setting `devTools: !app.isPackaged`. Verify that the developer tools cannot be opened in the released application.'
+  ],
+  'Logs, console secrets or exceptions': [
+    'Sensitive information, such as credentials, tokens or internal details, is written to the application’s logs or console, or disclosed in error messages.',
+    'Anyone with access to the logs, crash reports or console could obtain the information.',
+    'Remove credentials and other sensitive values from log and console output, restrict access to logs and handle errors without disclosing internal details. Verify the output of the released application.'
+  ],
+  'Credential or token in code': [
+    'A credential, such as an API key, password or token, is embedded in the distributed application.',
+    'Anyone who obtains the application can extract the credential and use it with whatever access it grants, until it is revoked.',
+    'Revoke and replace the credential, remove it from the application, and keep privileged credentials on the server side. Where a client credential is unavoidable, restrict its permissions to the minimum required. Verify that the released application no longer contains it.'
+  ],
+  'Public key or false positive': [
+    'A value resembling a credential, such as a public key or client identifier, is embedded in the distributed application.',
+    'If the value is public by design, it does not give access on its own, but it may still allow use of the associated service or quota.',
+    'Confirm the value is intended to be public, and restrict its permissions as tightly as the service allows. Remove test values from production builds.'
+  ],
+  'Plaintext credential or file': [
+    'The application stores a credential or other sensitive value on the device without encryption, for example in a settings file, local storage or a plain text file.',
+    'Anyone, or any malware, able to read the user’s profile or a backup of it could recover the value and use it.',
+    'Store secrets using the operating system’s protected storage (Electron `safeStorage` or the Windows Credential Manager), remove existing plain-text copies, and keep sensitive data only as long as required. Verify the stored value is encrypted.'
+  ],
+  'Application settings or cached responses': [
+    'The application keeps data that may be sensitive in its settings, cookies or HTTP cache on the device, without additional protection.',
+    'Anyone with access to the user’s profile or a backup of it could read cached documents, API responses or session cookies.',
+    'Prevent caching of sensitive responses (`Cache-Control: no-store`), enable cookie encryption and keep sensitive values out of general settings. Verify the profile no longer retains the data after use.'
+  ],
+  'Cleartext HTTP or WebSocket': [
+    'The application loads content or communicates over unencrypted HTTP or WebSocket connections.',
+    'An attacker on the same network, or anywhere on the network path, could read or modify the traffic, including injecting script into content the application loads.',
+    'Use HTTPS and secure WebSocket (WSS) connections for all communication. Verify that no request, redirect or resource uses an unencrypted connection.'
+  ],
+  'Certificate validation bypass': [
+    'Certificate validation is disabled or overridden, so the application accepts invalid TLS certificates.',
+    'An attacker on the network path could impersonate the application’s servers with their own certificate, and read or modify traffic that should be protected, including credentials.',
+    'Remove the code and settings that accept invalid certificates, and rely on the operating system’s certificate validation. Verify that a connection presenting an invalid test certificate is rejected.'
+  ],
+  'Credential transport or cookie flags': [
+    'Credentials are sent over an unencrypted connection, or cookies are set without the `Secure`, `HttpOnly` or `SameSite` attributes appropriate to their use.',
+    'Credentials or session cookies could be read from network traffic, accessed by script running in the page, or sent with requests initiated by other sites.',
+    'Send credentials only over HTTPS and set the `Secure`, `HttpOnly` and `SameSite` attributes on session cookies. Verify the attributes in the server’s responses.'
+  ],
+  'Secret in URL or response': [
+    'A sensitive value, such as an access token, is included in a URL or returned in a response where it is not required.',
+    'Values in URLs are recorded in proxy and server logs, browser history and `Referer` headers, and unnecessary data in responses can be read by anyone able to call the endpoint.',
+    'Send tokens in the `Authorization` header or the request body rather than in URLs, and return only the data each response needs. Verify the value no longer appears in URLs or responses.'
+  ],
+  'WebSocket secret': [
+    'A sensitive value, such as an access token, is sent in a WebSocket URL or message.',
+    'Tokens in WebSocket URLs are recorded in server and proxy logs, and messages routed to the wrong recipient could disclose them.',
+    'Authenticate WebSocket connections with short-lived tokens sent after the connection is established, and authorise each recipient. Verify the token no longer appears in the URL.'
+  ],
+  'Third-party destination': [
+    'The application sends authentication data or information entered by users to a host that does not belong to the application’s own services.',
+    'The third party receives data beyond what is needed for its service, which could breach privacy obligations or expose credentials.',
+    'Send authentication headers only to the application’s own services, and minimise the data sent to third parties. Verify the destinations and contents of the application’s requests.'
+  ],
+  'Unsupported release line': [
+    'The application uses an Electron release that no longer receives security updates.',
+    'Vulnerabilities discovered after the end of support will not be fixed in this release.',
+    'Upgrade to a supported Electron release. Verify the version in the packaged executable.'
+  ],
+  'Missing Electron or Chromium fixes': [
+    'The Electron release in use predates published security fixes for Electron or its bundled Chromium.',
+    'Known vulnerabilities in the runtime remain present in the application.',
+    'Upgrade to an Electron release that includes the fixes. Verify the version in the packaged executable.'
+  ],
+  'Published dependency advisory': [
+    'A third-party component in use is affected by a published security advisory.',
+    'Known vulnerabilities in the component remain present in the application.',
+    'Upgrade the component to a fixed version. Verify the version in the packaged application.'
+  ],
+  'Unsupported library': [
+    'A third-party component in use no longer receives security updates.',
+    'Vulnerabilities discovered in the component will not be fixed.',
+    'Replace or upgrade the component to a maintained release. Verify the version in the packaged application.'
+  ],
+  'Malicious version in inventory': [
+    'The application’s dependencies include a package version that has been identified as malicious.',
+    'If the package ran during installation or build, it could have stolen credentials or tampered with the software produced, including releases distributed to users.',
+    'Remove the package, replace it with a trusted version and rebuild from a clean environment. Determine where the package was installed and run, and verify the resulting software.'
+  ],
+  'Exposure response': [
+    'Any environment where the malicious package was installed, such as developer workstations, build servers and release pipelines, should be treated as potentially compromised.',
+    'Credentials, signing keys and other secrets available in those environments could have been stolen, and software built there could have been modified.',
+    'Review installation and build logs to determine where the package ran, rotate credentials and signing material available in those environments, and rebuild affected releases from a trusted environment.'
+  ],
+  'No certificate pinning': [
+    'The application accepts any certificate trusted by the operating system for its own services, without pinning the expected certificates or public keys.',
+    'Someone able to install a trusted certificate on the device, or a compromised certificate authority, could intercept the application’s encrypted traffic.',
+    'Determine from the threat model whether certificate pinning is required for the application’s services. Where it is, verify the server’s certificate or public key against a pinned set in `setCertificateVerifyProc()`, with a plan for certificate rotation, and confirm that an intercepting proxy’s certificate is rejected.'
   ],
   'HTTPS exchanges in a proxy capture': [
-    'A supplied proxy capture contains HTTPS exchanges with responses. The originating app, certificate and affected connection must be established independently.',
-    'If the test confirms the application accepted the proxy certificate for the affected backend, interception is demonstrated for that connection. Capture presence alone does not prove absence of pinning or acceptance of an invalid certificate.',
-    'Where the threat model calls for it, pin the backend certificates or keys and reject connections that do not match. Repeat the capture through the proxy and confirm the application refuses the connection.'
+    'During testing, the application’s encrypted traffic was intercepted and read through a proxy using a test certificate trusted on the device.',
+    'Anyone able to install a trusted certificate on a user’s device, including malware or a device administrator, could read and modify the application’s traffic in the same way.',
+    'Where the threat model requires it, pin the certificates or public keys of the application’s services and reject connections that do not match. Repeat the interception test and confirm the connection is refused.'
   ],
+};
+
+// How each scenario is named in a client finding: a short statement of the problem
+export const CLIENT_LABELS = {
+  'Node access in a renderer': 'Node.js integration enabled',
+  'Isolation or sandbox disabled': 'Context isolation or sandbox disabled',
+  'Additional privilege sharing': 'Remote module or process affinity in use',
+  'Injected script reached Node or Electron APIs': 'Injected script reached Node.js or Electron',
+  'Origin or transport protections': 'Browser security protections disabled',
+  'Experimental or legacy capability': 'Unnecessary browser features enabled',
+  'Warning or keyboard safeguard': 'Security warnings or Secure Keyboard Entry disabled',
+  'Broad preload bridge': 'Privileged functionality exposed by the preload script',
+  'Shared session between trust levels': 'Session shared between windows of different trust',
+  'Sender not restricted': 'Message sender not validated',
+  'Arguments or file paths trusted': 'Message arguments not validated',
+  'Unused or unexpected channel': 'Unused message handler exposed',
+  'External URL or protocol': 'Unvalidated URLs opened by the operating system',
+  'Non-web protocol launch': 'Non-web protocols not blocked',
+  'Network-share credential exposure': 'Network share locations not blocked',
+  'File path handed to the host': 'Unvalidated file paths opened by the operating system',
+  'Executable file path': 'Executable files not blocked',
+  'Download or shortcut destination': 'Unvalidated download or shortcut destination',
+  'Shell command construction': 'Operating system command built from variable input',
+  'Dynamic code evaluation': 'Variable input evaluated as code',
+  'Untrusted module path': 'Module loaded from a variable path',
+  'Word launch command': 'Microsoft Word started with variable arguments',
+  'Document provenance and Protected View': 'Mark of the Web not preserved',
+  'External handler input': 'Unvalidated deep link or file association input',
+  'Privileged custom scheme or file URL': 'Excessive custom protocol or file URL privileges',
+  'Untrusted URL loaded in an app window': 'Untrusted URL loaded in an application window',
+  'Top-level navigation or redirect': 'Navigation and redirects not restricted',
+  'Popup or middle-click': 'New windows not restricted',
+  'Embedded content': 'Embedded content not restricted',
+  'Permission request callback': 'Permission requests granted without restriction',
+  'Synchronous permission check': 'Permission checks granted without restriction',
+  'HTML sink or editor': 'Dynamic content inserted as HTML',
+  'Sanitiser or framework bypass': 'Sanitiser or framework protection bypassed',
+  'Runtime reflection or message': 'Test input reflected as markup',
+  'Markup without proven execution': 'Test markup rendered as live HTML',
+  'Script execution observed': 'Script execution confirmed',
+  'No effective policy': 'No Content Security Policy',
+  'Unsafe script directives': 'Content Security Policy allows unsafe script',
+  'Runtime violation or mismatch': 'Content Security Policy differs at runtime',
+  'Script evaluation permitted': 'Script evaluation permitted',
+  'Untrusted document intake': 'Untrusted documents processed',
+  'Rendered conversion output': 'Converted document content rendered',
+  'Local Node entry points': 'Node.js entry points enabled',
+  'Asar integrity and loading': 'Archive integrity not enforced',
+  'Cookie or file-protocol privileges': 'Cookie encryption or file protocol fuse insecure',
+  'Source map exposure': 'Source maps distributed',
+  'Asar integrity': 'Archive integrity not enforced',
+  'Publisher signature': 'Executable not signed',
+  'Platform exploit mitigations': 'Exploit mitigations missing',
+  'Update feed transport': 'Update information not protected in transit',
+  'Update signature or publisher': 'Update signature not verified',
+  'Developer tooling or test hooks': 'Developer tools or test functions available',
+  'Logs, console secrets or exceptions': 'Sensitive information in logs or errors',
+  'Credential or token in code': 'Credential embedded in the application',
+  'Public key or false positive': 'Public key or identifier embedded in the application',
+  'Plaintext credential or file': 'Credential stored without encryption',
+  'Application settings or cached responses': 'Data retained in settings, cookies or cache',
+  'Cleartext HTTP or WebSocket': 'Unencrypted connections',
+  'Certificate validation bypass': 'Certificate validation disabled',
+  'Credential transport or cookie flags': 'Credentials or cookies not adequately protected',
+  'Secret in URL or response': 'Sensitive data in URLs or responses',
+  'WebSocket secret': 'Sensitive data in WebSocket traffic',
+  'Third-party destination': 'Data sent to third parties',
+  'Unsupported release line': 'Unsupported Electron release',
+  'Missing Electron or Chromium fixes': 'Missing Electron or Chromium security fixes',
+  'Published dependency advisory': 'Component with a published advisory',
+  'Unsupported library': 'Unsupported component',
+  'Malicious version in inventory': 'Known malicious package version',
+  'Exposure response': 'Build environments potentially exposed',
+  'No certificate pinning': 'No certificate pinning',
+  'HTTPS exchanges in a proxy capture': 'Encrypted traffic intercepted by a proxy',
 };

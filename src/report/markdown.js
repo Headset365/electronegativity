@@ -3,76 +3,51 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 import { consequenceOf, interactionOf, validationHint } from '../finder/consequences.js';
 import { remediationOf } from '../finder/remediation.js';
 import { matchingVariations } from './markdown_variations.js';
 import { executionConfirmed, mergeFindingEvidence, validationResults } from '../finder/validation.js';
 import { OUTDATED_TITLE, outdatedSections } from './markdown_outdated.js';
+import { LEADS, NOTES, runtimeFact, staticFact, referenceTitle } from './markdown_style.js';
+import { CLIENT_LABELS } from './markdown_client_copy.js';
 
 const definitions = [
-  ['Renderer Isolation Weakened', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|PRELOAD|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX)|RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$)/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
-  ['Chromium Security Features Disabled', /^(WEB_SECURITY|INSECURE_CONTENT|EXPERIMENTAL_FEATURES|BLINK_FEATURES|WEBGL|WEBSQL|PLUGINS|NAVIGATE_ON_DRAG_DROP|CUSTOM_ARGUMENTS|SECURITY_WARNINGS_DISABLED|SECUREKEYBOARDENTRY|RUNTIME_WEB_SECURITY)/, 'Disabled browser safeguards expand what page content can do.', 'Restore Chromium defaults and enable only capabilities that are essential.', 'CWE-693: Protection Mechanism Failure'],
-  ['Privileged APIs Exposed to Untrusted Content', /^(CONTEXT_BRIDGE_EXPOSURE|RUNTIME_PRELOAD_FOREIGN_ORIGIN|WINDOW_SESSION|RUNTIME_WINDOW_SESSION)/, 'Untrusted pages may reach privileged APIs or share a trusted session.', 'Expose narrow preload APIs and separate sessions by trust level.', 'CWE-749: Exposed Dangerous Method or Function'],
-  ['IPC Handlers Trust Renderer Input', /^(IPC_SENDER_VALIDATION|IPC_HANDLER|IPC_FILE_ACCESS|IPC_CHANNEL_MAP|RUNTIME_MARKER_IPC)/, 'Renderer messages can reach main-process operations without adequate checks.', 'Validate the sender, arguments and allowed operations in every handler.', 'CWE-20: Improper Input Validation'],
-  ['Unsafe Hand-off of URLs and Files to the Operating System', /^(OPEN_EXTERNAL|OPEN_PATH|SHOWITEMINFOLDER|WRITE_SHORTCUT|DOWNLOAD|RUNTIME_(OPEN_EXTERNAL|OPEN_PATH)|RUNTIME_MARKER_(OPEN_EXTERNAL|OPEN_PATH))/, 'Untrusted URLs or file paths may be opened by the operating system.', 'Allowlist URL schemes and hosts, and constrain file paths before opening them.', 'CWE-73: External Control of File Name or Path'],
-  ['Code or Command Execution from Untrusted Data', /^(COMMAND_INJECTION|DANGEROUS_FUNCTIONS|DYNAMIC_MODULE|RUNTIME_MARKER_(COMMAND|MODULE))/, 'Untrusted data may reach command or code execution.', 'Avoid command-line construction and pass validated arguments to safe APIs.', 'CWE-78: Improper Neutralization of Special Elements used in an OS Command'],
-  ['Microsoft Word Integration', /^WORD_LAUNCH/, 'Opening documents in Microsoft Word can expose users to unsafe document content or command construction.', 'Validate document paths and preserve Mark-of-the-Web metadata before opening files.', 'CWE-73: External Control of File Name or Path'],
-  ['Deep Link, Protocol and File Association Handling', /^(FILE_HANDLER|PROTOCOL_HANDLER|PROTOCOL_PRIVILEGES|INSTALLER_FILE_HANDLER|FILE_PROTOCOL)/, 'External links and files can enter privileged application flows.', 'Parse deep links and file associations as untrusted input and allow only known actions.', 'CWE-20: Improper Input Validation'],
-  ['Insufficient Navigation and Window Controls', /^(LIMIT_NAVIGATION|UNTRUSTED_LOAD_URL|WINDOW_OPEN_HANDLER|NAVIGATION_REDIRECT|AUXCLICK|ALLOWPOPUPS|WEBVIEW|IFRAME_SANDBOX|RUNTIME_(NAVIGATION|NEW_WINDOW|REDIRECT|WEBVIEW)|RUNTIME_MARKER_(NAVIGATION|NEW_WINDOW))/, 'Untrusted navigation or new windows may retain application privileges.', 'Deny navigation and new windows by default, then allowlist intended destinations.', 'CWE-601: URL Redirection to Untrusted Site'],
-  ['Missing Permission Handlers', /^(PERMISSION_REQUEST_HANDLER|RUNTIME_PERMISSION|RUNTIME_PERMISSION_CHECK)/, 'Pages may obtain capabilities without an explicit application decision.', 'Install request and check handlers that deny permissions by default.', 'CWE-862: Missing Authorization'],
-  ['Cross-Site Scripting Exposure in Content Rendering', /^(XSS_SINK|RICH_TEXT_EDITOR|SANITIZER_CONFIG|ANGULAR|RUNTIME_DOM_INJECTION|RUNTIME_MARKER|RUNTIME_HTML_ENDPOINT|RUNTIME_(ACTIVE_SCRIPT|CAMPAIGN_SCRIPT)|TRAFFIC_WS_HTML_MESSAGE|TRAFFIC_REFLECTED_INPUT)/, 'Untrusted content may be rendered as executable markup.', 'Render text as text; sanitise allowed HTML before insertion into the page.', 'CWE-79: Improper Neutralization of Input During Web Page Generation'],
-  ['Missing or Weak Content Security Policy', /^(CSP$|CSP_DIRECTIVES|RUNTIME_CSP|RUNTIME_CAMPAIGN_EVAL$)/, 'A missing or permissive policy reduces protection against script injection.', 'Ship a restrictive Content Security Policy for every renderer.', 'CWE-693: Protection Mechanism Failure'],
-  ['Document Parsing Risks', /^DOCUMENT_PIPELINE/, 'Documents enter parsers or renderers that need strict isolation.', 'Validate file types and parse untrusted documents in a restricted context.', 'CWE-20: Improper Input Validation'],
+  ['Insufficient Renderer Process Isolation', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|PRELOAD|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX)|RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$)/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
+  ['Browser Security Controls Disabled', /^(WEB_SECURITY|INSECURE_CONTENT|EXPERIMENTAL_FEATURES|BLINK_FEATURES|WEBGL|WEBSQL|PLUGINS|NAVIGATE_ON_DRAG_DROP|CUSTOM_ARGUMENTS|SECURITY_WARNINGS_DISABLED|SECUREKEYBOARDENTRY|RUNTIME_WEB_SECURITY)/, 'Disabled browser safeguards expand what page content can do.', 'Restore Chromium defaults and enable only capabilities that are essential.', 'CWE-693: Protection Mechanism Failure'],
+  ['Privileged Functionality Exposed to Web Content', /^(CONTEXT_BRIDGE_EXPOSURE|RUNTIME_PRELOAD_FOREIGN_ORIGIN|WINDOW_SESSION|RUNTIME_WINDOW_SESSION)/, 'Untrusted pages may reach privileged APIs or share a trusted session.', 'Expose narrow preload APIs and separate sessions by trust level.', 'CWE-749: Exposed Dangerous Method or Function'],
+  ['Insufficient Validation of Inter-Process Messages', /^(IPC_SENDER_VALIDATION|IPC_HANDLER|IPC_FILE_ACCESS|IPC_CHANNEL_MAP|RUNTIME_MARKER_IPC)/, 'Renderer messages can reach main-process operations without adequate checks.', 'Validate the sender, arguments and allowed operations in every handler.', 'CWE-20: Improper Input Validation'],
+  ['Unvalidated URLs and Files Passed to the Operating System', /^(OPEN_EXTERNAL|OPEN_PATH|SHOWITEMINFOLDER|WRITE_SHORTCUT|DOWNLOAD|RUNTIME_(OPEN_EXTERNAL|OPEN_PATH)|RUNTIME_MARKER_(OPEN_EXTERNAL|OPEN_PATH))/, 'Untrusted URLs or file paths may be opened by the operating system.', 'Allowlist URL schemes and hosts, and constrain file paths before opening them.', 'CWE-73: External Control of File Name or Path'],
+  ['Command or Code Execution from Variable Input', /^(COMMAND_INJECTION|DANGEROUS_FUNCTIONS|DYNAMIC_MODULE|RUNTIME_MARKER_(COMMAND|MODULE))/, 'Untrusted data may reach command or code execution.', 'Avoid command-line construction and pass validated arguments to safe APIs.', 'CWE-78: Improper Neutralization of Special Elements used in an OS Command'],
+  ['Insecure Microsoft Word Integration', /^WORD_LAUNCH/, 'Opening documents in Microsoft Word can expose users to unsafe document content or command construction.', 'Validate document paths and preserve Mark-of-the-Web metadata before opening files.', 'CWE-73: External Control of File Name or Path'],
+  ['Insecure Handling of Deep Links and File Associations', /^(FILE_HANDLER|PROTOCOL_HANDLER|PROTOCOL_PRIVILEGES|INSTALLER_FILE_HANDLER|FILE_PROTOCOL)/, 'External links and files can enter privileged application flows.', 'Parse deep links and file associations as untrusted input and allow only known actions.', 'CWE-20: Improper Input Validation'],
+  ['Insufficient Navigation and New Window Restrictions', /^(LIMIT_NAVIGATION|UNTRUSTED_LOAD_URL|WINDOW_OPEN_HANDLER|NAVIGATION_REDIRECT|AUXCLICK|ALLOWPOPUPS|WEBVIEW|IFRAME_SANDBOX|RUNTIME_(NAVIGATION|NEW_WINDOW|REDIRECT|WEBVIEW)|RUNTIME_MARKER_(NAVIGATION|NEW_WINDOW))/, 'Untrusted navigation or new windows may retain application privileges.', 'Deny navigation and new windows by default, then allowlist intended destinations.', 'CWE-601: URL Redirection to Untrusted Site'],
+  ['Permissive Browser Permission Handling', /^(PERMISSION_REQUEST_HANDLER|RUNTIME_PERMISSION|RUNTIME_PERMISSION_CHECK)/, 'Pages may obtain capabilities without an explicit application decision.', 'Install request and check handlers that deny permissions by default.', 'CWE-862: Missing Authorization'],
+  ['Cross-Site Scripting in Content Rendering', /^(XSS_SINK|RICH_TEXT_EDITOR|SANITIZER_CONFIG|ANGULAR|RUNTIME_DOM_INJECTION|RUNTIME_MARKER|RUNTIME_HTML_ENDPOINT|RUNTIME_(ACTIVE_SCRIPT|CAMPAIGN_SCRIPT)|TRAFFIC_WS_HTML_MESSAGE|TRAFFIC_REFLECTED_INPUT)/, 'Untrusted content may be rendered as executable markup.', 'Render text as text; sanitise allowed HTML before insertion into the page.', 'CWE-79: Improper Neutralization of Input During Web Page Generation'],
+  ['Missing or Insufficient Content Security Policy', /^(CSP$|CSP_DIRECTIVES|RUNTIME_CSP|RUNTIME_CAMPAIGN_EVAL$)/, 'A missing or permissive policy reduces protection against script injection.', 'Ship a restrictive Content Security Policy for every renderer.', 'CWE-693: Protection Mechanism Failure'],
+  ['Insecure Processing of Untrusted Documents', /^DOCUMENT_PIPELINE/, 'Documents enter parsers or renderers that need strict isolation.', 'Validate file types and parse untrusted documents in a restricted context.', 'CWE-20: Improper Input Validation'],
   ['Insecure Electron Fuse Configuration', /^(FUSES|PACKAGED_FUSES)/, 'Packaged Electron fuses leave unnecessary privileges available.', 'Set secure fuses at package time and verify the packaged executable.', 'CWE-693: Protection Mechanism Failure'],
-  ['Application Code Not Protected Against Inspection or Tampering', /^(ASAR_INTEGRITY|SOURCE_MAP_SHIPPED)/, 'Packaged application code may be exposed or changed without detection.', 'Remove production source maps and enable asar integrity with the associated fuses.', 'CWE-494: Download of Code Without Integrity Check'],
-  ['Executable Signing and Exploit Mitigations (hardening)', /^(CODE_SIGNING|BINARY_HARDENING)/, 'The executable lacks a signing or binary hardening safeguard.', 'Sign releases and enable platform exploit mitigations.', 'CWE-693: Protection Mechanism Failure'],
-  ['Insecure Update Mechanism', /^UPDATE_SECURITY/, 'The update channel may install software without sufficient verification.', 'Use an authenticated update channel and verify publisher signatures.', 'CWE-494: Download of Code Without Integrity Check'],
-  ['Development and Debugging Features in Production', /^(DEVTOOLS|DEVELOPMENT_CODE|DEBUG_LOGGING|RUNTIME_SECRET_IN_CONSOLE|RUNTIME_UNCAUGHT_EXCEPTION)/, 'Development features can disclose information or expand the attack surface.', 'Remove debug facilities and sensitive logs from production builds.', 'CWE-489: Active Debug Code'],
+  ['Application Code Not Protected Against Tampering or Disclosure', /^(ASAR_INTEGRITY|SOURCE_MAP_SHIPPED)/, 'Packaged application code may be exposed or changed without detection.', 'Remove production source maps and enable asar integrity with the associated fuses.', 'CWE-494: Download of Code Without Integrity Check'],
+  ['Missing Code Signing or Exploit Mitigations', /^(CODE_SIGNING|BINARY_HARDENING)/, 'The executable lacks a signing or binary hardening safeguard.', 'Sign releases and enable platform exploit mitigations.', 'CWE-693: Protection Mechanism Failure'],
+  ['Insecure Software Update Mechanism', /^UPDATE_SECURITY/, 'The update channel may install software without sufficient verification.', 'Use an authenticated update channel and verify publisher signatures.', 'CWE-494: Download of Code Without Integrity Check'],
+  ['Debugging Features Enabled in Production', /^(DEVTOOLS|DEVELOPMENT_CODE|DEBUG_LOGGING|RUNTIME_SECRET_IN_CONSOLE|RUNTIME_UNCAUGHT_EXCEPTION)/, 'Development features can disclose information or expand the attack surface.', 'Remove debug facilities and sensitive logs from production builds.', 'CWE-489: Active Debug Code'],
   ['Hard-coded Secrets in the Application Package', /^HARDCODED_SECRET/, 'Secrets shipped in the application package can be recovered by anyone with the package.', 'Remove and rotate embedded secrets; keep server credentials on the server.', 'CWE-798: Use of Hard-coded Credentials'],
-  ['Sensitive Data Stored Insecurely', /^(STORAGE|SECRET_FILE_WRITE|ELECTRON_STORE_ENCRYPTION|PLAINTEXT_SECRETS)/, 'Sensitive data may be recoverable from local storage.', 'Use the operating system credential store or safeStorage for secrets.', 'CWE-312: Cleartext Storage of Sensitive Information'],
-  ['Certificate Pinning Not Implemented (hardening)', /^CERTIFICATE_PINNING/, 'Backend connections trust any certificate the operating system trusts.', 'Pin backend certificates or keys where the threat model requires it.', 'CWE-295: Improper Certificate Validation'],
-  ['Insecure Transport and Certificate Validation', /^(HTTP_RESOURCES|RUNTIME_INSECURE_LOAD|TRAFFIC_(CLEARTEXT_HTTP|WS_CLEARTEXT|BASIC_AUTH|INSECURE_COOKIE)|COOKIE_FLAGS|CERTIFICATE|NODE_TLS_REJECT_UNAUTHORIZED|RUNTIME_CERTIFICATE_ERROR)/, 'Traffic or credentials may be exposed in transit.', 'Use HTTPS and WSS, validate certificates and set secure cookie attributes.', 'CWE-319: Cleartext Transmission of Sensitive Information'],
+  ['Sensitive Data Stored Without Adequate Protection', /^(STORAGE|SECRET_FILE_WRITE|ELECTRON_STORE_ENCRYPTION|PLAINTEXT_SECRETS)/, 'Sensitive data may be recoverable from local storage.', 'Use the operating system credential store or safeStorage for secrets.', 'CWE-312: Cleartext Storage of Sensitive Information'],
+  ['Certificate Pinning Not Implemented', /^CERTIFICATE_PINNING/, 'Backend connections trust any certificate the operating system trusts.', 'Pin backend certificates or keys where the threat model requires it.', 'CWE-295: Improper Certificate Validation'],
+  ['Insecure Network Transport and Certificate Validation', /^(HTTP_RESOURCES|RUNTIME_INSECURE_LOAD|TRAFFIC_(CLEARTEXT_HTTP|WS_CLEARTEXT|BASIC_AUTH|INSECURE_COOKIE)|COOKIE_FLAGS|CERTIFICATE|NODE_TLS_REJECT_UNAUTHORIZED|RUNTIME_CERTIFICATE_ERROR)/, 'Traffic or credentials may be exposed in transit.', 'Use HTTPS and WSS, validate certificates and set secure cookie attributes.', 'CWE-319: Cleartext Transmission of Sensitive Information'],
   ['Sensitive Data Exposed in Network Traffic', /^(TRAFFIC_(SECRET_IN_URL|SECRET_IN_RESPONSE|WS_SECRET|AUTH_TO_THIRD_PARTY|USER_INPUT_TO_THIRD_PARTY))/, 'Network requests may expose credentials or user data to unintended recipients.', 'Restrict data sent to each host and remove secrets from URLs and responses.', 'CWE-201: Insertion of Sensitive Information Into Sent Data'],
   // the Electron runtime and third-party components, in one finding that refers to the components workbook
   [OUTDATED_TITLE, /^(AVAILABLE_SECURITY_FIXES|UNSUPPORTED_VERSION|CHROMIUM_ADVISORIES|DEPENDENCY_VULNERABILITIES|END_OF_LIFE_LIBRARY)/, 'The application uses outdated software components.', 'Upgrade or replace each affected component.', 'CWE-1104: Use of Unmaintained Third Party Components'],
-  ['Known Malicious Package', /^MALICIOUS_DEPENDENCY/, 'A known malicious package was detected in the dependency inventory.', 'Remove the package immediately and rotate potentially exposed secrets.', 'CWE-506: Embedded Malicious Code'],
+  ['Known Malicious Software Package', /^MALICIOUS_DEPENDENCY/, 'A known malicious package was detected in the dependency inventory.', 'Remove the package immediately and rotate potentially exposed secrets.', 'CWE-506: Embedded Malicious Code'],
 ];
 
-const other = ['Other Security Observations', null, 'Additional scanner observations require assessment.', 'Investigate the listed observations and apply the linked guidance.', 'CWE-693: Protection Mechanism Failure'];
-// These paragraphs describe the problem type; the check bullets below them state what the scan actually found.
-const introductions = {
-  'Renderer Isolation Weakened': 'One or more renderers in {app} have reduced separation from privileged application code. The listed settings can increase the harm from untrusted page content if that content reaches the affected window.',
-  'Chromium Security Features Disabled': '{app} changes browser security settings or starts Chromium with switches that weaken its protections. These changes apply to the affected content regardless of whether a particular exploit was observed during the scan.',
-  'Privileged APIs Exposed to Untrusted Content': '{app} exposes privileged APIs or a shared session to content with a different trust level. The affected bridge, preload or session needs to be restricted to the origins and operations the application intends to trust.',
-  'IPC Handlers Trust Renderer Input': 'The listed IPC entry points in {app} accept data from renderers or expose main-process behaviour. Sender identity, argument shape and the permitted operation need to be checked at the handler boundary.',
-  'Unsafe Hand-off of URLs and Files to the Operating System': '{app} passes URLs or paths to operating-system APIs. If a document, link or renderer can control those values, a crafted input may cause the host to open an unintended resource.',
-  'Code or Command Execution from Untrusted Data': '{app} contains an execution path involving data that may come from a less trusted source. The listed evidence identifies the path; control of the command or code must be established before treating it as a confirmed exploit.',
-  'Microsoft Word Integration': '{app} launches Microsoft Word or opens documents that may be supplied by other people. The launch arguments, document path and preservation of Mark-of-the-Web determine whether this flow exposes a user to additional risk.',
-  'Deep Link, Protocol and File Association Handling': '{app} accepts external URLs or files through registered handlers. These entry points cross from an untrusted operating-system input into application code and should accept only recognised actions and paths.',
-  'Insufficient Navigation and Window Controls': 'The affected windows in {app} may navigate to unintended destinations or open additional content. Controls must cover redirects, popups and embedded views as well as direct navigation.',
-  'Missing Permission Handlers': '{app} has a missing or permissive decision point for browser permissions. A request should be checked against the requesting origin and the specific capability before it is granted.',
-  'Cross-Site Scripting Exposure in Content Rendering': '{app} has a path that may render untrusted data as HTML or script-bearing content. A sink or live markup observation alone does not prove attacker control or script execution unless the runtime evidence says so.',
-  'Missing or Weak Content Security Policy': 'The affected pages in {app} have a missing or permissive Content Security Policy. A restrictive policy can limit the effects of injected markup, but it does not replace safe rendering.',
-  'Document Parsing Risks': '{app} imports or parses documents through the listed components. The risk depends on the document formats, parser versions and whether an untrusted document reaches those paths.',
-  'Insecure Electron Fuse Configuration': 'The packaged Electron settings for {app} leave one or more hardening fuses in an insecure state. These settings affect local execution and package integrity; they do not by themselves show a remote attack path.',
-  'Application Code Not Protected Against Inspection or Tampering': 'The distributed code in {app} may be easier to inspect or modify than intended. Source maps expose implementation details, while asar integrity depends on the packaged digest and matching fuses.',
-  'Executable Signing and Exploit Mitigations (hardening)': 'The executable or installer for {app} lacks one or more release hardening measures. Signing and platform mitigations reduce tampering and exploitation opportunities but do not prove an active vulnerability.',
-  'Insecure Update Mechanism': 'The update configuration in {app} may accept releases without adequate transport or publisher verification. The update channel is a supply path and must be checked in the packaged build.',
-  'Development and Debugging Features in Production': 'The production package of {app} retains development or debugging behaviour. The listed items can expose information or expand the actions available to someone using the app.',
-  'Hard-coded Secrets in the Application Package': '{app} contains material identified as a secret in its distributed files. Anyone with the package can inspect those files; the value and its privileges should be checked before rotation.',
-  'Sensitive Data Stored Insecurely': '{app} stores or writes sensitive data through the listed paths. The effective exposure depends on the data involved, its protection at rest and access to the user profile or package.',
-  'Certificate Pinning Not Implemented (hardening)': '{app} validates server certificates against the certificate authorities the operating system trusts, without pinning the certificates or keys of its own backends. Certificates are still validated; pinning is an additional safeguard whose need depends on the threat model.',
-  'Insecure Transport and Certificate Validation': '{app} loads or sends data through insecure transport settings or bypasses certificate checks. The affected URL, certificate path or cookie determines which traffic may be exposed.',
-  'Sensitive Data Exposed in Network Traffic': 'The captured traffic from {app} contains data or destinations that may disclose credentials or user input. The listed hosts and fields need to be checked against the client’s intended data flows.',
-  'Known Malicious Package': 'A package version identified as malicious is present in the dependency inventory for {app}. Its role in the build and any exposure of credentials or developer machines should be investigated promptly.',
-  'Other Security Observations': '{app} has a reportable scanner observation outside the named groups. The check description and evidence below identify the affected component and what needs to be assessed.',
-};
+const other = ['Additional Security Observations', null, 'Additional scanner observations require assessment.', 'Investigate the listed observations and apply the linked guidance.', 'CWE-693: Protection Mechanism Failure'];
 // (PRELOAD_JS_CHECK is informational with context isolation, reported without: the preload then shares the page's world)
 const evidenceOnly = /^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|IPC_RENDERER_CHANNEL|RUNTIME_IPC$|RUNTIME_MARKER_SENT|CREDENTIAL_ACCESS|DEPENDENCY_INVENTORY|ELECTRON_VERSION)/;
 const observations = new Set(['SOURCE_MAP_SHIPPED', 'STORAGE_CACHED_RESPONSES', 'CERTIFICATE_PINNING', 'WORD_LAUNCH']);
 // findings whose Reproduction and Evidence lists only validated instances
-const VALIDATED_EVIDENCE_ONLY = new Set(['Cross-Site Scripting Exposure in Content Rendering']);
+const VALIDATED_EVIDENCE_ONLY = new Set(['Cross-Site Scripting in Content Rendering']);
 const normalId = id => String(id || '').replace(/_(JS|HTML|JSON|GLOBAL|LOCK)_CHECK$/, '');
 const nameOf = i => i?.name || i || '';
 // Script execution or a tested capability. Live markup and observed settings do not establish exploitation.
@@ -90,12 +65,11 @@ const definitionOf = title => definitions.find(d => d[0] === title);
 const SAMPLE_LIMIT = 600;
 const TEXT_LIMIT = 500;
 const MAX_LOCATIONS = 60;
-const MAX_INSTANCES = 12;
 // commands that check a finding by hand, per group
 const COMMANDS = {
   'Insecure Electron Fuse Configuration': 'npx @electron/fuses read --app "<exe>"',
-  'Application Code Not Protected Against Inspection or Tampering': 'npx @electron/asar extract app.asar out',
-  'Microsoft Word Integration': 'Get-Item <doc> -Stream Zone.Identifier',
+  'Application Code Not Protected Against Tampering or Disclosure': 'npx @electron/asar extract app.asar out',
+  'Insecure Microsoft Word Integration': 'Get-Item <doc> -Stream Zone.Identifier',
 };
 
 function reportable(i) {
@@ -112,35 +86,37 @@ function reportable(i) {
 
 function groupOf(i) {
   const id = normalId(i.id);
-  if (['RUNTIME_OPEN_PATH', 'RUNTIME_MARKER_OPEN_PATH'].includes(id) && /\.(?:docx?|rtf)\b/i.test(i.description || '')) return definitionOf('Microsoft Word Integration');
+  if (['RUNTIME_OPEN_PATH', 'RUNTIME_MARKER_OPEN_PATH'].includes(id) && /\.(?:docx?|rtf)\b/i.test(i.description || '')) return definitionOf('Insecure Microsoft Word Integration');
+  // the switch that turns certificate validation off belongs with the certificate findings
+  if (id === 'CUSTOM_ARGUMENTS' && /ignore-certificate-errors/i.test(i.description || '')) return definitionOf('Insecure Network Transport and Certificate Validation');
   return definitions.find(g => g[1].test(id)) || other;
 }
 
 function evidenceGroupOf(i) {
   const id = normalId(i.id);
-  if (id === 'RUNTIME_CSP_VIOLATION') return 'Missing or Weak Content Security Policy';
-  if (/^RUNTIME_DOCX_/.test(id)) return 'Document Parsing Risks';
-  if (id === 'RUNTIME_WINDOW_COVERAGE') return 'Renderer Isolation Weakened';
+  if (id === 'RUNTIME_CSP_VIOLATION') return 'Missing or Insufficient Content Security Policy';
+  if (/^RUNTIME_DOCX_/.test(id)) return 'Insecure Processing of Untrusted Documents';
+  if (id === 'RUNTIME_WINDOW_COVERAGE') return 'Insufficient Renderer Process Isolation';
   if (/^RUNTIME_(CAMPAIGN|ACTIVE|ENTRY)_COVERAGE$/.test(id) || /^RUNTIME_CAMPAIGN_(RESTORE|CLEANUP)$/.test(id))
-    return ['Cross-Site Scripting Exposure in Content Rendering', 'Renderer Isolation Weakened', 'Missing or Weak Content Security Policy', 'Document Parsing Risks'];
+    return ['Cross-Site Scripting in Content Rendering', 'Insufficient Renderer Process Isolation', 'Missing or Insufficient Content Security Policy', 'Insecure Processing of Untrusted Documents'];
   if (/^RUNTIME_CAMPAIGN_/.test(id)) {
     const name = i.properties?.case || '';
-    if (name.startsWith('nav-')) return 'Insufficient Navigation and Window Controls';
-    if (['node', 'electron', 'fs-read'].includes(name)) return ['Renderer Isolation Weakened', 'Cross-Site Scripting Exposure in Content Rendering'];
-    if (name === 'eval') return ['Missing or Weak Content Security Policy', 'Cross-Site Scripting Exposure in Content Rendering'];
-    return 'Cross-Site Scripting Exposure in Content Rendering';
+    if (name.startsWith('nav-')) return 'Insufficient Navigation and New Window Restrictions';
+    if (['node', 'electron', 'fs-read'].includes(name)) return ['Insufficient Renderer Process Isolation', 'Cross-Site Scripting in Content Rendering'];
+    if (name === 'eval') return ['Missing or Insufficient Content Security Policy', 'Cross-Site Scripting in Content Rendering'];
+    return 'Cross-Site Scripting in Content Rendering';
   }
-  if (/^RUNTIME_MARKER_(NAVIGATION|NEW_WINDOW)$/.test(id)) return 'Insufficient Navigation and Window Controls';
+  if (/^RUNTIME_MARKER_(NAVIGATION|NEW_WINDOW)$/.test(id)) return 'Insufficient Navigation and New Window Restrictions';
   if (/^RUNTIME_MARKER_OPEN_(PATH|EXTERNAL)$/.test(id)) return groupOf(i)[0];
-  if (/^RUNTIME_MARKER_(COMMAND|MODULE)$/.test(id)) return 'Code or Command Execution from Untrusted Data';
-  if (id === 'CSP') return 'Missing or Weak Content Security Policy';
-  if (id === 'NAVIGATION_REDIRECT') return 'Insufficient Navigation and Window Controls';
-  if (/^(RUNTIME_MARKER|RUNTIME_MARKER_SENT)$/.test(id)) return 'Cross-Site Scripting Exposure in Content Rendering';
-  if (/^(IPC_HANDLER|IPC_CHANNEL_MAP|IPC_RENDERER_CHANNEL|RUNTIME_IPC|RUNTIME_MARKER_IPC)$/.test(id)) return 'IPC Handlers Trust Renderer Input';
-  if (/^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|PRELOAD)$/.test(id)) return 'Renderer Isolation Weakened';
+  if (/^RUNTIME_MARKER_(COMMAND|MODULE)$/.test(id)) return 'Command or Code Execution from Variable Input';
+  if (id === 'CSP') return 'Missing or Insufficient Content Security Policy';
+  if (id === 'NAVIGATION_REDIRECT') return 'Insufficient Navigation and New Window Restrictions';
+  if (/^(RUNTIME_MARKER|RUNTIME_MARKER_SENT)$/.test(id)) return 'Cross-Site Scripting in Content Rendering';
+  if (/^(IPC_HANDLER|IPC_CHANNEL_MAP|IPC_RENDERER_CHANNEL|RUNTIME_IPC|RUNTIME_MARKER_IPC)$/.test(id)) return 'Insufficient Validation of Inter-Process Messages';
+  if (/^(WINDOW_SUMMARY|RUNTIME_WINDOW_SUMMARY|EXPOSED_API|PRELOAD)$/.test(id)) return 'Insufficient Renderer Process Isolation';
   if (id === 'DEPENDENCY_INVENTORY' || id === 'ELECTRON_VERSION') return OUTDATED_TITLE;
-  if (id === 'CREDENTIAL_ACCESS') return 'Sensitive Data Stored Insecurely';
-  if (id === 'DOCUMENT_PIPELINE') return 'Document Parsing Risks';
+  if (id === 'CREDENTIAL_ACCESS') return 'Sensitive Data Stored Without Adequate Protection';
+  if (id === 'DOCUMENT_PIPELINE') return 'Insecure Processing of Untrusted Documents';
   return undefined;
 }
 
@@ -150,7 +126,7 @@ export function ratingOf(i, title) {
   // outdated components are rated Informational: the tool does not exploit the published vulnerabilities, and a tester
   // who does raises the rating by hand
   if (severity === 'INFORMATIONAL' || title === OUTDATED_TITLE ||
-      title === 'Executable Signing and Exploit Mitigations (hardening)' && severity === 'LOW') return { consequence: 'N/A', likelihood: 'N/A' };
+      title === 'Missing Code Signing or Exploit Mitigations' && severity === 'LOW') return { consequence: 'N/A', likelihood: 'N/A' };
   const route = consequenceOf(i.id)?.route;
   let c = ({ HIGH: 3, MEDIUM: 2, LOW: 1 })[severity] ?? 0;
   if (route === 'local') c = Math.max(0, c - 1);
@@ -206,25 +182,47 @@ const linkTarget = target => target.split('/').map(segment => encodeURIComponent
 
 /**
  * What every finding of one report shares: the app's name, the scanned folder (paths are shown relative to it, and to a
- * packaged app's install folder) and the home folder, which never appears in the report.
+ * packaged app's install folder) and the home and temporary folders, which never appear in the report.
  */
 function context(meta) {
   const root = meta.root ? path.resolve(meta.root) : undefined;
   const bases = root ? [root] : [];
   if (root && /[\\/]resources[\\/]app(\.asar)?$/i.test(root)) bases.push(path.dirname(path.dirname(root)));
   const home = os.homedir();
+  const temp = os.tmpdir();
+  // a folder as a file URL (encoded or not) and as a path written with either slash
+  const forms = (folder) => {
+    const url = pathToFileURL(folder).href;
+    let decoded = url;
+    try {
+      decoded = decodeURI(url);
+    } catch { /* keep the encoded form */ }
+    return unique([url, decoded, folder, folder.replace(/\\/g, '/'), folder.replace(/\//g, '\\')]);
+  };
+  const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const within = (folder) => new RegExp(forms(folder).map(form => `${escape(form)}(?:[\\\\/]|(?![\\w.-]))`).join('|'), 'g');
+  const baseForms = bases.map(base => ({ pattern: within(base), name: path.basename(base) }));
+  // a file in the temporary folder: what follows the tool's own folder there (a downloaded copy of a server's script)
+  const tempPattern = new RegExp(forms(temp).map(form => `${escape(form)}[\\\\/](?:electronegativity-[^\\\\/\\s'"]*[\\\\/])?`).join('|'), 'g');
   const scrub = (value) => {
     let out = String(value ?? '');
-    for (const base of bases) out = out.split(base + path.sep).join('').split(base).join(path.basename(base));
+    for (const { pattern, name } of baseForms) out = out.replace(pattern, (match) => /[\\/]$/.test(match) ? '' : name);
+    out = out.replace(tempPattern, '');
     return home && home.length > 1 ? out.split(home).join('~') : out;
   };
-  return { app: meta.app?.name || 'the application', bases, scrub, outputFile: meta.outputFile, dependencies: meta.dependencies,
+  const packaged = !!root && /[\\/]resources[\\/]app\.asar$/i.test(root);
+  return { app: meta.app?.name || 'the application', bases, scrub, packaged, outputFile: meta.outputFile, dependencies: meta.dependencies,
     reportRoot: meta.reportRoot || (meta.outputFile && path.dirname(path.resolve(meta.outputFile))), outputs: meta.outputs || [] };
 }
 
 function shownFile(file, ctx) {
-  const value = String(file);
-  if (!path.isAbsolute(value)) return value;
+  let value = String(file);
+  if (/^file:\/\//i.test(value)) {
+    try {
+      value = fileURLToPath(value);
+    } catch { /* not a local file URL */ }
+  }
+  if (!path.isAbsolute(value)) return ctx.scrub(value);
   for (const base of ctx.bases) {
     const relative = path.relative(base, value);
     if (!relative) return path.basename(base);
@@ -256,36 +254,43 @@ function codeBlock(value, lang, indent = '  ') {
   if (cut) source = source.slice(0, SAMPLE_LIMIT);
   const fence = '`'.repeat(Math.max(3, ...[...source.matchAll(/`{3,}/g)].map(m => m[0].length + 1)));
   const block = [`${fence}${lang}`, ...source.split('\n'), fence].map(line => indent + line).join('\n');
-  return cut ? `${block}\n\n${indent}(${cut} more characters not shown; see the location above.)` : block;
+  return cut ? `${block}\n\n${indent}(Excerpt: a further ${cut} characters are not shown.)` : block;
 }
 
+const isRuntime = i => /^RUNTIME_|^TRAFFIC_/.test(i.id);
+// the file and line of a finding, or undefined for one that has none (a runtime observation, an application-wide setting)
 function place(i, ctx) {
-  return !i.file || i.file === 'N/A' ? 'Application-wide' : `${shownFile(i.file, ctx)}${i.location?.line ? `:${i.location.line}` : ''}`;
+  if (!i.file || i.file === 'N/A' || i.file === 'runtime') return undefined;
+  return `${shownFile(i.file, ctx)}${i.location?.line ? `:${i.location.line}` : ''}`;
 }
 function location(i, ctx) {
   const where = place(i, ctx);
-  return where === 'Application-wide' ? where : codeSpan(where);
+  if (where) return codeSpan(where);
+  return isRuntime(i) ? `${text(ctx.app, ctx)}, observed during testing` : `${text(ctx.app, ctx)} (application-wide)`;
 }
 function details(i, ctx) {
   const p = i.properties || {};
   const pkg = scalar(p.package) || scalar(p.name);
   return [location(i, ctx), scalar(p.url) && codeSpan(ctx.scrub(p.url)), scalar(p.window) && text(p.window, ctx), scalar(p.channel) && `channel ${codeSpan(p.channel)}`,
-    scalar(p.fuse) && `fuse ${codeSpan(`${p.fuse}=${scalar(p.value) ?? 'unknown'}`)}`, scalar(p.cookie) && `cookie ${codeSpan(p.cookie)}`, scalar(p.host) && codeSpan(p.host),
+    scalar(p.fuse) && `fuse ${codeSpan(`${p.fuse}=${typeof p.value === 'boolean' ? p.value : scalar(p.value) ?? 'unknown'}`)}`, scalar(p.cookie) && `cookie ${codeSpan(p.cookie)}`, scalar(p.host) && codeSpan(p.host),
     pkg && codeSpan(`${pkg}${scalar(p.version) ? `@${p.version}` : ''}`), Array.isArray(p.advisories) && p.advisories.length && `${p.advisories.length} advisories`].filter(Boolean).join(' — ');
 }
 
+// a screenshot next to the report: its path from the finding; undefined for one elsewhere
+function screenshotPath(file, ctx) {
+  if (!ctx.outputFile || !path.isAbsolute(file)) return undefined;
+  const relative = path.relative(path.dirname(path.resolve(ctx.outputFile)), file);
+  const within = path.relative(path.resolve(ctx.reportRoot), file);
+  if (within === '..' || within.startsWith(`..${path.sep}`) || path.isAbsolute(within)) return undefined;
+  return linkTarget(relative.split(path.sep).join('/'));
+}
 // a screenshot next to the report is linked; one elsewhere is named
 function screenshot(file, ctx) {
-  if (ctx.outputFile && path.isAbsolute(file)) {
-    const relative = path.relative(path.dirname(path.resolve(ctx.outputFile)), file);
-    const within = path.relative(path.resolve(ctx.reportRoot), file);
-    if (within !== '..' && !within.startsWith(`..${path.sep}`) && !path.isAbsolute(within))
-      return `[${text(path.basename(file), ctx)}](${linkTarget(relative.split(path.sep).join('/'))})`;
-  }
-  return codeSpan(ctx.scrub(file));
+  const target = screenshotPath(file, ctx);
+  return target ? `[${text(path.basename(file), ctx)}](${target})` : codeSpan(ctx.scrub(file));
 }
-const screenshotOf = (i, ctx) => unique([i.properties?.screenshot, ...strings(i.properties?.screenshots)])
-  .filter(f => typeof f === 'string').map(f => `; screenshot ${screenshot(f, ctx)}`).join('');
+const screenshotsOf = i => unique([i.properties?.screenshot, ...strings(i.properties?.screenshots)]).filter(f => typeof f === 'string');
+const screenshotOf = (i, ctx) => screenshotsOf(i).map(f => `; screenshot ${screenshot(f, ctx)}`).join('');
 
 // Facts stay with their owning check. Arbitrary properties may contain credentials, so only known evidence fields are shown.
 function recordedEvidence(i, ctx) {
@@ -296,7 +301,7 @@ function recordedEvidence(i, ctx) {
     lines.push(`  - Validation: **${text(r.status, ctx)}**${r.scope ? ` (${text(r.scope, ctx)})` : ''}${r.session ? `; session ${text(r.session, ctx)}` : ''}${r.text ? ` — ${text(r.text, ctx)}` : ''}`);
     for (const value of strings(r.evidence)) lines.push(`    - Evidence: ${text(value, ctx)}`);
   }
-  if (!results.length) lines.push(`  - Validation: ${isConfirmed(i) ? 'script execution or tested capability recorded; wider exploitability unverified' : /^RUNTIME_|^TRAFFIC_/.test(i.id) ? 'runtime observation; exploitability unverified' : 'not run; static or artifact observation only'}`);
+  if (!results.length) lines.push(`  - Validation: ${isConfirmed(i) ? 'script execution or tested capability recorded; wider exploitability unverified' : isRuntime(i) ? 'runtime observation; exploitability unverified' : 'not run; static or artifact observation only'}`);
   if (i.location?.line > 0 && i.location?.column != null) lines.push(`  - Source column: ${text(i.location.column, ctx)}`);
   for (const value of strings(p.evidence)) lines.push(`  - Observed evidence: ${text(value, ctx)}`);
   const fields = ['campaignId', 'correlation', 'case', 'field', 'slot', 'delivery', 'savedValue', 'view', 'execution', 'signal', 'signals',
@@ -326,129 +331,268 @@ function recordedEvidence(i, ctx) {
   return lines.join('\n');
 }
 
+// what an accepted risk is recorded with, for the finding's Notes
+function acceptedRisk(s, label, ctx) {
+  const { reason, owner, expires } = s.suppression;
+  const where = place(s, ctx);
+  return `Accepted risk: ${label}${where ? ` at ${where}` : ''}. ${reason ? ctx.scrub(reason).replace(/\s+/g, ' ').trim() : 'No reason was recorded.'}${owner ? ` Owner: ${ctx.scrub(owner)}.` : ''}${expires ? ` Expires: ${ctx.scrub(expires)}.` : ''}`;
+}
+
+// why the finding has its rating, and what testing did and did not establish: for the tester, not the client
 function proseNotes(g, ctx) {
   const i = g.basis;
   if (g.definition[0] === OUTDATED_TITLE) return ['Rated Informational: the known vulnerabilities of the listed components were not exploited during the engagement.',
-    ...g.issues.filter(x => x.suppression).map(s => `Accepted risk — ${s.id} at ${text(place(s, ctx), ctx)}. ${s.suppression.reason ? text(s.suppression.reason, ctx) : 'No reason supplied.'}`)];
-  const status = isConfirmed(i) ? 'runtime evidence recorded' : /^RUNTIME_/.test(i.id) ? 'observed at runtime; exploitability not established' : 'runtime exploitability not established';
-  const notes = [`Rating basis: ${i.id} at ${text(place(i, ctx), ctx)}; scanner severity ${nameOf(i.severity)}, confidence ${nameOf(i.confidence)}; ${status}.`];
-  notes.push('The scenarios below are conditional where the scan did not establish input control, reachability or the affected trust boundary. Impact is limited to the circumstances supported by the evidence.');
+    ...g.issues.filter(x => x.suppression).map(s => `Accepted risk — ${s.id} at ${text(place(s, ctx) || 'application-wide', ctx)}. ${s.suppression.reason ? text(s.suppression.reason, ctx) : 'No reason supplied.'}`)];
+  const status = isConfirmed(i) ? 'runtime evidence recorded' : isRuntime(i) ? 'observed at runtime; exploitability not established' : 'runtime exploitability not established';
+  const notes = [`Rating basis: ${i.id} at ${text(place(i, ctx) || 'no single location', ctx)}; scanner severity ${nameOf(i.severity)}, confidence ${nameOf(i.confidence)}; ${status}.`];
+  notes.push('The scenarios are conditional where testing did not establish input control, reachability or the affected trust boundary. Impact is limited to the circumstances supported by the evidence.');
   const open = g.issues.filter(issue => issue.manualReview && !isConfirmed(issue) && !issue.suppression);
   if (open.length) notes.push(`${open.length} instance${open.length === 1 ? '' : 's'} require${open.length === 1 ? 's' : ''} reachability or configuration review; exploitation has not been established for those instances.`);
   if (g.definition[0] === 'Sensitive Data Exposed in Network Traffic') notes.push('Establish ownership of each destination before characterising a transfer as third-party disclosure.');
-  if (g.definition[0] === 'Microsoft Word Integration') notes.push('The Protected View scenario applies only where document provenance is lost in the actual opening workflow.');
-  if (g.definition[0] === 'IPC Handlers Trust Renderer Input') notes.push('Channel-use conclusions depend on the shipped renderer and representative runtime coverage.');
+  if (g.definition[0] === 'Insecure Microsoft Word Integration') notes.push('The Protected View scenario applies only where document provenance is lost in the actual opening workflow.');
+  if (g.definition[0] === 'Insufficient Validation of Inter-Process Messages') notes.push('Channel-use conclusions depend on the shipped renderer and representative runtime coverage.');
   if (g.accepted) notes.push('Every instance of this finding is an accepted risk; the rating is that of the accepted instances.');
   else if (g.issues.some(x => x.suppression)) notes.push('Accepted risks are listed with this finding but do not set its rating.');
   for (const s of g.issues.filter(x => x.suppression)) {
     const { reason, owner, expires } = s.suppression;
-    notes.push(`Accepted risk — ${s.id} at ${text(place(s, ctx), ctx)}. ${reason ? text(reason, ctx) : 'No reason supplied.'}${owner ? ` Owner ${text(owner, ctx)}.` : ''}${expires ? ` Expires ${text(expires, ctx)}.` : ''}`);
+    notes.push(`Accepted risk — ${s.id} at ${text(place(s, ctx) || 'application-wide', ctx)}. ${reason ? text(reason, ctx) : 'No reason supplied.'}${owner ? ` Owner ${text(owner, ctx)}.` : ''}${expires ? ` Expires ${text(expires, ctx)}.` : ''}`);
   }
   return notes;
 }
+
+// Markdown blocks in a row: consecutive bullets stay one list; everything else is a paragraph of its own
+const joinBlocks = lines => lines.filter(line => line !== undefined && line !== '').reduce((out, line) =>
+  out + (out && out.split('\n').at(-1).startsWith('- ') && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();
+// a numbered list: each item's further lines indented under its number
+function numbered(items) {
+  const multiline = items.some(item => item.includes('\n'));
+  return items.map((item, n) => {
+    const marker = `${n + 1}. `;
+    return marker + item.split('\n').map((line, k) => !k || !line ? line : ' '.repeat(marker.length) + line).join('\n');
+  }).join(multiline ? '\n\n' : '\n');
+}
+// "that A", "that A, and that B", "that A, that B, and that C"
+const thatList = facts => facts.length === 1 ? `that ${facts[0]}` : `${facts.slice(0, -1).map(f => `that ${f}`).join(', ')}, and that ${facts.at(-1)}`;
+// a runtime result recorded against a static finding, as client text: the confirmed and observed ones
+const validatedFacts = i => unique(validationResults(i).filter(r => ['confirmed', 'observed'].includes(r.status) && r.text)
+  .map(r => runtimeFact({ id: 'RUNTIME_VALIDATION', description: r.text })));
+// a front matter block; empty Notes are left out
+const frontMatter = (title, rating, notes) => YAML.stringify({ Title: title, GeneratedBy: 'Electronegativity', Consequence: rating.consequence,
+  Likelihood: rating.likelihood, ...(notes.length ? { Notes: notes } : {}) }, { lineWidth: 0 }).trimEnd();
+// how a check's instance is checked by hand, for the reproduction step of a file with no source to show
+const INSPECT = {
+  PACKAGED_FUSES: file => `Read the Electron fuses of ${codeSpan(file)} with ${codeSpan(`npx @electron/fuses read --app "${file}"`)}.`,
+  CODE_SIGNING: file => `Check the publisher signature of ${codeSpan(file)} in PowerShell with ${codeSpan(`Get-AuthenticodeSignature "${file}"`)}.`,
+  BINARY_HARDENING: file => `Inspect the exploit mitigation flags of ${codeSpan(file)}, for example with ${codeSpan(`dumpbin /headers "${file}"`)}.`,
+  FUSES: file => `Review the packaging configuration in ${codeSpan(file)} and the build scripts.`,
+};
+// a fact sentence with text taken from the app: its Markdown and HTML syntax escaped, except in the code spans the
+// sentence puts around names
+const safeFact = fact => String(fact).split(/(`[^`]*`)/).map((part, n) => n % 2 ? part : part.replace(/[\\*[\]<>_]/g, '\\$&')).join('');
+// one example per kind of code: the same settings object shown twice is shown once
+const exampleKey = example => String(example).replace(/\s+/g, ' ').split(/[({]/)[0].trim();
 
 // the outdated components finding: its own sections, pointing at the components workbook
 function renderOutdated(g, ctx) {
   const [title, , , , cwe] = g.definition;
   const sections = outdatedSections({ app: text(ctx.app, ctx), dependencies: ctx.dependencies });
-  const front = YAML.stringify({ Title: title, GeneratedBy: 'Electronegativity', Consequence: g.rating.consequence, Likelihood: g.rating.likelihood, Notes: proseNotes(g, ctx) }).trimEnd();
-  const lines = [`---\n${front}\n---`, `# ${title}`,
+  const notes = g.issues.filter(x => x.suppression).map(s => acceptedRisk(s, 'outdated component', ctx));
+  const lines = [`---\n${frontMatter(title, g.rating, notes)}\n---`, `# ${title}`,
     '## Issue Description', ...sections.description,
     '## Affected', ...sections.affected,
     '## Implication', ...sections.implication,
     '## Reproduction and Evidence', ...sections.evidence,
     '## Recommendations', ...sections.recommendations,
     '## References', ...sections.references, `- ${cwe}\n\n  https://cwe.mitre.org/data/definitions/${/^CWE-(\d+)/.exec(cwe)?.[1]}.html`];
-  return lines.reduce((out, line) => out + (out && out.split('\n').at(-1).startsWith('- ') && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();
+  return joinBlocks(lines);
+}
+
+// how many reproduction steps a finding shows; the rest are named under Affected
+const MAX_STEPS = 10;
+
+/** The parts of one finding both its client document and its tester notes are written from. */
+function findingParts(g, ctx) {
+  const title = g.definition[0];
+  const variations = matchingVariations(title, g.issues, normalId);
+  const labelOf = v => CLIENT_LABELS[v.label] || 'Additional observation';
+  // findings whose evidence lists only what was validated: an instance whose validation was not run, or was
+  // inconclusive, is left out of Reproduction and Evidence (it stays in Affected, in the tester notes and in the JSON and
+  // HTML reports)
+  const validatedOnly = VALIDATED_EVIDENCE_ONLY.has(title);
+  // runtime outcomes where the application refused the test: they mitigate the finding rather than show it
+  const blocked = [...g.issues, ...g.evidence].filter(i => i.properties?.blocked === true);
+  const shown = g.issues.filter(i => !blocked.includes(i) && (!validatedOnly || !unvalidated(i)));
+  const supporting = g.evidence.filter(i => !blocked.includes(i) && isRuntime(i) && (screenshotsOf(i).length || isConfirmed(i) ||
+    validationResults(i).some(r => r.status === 'confirmed')) && (!validatedOnly || !unvalidated(i)));
+  return { title, variations, labelOf, validatedOnly, blocked, shown, supporting };
+}
+
+// a screenshot in a reproduction step: shown when it is next to the report, named otherwise
+function image(file, ctx) {
+  const target = screenshotPath(file, ctx);
+  return target ? `![${text(path.basename(file), ctx)}](${target})` : `The screenshot ${codeSpan(path.basename(file))} shows the result.`;
+}
+
+function reproductionSteps(g, ctx, parts) {
+  const { shown, supporting } = parts;
+  const app = text(ctx.app, ctx);
+  const steps = noteValues(g.issues, 'steps').map(value => text(value, ctx));
+  const staticOnes = shown.filter(i => !isRuntime(i));
+  // each location once, with every fact recorded there
+  const locations = new Map();
+  for (const i of staticOnes) {
+    const key = place(i, ctx) || '';
+    if (!locations.has(key)) locations.set(key, []);
+    locations.get(key).push(i);
+  }
+  const fromArchive = ctx.packaged && staticOnes.some(i => place(i, ctx) && !/\.(exe|dll|node)$/i.test(i.file));
+  if (fromArchive) steps.push(`Extract the application archive ${codeSpan('resources\\app.asar')} from the installation folder of ${app}, for example with ${codeSpan('npx @electron/asar extract "resources\\app.asar" app')}. The file paths below are relative to the extracted folder.`);
+  const facts = [];
+  // code shown in an earlier step is not shown again
+  const shownCode = new Set();
+  for (const [where, issues] of locations) {
+    const first = issues[0];
+    const found = unique(issues.map(i => safeFact(ctx.scrub(staticFact(i, normalId)))).filter(Boolean));
+    const validated = unique(issues.flatMap(validatedFacts));
+    const shows = found.length ? `This shows ${thatList(found)}.` : '';
+    const during = validated.map(fact => `During testing, ${text(fact, ctx, 1000)}.`).join(' ');
+    const accepted = issues.every(i => i.suppression) ? ' This instance has been accepted as a risk.' : '';
+    const file = where && shownFile(first.file, ctx);
+    const inspect = INSPECT[normalId(first.id)];
+    const samples = unique(issues.map(i => i.sample && ctx.scrub(i.sample)));
+    let step;
+    if (!where) step = found.length ? `Review the configuration of ${app}, which shows ${thatList(found)}.` : `Review the configuration of ${app}.`;
+    else if (inspect && !samples.length) step = `${inspect(file)} ${shows}`;
+    else if (samples.length && shownCode.has(samples[0])) step = `Open ${codeSpan(file)} and review line ${first.location?.line || 1}, which holds the same code as above. ${shows}`;
+    else if (samples.length) {
+      shownCode.add(samples[0]);
+      step = `Open ${codeSpan(file)} and review line ${first.location?.line || 1}:\n\n${codeBlock(samples[0], language(first.file), '')}\n\n${shows}`;
+    }
+    else step = `Open ${codeSpan(file)}${first.location?.line > 1 ? ` and review line ${first.location.line}` : ''}. ${shows}`;
+    const images = unique(issues.flatMap(screenshotsOf)).map(file => image(file, ctx));
+    facts.push(`${`${step.trim()}${during ? ` ${during}` : ''}${accepted}`.trim()}${images.length ? `\n\n${images.join('\n\n')}` : ''}`);
+  }
+  const runtime = [...shown.filter(isRuntime), ...supporting];
+  const seen = new Set();
+  for (const i of runtime) {
+    const fact = runtimeFact(i);
+    if (!fact || seen.has(fact)) continue;
+    seen.add(fact);
+    const images = screenshotsOf(i).map(file => image(file, ctx));
+    facts.push(`During testing, ${text(fact, ctx, 1000)}.${images.length ? `\n\n${images.join('\n\n')}` : ''}`);
+  }
+  const room = MAX_STEPS - (fromArchive ? 1 : 0);
+  steps.push(...facts.slice(0, room));
+  return { steps, more: facts.length > room };
 }
 
 function renderGroup(g, ctx) {
-  const [title, , about, recommendation, cwe] = g.definition;
+  const [title, , , recommendation, cwe] = g.definition;
   if (title === OUTDATED_TITLE) return renderOutdated(g, ctx);
+  const parts = findingParts(g, ctx);
+  const { variations, labelOf, validatedOnly, blocked } = parts;
   const app = text(ctx.app, ctx);
-  const ids = unique(g.issues.map(i => i.id));
-  const variations = matchingVariations(title, g.issues, normalId);
-  const labelsOf = issue => variations.filter(v => v.issues.includes(issue)).map(v => v.label);
-  const accepted = i => i.suppression ? ' (accepted risk)' : '';
-  const notes = field => noteValues(g.issues, field).map(value => `- ${text(value, ctx)}`);
-  const front = YAML.stringify({ Title: title, GeneratedBy: 'Electronegativity', Consequence: g.rating.consequence, Likelihood: g.rating.likelihood, Notes: proseNotes(g, ctx) }).trimEnd();
+  const notes = field => noteValues(g.issues, field).map(value => text(value, ctx));
+  const accepted = g.issues.filter(x => x.suppression).map(s => acceptedRisk(s, labelOf(variations.find(v => v.issues.includes(s)) || { label: s.id }), ctx));
 
   // each location once, with the scenarios it supports
   const affected = new Map();
   for (const i of g.issues) {
     const where = details(i, ctx);
     const entry = affected.get(where) || { labels: [], accepted: true };
-    entry.labels.push(...labelsOf(i));
+    entry.labels.push(...variations.filter(v => v.issues.includes(i)).map(labelOf));
     entry.accepted = entry.accepted && !!i.suppression;
     affected.set(where, entry);
   }
   const places = [...affected].map(([where, entry]) => `- ${where} — ${unique(entry.labels).join('; ')}${entry.accepted ? ' (accepted risk)' : ''}`);
 
-  // findings whose evidence lists only what was validated: an instance whose validation was not run, or was
-  // inconclusive, is left out of Reproduction and Evidence (it stays in Affected, and in the JSON and HTML reports)
-  const validatedOnly = VALIDATED_EVIDENCE_ONLY.has(title);
-  const shown = validatedOnly ? g.issues.filter(i => !unvalidated(i)) : g.issues;
-  const supporting = validatedOnly ? g.evidence.filter(i => !unvalidated(i)) : g.evidence;
-  const left = g.issues.length - shown.length + g.evidence.length - supporting.length;
-  const instances = shown.slice(0, MAX_INSTANCES).map(i => {
-    const head = `- **${i.id}** at ${details(i, ctx)}${accepted(i)}: ${text(i.description, ctx)}`;
-    return i.sample ? `${head}\n\n${codeBlock(ctx.scrub(i.sample), language(i.file))}` : head;
-  });
-  const examples = ids.flatMap(id => {
-    const example = remediationOf(id)?.example;
-    return example ? [`- **Illustrative implementation pattern (${id}):**\n\n${codeBlock(example, exampleLanguage(example))}`] : [];
-  });
+  // the limits of testing, once; what testing confirmed or what the application blocked qualifies it
+  const confirmed = parts.shown.some(isConfirmed) || parts.supporting.some(isConfirmed);
+  const blockedFacts = unique(blocked.map(runtimeFact));
+  const note = [confirmed ? 'This issue was confirmed during testing, as described under Reproduction and Evidence.' : '',
+    NOTES[title] || 'The impact depends on whether an attacker can reach the affected functionality.',
+    blockedFacts.length ? `During testing, ${blockedFacts.length === 1 ? text(blockedFacts[0], ctx) : `the application blocked some attempts: ${blockedFacts.map(fact => text(fact, ctx)).join('; ')}`}.` : '',
+    g.rating.consequence === 'N/A' && !/hardening observation/.test(NOTES[title] || '') ? 'This is a hardening observation and does not, by itself, constitute an exploitable vulnerability.' : '',
+  ].filter(Boolean).join(' ');
 
-  // references: the CWE, each check's own guidance with the scenarios it supports, then Electron's security guidance.
-  // Each is a list item: its title, then the address on its own line.
+  const { steps, more } = reproductionSteps(g, ctx, parts);
+  const preconditions = notes('preconditions');
+
+  const recommendations = unique([...notes('recommendation'), ...(variations.length ? variations.map(v => v.recommendation) : [recommendation])]);
+  const examples = [...new Map(unique(unique(g.issues.map(i => i.id)).map(id => remediationOf(id)?.example))
+    .map(example => [exampleKey(example), example])).values()].slice(0, 2);
+
+  // references: the CWE, the guidance of each check, then Electron's security checklist. Each is a list item: its title,
+  // then the address on its own line.
   const reference = (name, url) => `- ${name}\n\n  ${url}`;
   const cweUrl = `https://cwe.mitre.org/data/definitions/${/^CWE-(\d+)/.exec(cwe)?.[1]}.html`;
-  const references = new Map();
-  for (const v of variations) {
-    for (const url of unique(v.issues.map(i => i.shortenedURL)).filter(url => /^https:\/\//i.test(url) && url !== cweUrl)) {
-      const entry = references.get(url) || { labels: [], ids: [] };
-      entry.labels.push(v.label);
-      entry.ids.push(...v.issues.filter(i => i.shortenedURL === url).map(i => i.id));
-      references.set(url, entry);
-    }
+  const urls = unique(variations.flatMap(v => v.issues.map(i => i.shortenedURL))).filter(url => /^https:\/\//i.test(url) && url !== cweUrl);
+  const references = [reference(cwe, cweUrl)];
+  const titles = new Set();
+  for (const url of urls) {
+    const name = referenceTitle(url);
+    if (titles.has(`${name}|${url}`)) continue;
+    titles.add(`${name}|${url}`);
+    references.push(reference(name, url));
   }
-  const guidance = [...references].map(([url, entry]) => reference(`${unique(entry.labels).join(', ')} (${unique(entry.ids).join(', ')})`, url));
+  if (!urls.some(url => /electronjs\.org/.test(url))) references.push(reference('Electron security checklist', 'https://www.electronjs.org/docs/latest/tutorial/security'));
+  if (title === 'Insecure Microsoft Word Integration') references.push(reference('Microsoft documentation: What is Protected View?', 'https://learn.microsoft.com/en-us/office/troubleshoot/word/office-file-opens-in-protected-view'));
 
-  const lines = [`---\n${front}\n---`, `# ${title}`,
-    '## Issue Description', (introductions[title] || about).replaceAll('{app}', () => app),
-    ...variations.map(v => `- **${v.label}.** ${v.description}`),
+  const lead = (LEADS[title] || 'Testing identified the following security observations in {app}.').replaceAll('{app}', () => app);
+  const lines = [`---\n${frontMatter(title, g.rating, accepted)}\n---`, `# ${title}`,
+    '## Issue Description', lead,
     ...notes('about'),
-    '## Affected', `The scan identified the following locations or components in ${app}:`,
-    ...places.slice(0, MAX_LOCATIONS), ...(places.length > MAX_LOCATIONS ? [`- …and ${places.length - MAX_LOCATIONS} more.`] : []),
+    ...variations.map(v => `- **${labelOf(v)}.** ${v.description}`),
+    '## Affected', `The following locations in ${app} are affected:`,
+    ...places.slice(0, MAX_LOCATIONS), ...(places.length > MAX_LOCATIONS ? [`- A further ${places.length - MAX_LOCATIONS} locations with the same issue.`] : []),
     '## Implication',
-    ...variations.map(v => `- **${v.label}.** ${v.implication}`),
-    ...(g.rating.consequence === 'N/A' ? ['This hardening observation does not, by itself, establish an exploitable application vulnerability.'] : []),
+    ...variations.map(v => `- **${labelOf(v)}.** ${v.implication}`),
     ...notes('impact'), ...notes('reachability'),
+    `*Note:* ${note}`,
     '## Reproduction and Evidence',
-    `The following evidence was recorded for ${app}. Static observations identify code or configuration; a runtime confirmation is stated explicitly where available.`,
-    ...noteValues(g.issues, 'preconditions').map(value => `- **Precondition:** ${text(value, ctx)}`),
-    ...noteValues(g.issues, 'steps').map(value => `- **Reproduction step:** ${text(value, ctx)}`),
-    ...instances,
-    ...(shown.length > MAX_INSTANCES ? [`- …and ${shown.length - MAX_INSTANCES} further instances; see the affected list or the full HTML/JSON report.`] : []),
-    ...(validatedOnly && !shown.length && !supporting.length ? [`No instance of this finding was validated at runtime. The locations are listed under Affected, and every observation is in the HTML and JSON reports.`] : []),
-    ...(shown.length || supporting.length ? ['**Validation results and recorded facts (all instances):**'] : []),
-    ...shown.map(i => recordedEvidence(i, ctx)),
-    ...supporting.map(i => `- Supporting observation: ${text(i.description, ctx)}\n\n${recordedEvidence(i, ctx)}`),
-    ...(validatedOnly && left && (shown.length || supporting.length) ? [`${left} observation${left === 1 ? '' : 's'} not validated at runtime, or with an inconclusive result, ${left === 1 ? 'is' : 'are'} not listed here; ${left === 1 ? 'it is' : 'they are'} in the HTML and JSON reports.`] : []),
-    '**Validation steps to perform (instructions, not recorded results):**',
-    ...variations.map(v => `- **How to confirm — ${v.label}:** ${v.evidence}`),
+    ...(preconditions.length ? [`The following preconditions apply: ${preconditions.join(' ')}`] : []),
+    ...(steps.length ? ['The issue can be reproduced as follows:', numbered(steps)]
+      : validatedOnly ? ['No instance of this issue was validated at runtime during testing. The locations identified through review of the application code are listed under Affected.']
+        : [`The locations listed under Affected were identified through review of ${app}.`]),
+    ...(more ? ['Further instances are listed under Affected.'] : []),
+    '## Recommendations', numbered(recommendations),
+    ...(examples.length ? [`The following example${examples.length === 1 ? ' illustrates' : 's illustrate'} the recommended approach:`,
+      ...examples.map(example => codeBlock(example, exampleLanguage(example), ''))] : []),
+    '## References', ...references];
+  return joinBlocks(lines);
+}
+
+// the tester's companion to a finding: how it was rated, every instance with its recorded facts (including those left out
+// of the client document) and how to check each by hand
+function testerNotesDocument(g, ctx, file) {
+  const title = g.definition[0];
+  const parts = title === OUTDATED_TITLE ? undefined : findingParts(g, ctx);
+  const ids = unique(g.issues.map(i => i.id));
+  const lines = [TESTER_NOTES_MARKER, `# ${title}: tester notes`,
+    `Working notes for the finding ${codeSpan(file)}. They are not part of the client report.`,
+    '## Rating basis', `Consequence: ${g.rating.consequence}. Likelihood: ${g.rating.likelihood}.`,
+    ...proseNotes(g, ctx).map(value => `- ${value}`),
+    '## Checks',
+    ...ids.map(id => {
+      const count = g.issues.filter(i => i.id === id).length;
+      const consequence = consequenceOf(id)?.text;
+      return `- **${text(id, ctx)}** (${count} instance${count === 1 ? '' : 's'})${consequence ? `: ${text(consequence, ctx)}` : ''}`;
+    })];
+  if (parts) {
+    lines.push('## Scenarios', ...parts.variations.map(v => `- **${text(v.label, ctx)}** (client label: ${parts.labelOf(v)}): ${v.issues.length} instance${v.issues.length === 1 ? '' : 's'}`));
+    const left = g.issues.length - parts.shown.length;
+    if (parts.validatedOnly && left) lines.push(`${left} instance${left === 1 ? ' was' : 's were'} not validated at runtime, or had an inconclusive result, and ${left === 1 ? 'is' : 'are'} not listed under Reproduction and Evidence in the client finding.`);
+    if (parts.blocked.length) lines.push(`${parts.blocked.length} runtime outcome${parts.blocked.length === 1 ? ' was' : 's were'} blocked by the application and ${parts.blocked.length === 1 ? 'is' : 'are'} described in the note under Implication.`);
+  }
+  lines.push('## Validation steps',
+    ...(parts ? parts.variations.map(v => `- **How to confirm (${text(v.label, ctx)}):** ${v.evidence}`) : []),
     ...noteValues(g.issues, 'confirm').map(value => `- **How to confirm:** ${text(value, ctx)}`),
     ...ids.filter(id => validationHint(id)).map(id => `- **${text(id, ctx)}:** ${validationHint(id)}`),
-    ...(COMMANDS[title] ? [`- **Validation command:** ${codeSpan(COMMANDS[title])}`] : []),
-    '## Recommendations', recommendation,
-    ...variations.map(v => `- **${v.label}:** ${v.recommendation}`), ...notes('recommendation'),
-    ...examples,
-    '## References', reference(cwe, cweUrl), ...guidance];
-  if (!references.has('https://www.electronjs.org/docs/latest/tutorial/security'))
-    lines.push(reference('Electron security guidance', 'https://www.electronjs.org/docs/latest/tutorial/security'));
-  if (title === 'Microsoft Word Integration') lines.push(reference('Microsoft guidance on Protected View', 'https://learn.microsoft.com/en-us/office/troubleshoot/word/office-file-opens-in-protected-view'));
-  // consecutive list items stay one list; everything else is a paragraph of its own
-  return lines.reduce((out, line) => out + (out && out.split('\n').at(-1).startsWith('- ') && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();
+    ...(COMMANDS[title] ? [`- **Validation command:** ${codeSpan(COMMANDS[title])}`] : []));
+  lines.push('## Recorded evidence (all instances)',
+    ...g.issues.map(i => `${recordedEvidence(i, ctx)}\n  - Description: ${text(i.description, ctx)}`),
+    ...(g.evidence.length ? ['### Supporting observations', ...g.evidence.map(i => `${recordedEvidence(i, ctx)}\n  - Description: ${text(i.description, ctx)}`)] : []));
+  return joinBlocks(lines);
 }
 
 // characters Windows refuses in a file name, and control characters
@@ -459,34 +603,52 @@ export function findingFileName(title) {
   const name = String(title).replace(UNSAFE_NAME, '-').replace(/[. ]+$/, '').trim();
   return `${name || 'Finding'}.md`;
 }
+/** The file name of a finding's tester notes. */
+export const testerNotesFileName = title => findingFileName(`${title} - tester notes`);
+// the first line of every tester notes file: marks it as the tool's own
+const TESTER_NOTES_MARKER = '<!-- Electronegativity tester notes: not part of the client report -->';
 
 const COVERAGE_TITLE = 'Validation Coverage and Test Outcomes';
 function coverageDocument(issues, ctx) {
   const records = issues.filter(i => /COVERAGE/.test(i.id) || /^RUNTIME_CAMPAIGN_(CASE|RESTORE|CLEANUP)$/.test(i.id) || /^RUNTIME_DOCX_/.test(i.id));
   if (!records.length) return undefined;
-  const front = YAML.stringify({ Title: COVERAGE_TITLE, GeneratedBy: 'Electronegativity', ReportType: 'Validation coverage' }, { lineWidth: 0 }).trimEnd();
-  return `---\n${front}\n---\n\n# ${COVERAGE_TITLE}\n\nThese are test outcomes and coverage limitations, not additional vulnerability findings. Acceptance, opening a view and absence of a signal do not prove execution or safety. Restore and cleanup warnings describe the test state.\n\n${records.map(i => `- ${text(i.description, ctx)}\n\n${recordedEvidence(i, ctx)}`).join('\n\n')}\n`;
+  return `${TESTER_NOTES_MARKER}\n\n# ${COVERAGE_TITLE}\n\nThese are test outcomes and coverage limitations, not additional vulnerability findings. Acceptance, opening a view and absence of a signal do not prove execution or safety. Restore and cleanup warnings describe the test state.\n\n${records.map(i => `- ${text(i.description, ctx)}\n\n${recordedEvidence(i, ctx)}`).join('\n\n')}\n`;
 }
 
 /**
- * One Markdown document per finding, plus a coverage document when test outcomes exist: [{ title, file, content }]. meta.dir is
- * the folder the files go in (links to other reports are relative to it); meta.root the scanned folder.
+ * One Markdown document per finding: [{ title, file, content }]. meta.dir is the folder the files go in (links to
+ * screenshots are relative to it); meta.root the scanned folder.
  */
 export function renderClientFindings(issues, meta = {}) {
   const all = [...issues, ...(meta.suppressed || [])];
-  const findings = groupClientFindings(all).map(g => {
+  return groupClientFindings(all).map(g => {
     const file = findingFileName(g.definition[0]);
     const ctx = context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile });
     return { title: g.definition[0], file, content: `${renderGroup(g, ctx)}\n` };
   });
+}
+
+/**
+ * The tester's notes: one document per finding, and one of the validation coverage when test outcomes exist:
+ * [{ title, file, content }]. meta.dir is the folder they go in.
+ */
+export function renderTesterNotes(issues, meta = {}) {
+  const all = [...issues, ...(meta.suppressed || [])];
+  const notes = groupClientFindings(all).map(g => {
+    const file = testerNotesFileName(g.definition[0]);
+    const ctx = context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile });
+    return { title: g.definition[0], file, content: `${testerNotesDocument(g, ctx, findingFileName(g.definition[0]))}\n` };
+  });
   const file = findingFileName(COVERAGE_TITLE);
   const coverage = coverageDocument(all, context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile }));
-  if (coverage) findings.push({ title: COVERAGE_TITLE, file, content: coverage });
-  return findings;
+  if (coverage) notes.push({ title: COVERAGE_TITLE, file, content: coverage });
+  return notes;
 }
 
 // the client deliverables of a run: the findings and the components workbook they refer to
 export const MARKDOWN_FOLDER = 'reports';
+// the tester's working notes for each finding, next to the client findings
+export const TESTER_NOTES_FOLDER = 'testerNotes';
 
 /**
  * A finding file's parts: its header fields (Title, Consequence, Likelihood, Notes) and its sections by heading, each as
@@ -523,6 +685,14 @@ export function findingFingerprints(content) {
   };
 }
 export const sectionDigest = digest;
+// a tester notes file this report wrote
+const isNotesFile = (file) => {
+  try {
+    return fs.readFileSync(file, 'utf8').startsWith(TESTER_NOTES_MARKER);
+  } catch {
+    return false;
+  }
+};
 // a finding file this report wrote: an earlier run's, replaced by this one's (other files in the folder are left alone)
 const isFindingFile = (file) => {
   try {
@@ -542,25 +712,34 @@ const isFindingFile = (file) => {
 };
 
 /**
- * Writes the client findings into <folder>/reports, one file per finding named after its title, replacing the finding
- * files an earlier run left there. Returns the files written.
+ * Writes the client findings into <folder>/reports, one file per finding named after its title, and the tester's notes
+ * into <folder>/testerNotes, replacing the files an earlier run left there. Returns the finding files written.
  */
-export function writeClientMarkdown(folder, issues, meta = {}, subfolder = MARKDOWN_FOLDER) {
+export function writeClientMarkdown(folder, issues, meta = {}, subfolder = MARKDOWN_FOLDER, notesSubfolder = TESTER_NOTES_FOLDER) {
   const dir = path.join(folder, subfolder);
-  fs.mkdirSync(dir, { recursive: true });
+  const notesDir = path.join(folder, notesSubfolder);
   const findings = renderClientFindings(issues, { ...meta, dir, reportRoot: folder });
-  const previous = fs.readdirSync(dir).filter(name => /\.md$/i.test(name) && isFindingFile(path.join(dir, name)));
-  for (const finding of findings) {
-    const file = path.join(dir, finding.file);
-    if (fs.existsSync(file) && !isFindingFile(file)) throw new Error(`Refusing to overwrite a Markdown file not owned by this report: ${file}`);
-  }
-  const files = findings.map(finding => {
-    const file = path.join(dir, finding.file);
-    fs.writeFileSync(file, finding.content);
-    return file;
-  });
-  const current = new Set(findings.map(f => f.file));
-  for (const name of previous) if (!current.has(name)) fs.rmSync(path.join(dir, name));
+  const notes = renderTesterNotes(issues, { ...meta, dir: notesDir, reportRoot: folder });
+  // nothing is written until every file is known to be the tool's own
+  for (const [where, documents, owned] of [[dir, findings, isFindingFile], [notesDir, notes, isNotesFile]])
+    for (const document of documents) {
+      const file = path.join(where, document.file);
+      if (fs.existsSync(file) && !owned(file)) throw new Error(`Refusing to overwrite a Markdown file not owned by this report: ${file}`);
+    }
+  const write = (where, documents, owned) => {
+    fs.mkdirSync(where, { recursive: true });
+    const previous = fs.readdirSync(where).filter(name => /\.md$/i.test(name) && owned(path.join(where, name)));
+    const files = documents.map(document => {
+      const file = path.join(where, document.file);
+      fs.writeFileSync(file, document.content);
+      return file;
+    });
+    const current = new Set(documents.map(d => d.file));
+    for (const name of previous) if (!current.has(name)) fs.rmSync(path.join(where, name));
+    return files;
+  };
+  const files = write(dir, findings, isFindingFile);
+  write(notesDir, notes, isNotesFile);
   return files;
 }
 
@@ -593,7 +772,5 @@ export function combineRuns(runs) {
 export function renderClientMarkdown(issues, meta = {}) {
   const ctx = context(meta);
   const groups = groupClientFindings([...issues, ...(meta.suppressed || [])]);
-  const coverage = coverageDocument([...issues, ...(meta.suppressed || [])], ctx);
-  const findings = groups.length ? groups.map(g => renderGroup(g, ctx)).join('\n\n') : `No reportable findings were identified in ${text(ctx.app, ctx)}.`;
-  return findings + (coverage ? `\n\n${coverage}` : '\n');
+  return groups.length ? `${groups.map(g => renderGroup(g, ctx)).join('\n\n')}\n` : `No reportable findings were identified in ${text(ctx.app, ctx)}.\n`;
 }

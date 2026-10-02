@@ -650,10 +650,17 @@ describe('Watch mode', () => {
       (guidedRun.status === 0).should.equal(true, why(guidedRun));
       const files = fs.readdirSync(out).sort();
       // one report of the whole run, its client findings and components workbook, and each step kept as a backup
-      files.filter(f => !/^ENG[A-Z0-9]{6}/.test(f)).should.deep.equal(['diagnostics.json', 'report.html', 'report.json', 'reports', 'shareable-report.json', 'shareable-report.md', 'steps']);
+      files.filter(f => !/^ENG[A-Z0-9]{6}/.test(f)).should.deep.equal(['diagnostics.json', 'report.html', 'report.json', 'reports', 'shareable-report.json', 'shareable-report.md', 'steps', 'testerNotes']);
       fs.readdirSync(path.join(out, 'steps')).sort().should.deep.equal(['session-1-diag.json', 'session-1-report.html', 'session-1-report.json', 'session-1-share.json', 'session-1-share.md',
         'static-diag.json', 'static-report.html', 'static-report.json', 'static-share.json', 'static-share.md']);
       fs.readdirSync(path.join(out, 'reports')).should.include('components.xlsx');
+      // the client findings name no check and no path of the machine; the tester notes keep every instance
+      for (const name of fs.readdirSync(path.join(out, 'reports')).filter(f => f.endsWith('.md'))) {
+        const finding = fs.readFileSync(path.join(out, 'reports', name), 'utf8');
+        finding.should.not.match(/_CHECK\b|\bRUNTIME_[A-Z]|\bTRAFFIC_[A-Z]/, name);
+        finding.should.not.include(dir, name);
+        fs.existsSync(path.join(out, 'testerNotes', name.replace(/\.md$/, ' - tester notes.md'))).should.equal(true, name);
+      }
       // the final report holds the static findings and what the session observed
       const whole = JSON.parse(fs.readFileSync(path.join(out, 'report.json'), 'utf8')).issues.map(i => i.id);
       whole.should.include('NODE_INTEGRATION_JS_CHECK');

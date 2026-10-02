@@ -5,9 +5,9 @@ import zlib from 'node:zlib';
 import { should as chaiShould } from 'chai';
 import YAML from 'yaml';
 import { severity, confidence } from '../src/finder/attributes.js';
-import { groupClientFindings, ratingOf, renderClientMarkdown, renderClientFindings, writeClientMarkdown, combineRuns, findingFileName } from '../src/report/markdown.js';
+import { groupClientFindings, ratingOf, renderClientMarkdown, renderClientFindings, renderTesterNotes, writeClientMarkdown, combineRuns, findingFileName } from '../src/report/markdown.js';
 import { VARIATIONS, matchingVariations } from '../src/report/markdown_variations.js';
-import { CLIENT_COPY } from '../src/report/markdown_client_copy.js';
+import { CLIENT_COPY, CLIENT_LABELS } from '../src/report/markdown_client_copy.js';
 import { componentTable, renderComponentsXlsx, statusLabels, componentLinks } from '../src/report/xlsx.js';
 import { outputFormat, splitOutputs, writeIssues } from '../src/util/file.js';
 
@@ -48,8 +48,8 @@ describe('Client report outputs', () => {
     // the Electron runtime and third-party components are one finding
     groups.length.should.equal(24);
     groups.filter(g => g.definition[0] === 'Outdated Software Components').length.should.equal(1);
-    groups.find(g => g.definition[0] === 'Missing or Weak Content Security Policy').evidence.map(i => i.id).should.include('CSP_JS_CHECK');
-    groups.some(g => g.definition[0] === 'Other Security Observations').should.equal(false);
+    groups.find(g => g.definition[0] === 'Missing or Insufficient Content Security Policy').evidence.map(i => i.id).should.include('CSP_JS_CHECK');
+    groups.some(g => g.definition[0] === 'Additional Security Observations').should.equal(false);
     for (const group of groups) {
       const variants = matchingVariations(group.definition[0], group.issues, id => id.replace(/_(JS|HTML|JSON|GLOBAL|LOCK)_CHECK$/, ''));
       variants.length.should.be.greaterThan(0);
@@ -60,17 +60,19 @@ describe('Client report outputs', () => {
         for (const heading of ['Affected', 'Reproduction and Evidence', 'References']) one.split(`## ${heading}\n`)[1].should.include('the attached spreadsheet - `components.xlsx`');
         continue;
       }
-      for (const heading of ['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References']) {
+      // each scenario under its client label where the finding describes it, and its advice under Recommendations
+      for (const heading of ['Issue Description', 'Affected', 'Implication']) {
         const section = one.split(`## ${heading}\n`)[1].split(/^## /m)[0];
-        for (const variant of variants) section.should.include(variant.label, `${group.definition[0]} ${heading} omitted ${variant.label}`);
+        for (const variant of variants) section.should.include(CLIENT_LABELS[variant.label], `${group.definition[0]} ${heading} omitted ${variant.label}`);
       }
+      for (const variant of variants) one.split('## Recommendations\n')[1].should.include(variant.recommendation);
     }
     const markdown = renderClientMarkdown(checks.map(id => issue(id, severity.MEDIUM, confidence.FIRM, { sample: '' })), { app: { name: 'Example App' } });
     const headings = ['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References'];
     for (const heading of headings) (markdown.match(new RegExp(`^## ${heading}$`, 'gm')) || []).length.should.equal(24);
     for (const section of markdown.split(/^## (?:Issue Description|Affected|Implication|Reproduction and Evidence|Recommendations|References)$/m).slice(1))
       section.trim().length.should.be.greaterThan(0);
-    markdown.should.include('Static observations identify code or configuration');
+    markdown.should.include('The issue can be reproduced as follows:');
     markdown.should.include('Example App');
   });
 
@@ -86,17 +88,17 @@ describe('Client report outputs', () => {
       issue('CODE_SIGNING_GLOBAL_CHECK', severity.LOW),
     ]);
     findings.map(g => g.definition[0]).should.deep.equal([
-      'Renderer Isolation Weakened', 'Missing or Weak Content Security Policy', 'Other Security Observations',
-      'Application Code Not Protected Against Inspection or Tampering', 'Executable Signing and Exploit Mitigations (hardening)',
+      'Insufficient Renderer Process Isolation', 'Missing or Insufficient Content Security Policy', 'Additional Security Observations',
+      'Application Code Not Protected Against Tampering or Disclosure', 'Missing Code Signing or Exploit Mitigations',
     ]);
     findings.slice(-2).every(g => g.rating.consequence === 'N/A' && g.rating.likelihood === 'N/A').should.equal(true);
-    findings.find(g => g.definition[0] === 'Missing or Weak Content Security Policy').issues.length.should.equal(1);
+    findings.find(g => g.definition[0] === 'Missing or Insufficient Content Security Policy').issues.length.should.equal(1);
   });
 
   it('uses paired N/A ratings, local route caps and confirmed execution', () => {
-    ratingOf(issue('SOURCE_MAP_SHIPPED_GLOBAL_CHECK', severity.INFORMATIONAL), 'Application Code Not Protected Against Inspection or Tampering')
+    ratingOf(issue('SOURCE_MAP_SHIPPED_GLOBAL_CHECK', severity.INFORMATIONAL), 'Application Code Not Protected Against Tampering or Disclosure')
       .should.deep.equal({ consequence: 'N/A', likelihood: 'N/A' });
-    ratingOf(issue('CODE_SIGNING_GLOBAL_CHECK', severity.LOW), 'Executable Signing and Exploit Mitigations (hardening)')
+    ratingOf(issue('CODE_SIGNING_GLOBAL_CHECK', severity.LOW), 'Missing Code Signing or Exploit Mitigations')
       .should.deep.equal({ consequence: 'N/A', likelihood: 'N/A' });
     ratingOf(issue('FUSES_GLOBAL_CHECK', severity.HIGH, confidence.CERTAIN), 'Insecure Electron Fuse Configuration')
       .should.deep.equal({ consequence: 'Medium', likelihood: 'Unlikely' });
@@ -104,8 +106,8 @@ describe('Client report outputs', () => {
     for (const id of ['DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', 'END_OF_LIFE_LIBRARY_GLOBAL_CHECK', 'UNSUPPORTED_VERSION_GLOBAL_CHECK', 'AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK'])
       ratingOf(issue(id, severity.HIGH, confidence.CERTAIN), 'Outdated Software Components').should.deep.equal({ consequence: 'N/A', likelihood: 'N/A' });
     ratingOf(issue('RUNTIME_ACTIVE_SCRIPT', severity.MEDIUM, confidence.FIRM, { properties: { execution: 'observed' } }),
-      'Cross-Site Scripting Exposure in Content Rendering').consequence.should.equal('Medium');
-    ratingOf(issue('MALICIOUS_DEPENDENCY', severity.HIGH), 'Known Malicious Package').consequence.should.equal('Critical');
+      'Cross-Site Scripting in Content Rendering').consequence.should.equal('Medium');
+    ratingOf(issue('MALICIOUS_DEPENDENCY', severity.HIGH), 'Known Malicious Software Package').consequence.should.equal('Critical');
   });
 
   it('emits parseable YAML and unredacted evidence, accepted risks, references and the components workbook', () => {
@@ -120,7 +122,8 @@ describe('Client report outputs', () => {
     for (const block of blocks) {
       const front = YAML.parse(block);
       front.Title.should.be.a('string');
-      front.Notes.should.be.an('array');
+      // Notes hold the accepted risks only
+      if (front.Notes) front.Notes.should.be.an('array');
       (front.Consequence === 'N/A').should.equal(front.Likelihood === 'N/A');
     }
     findings.should.include('Client: Example #1');
@@ -128,11 +131,10 @@ describe('Client report outputs', () => {
     blocks.map(block => YAML.parse(block)).flatMap(front => front.Notes).join(' ').should.include('Approved: #42');
     findings.should.include('Refer to the attached spreadsheet - `components.xlsx` for a list of affected components.');
     findings.should.include('https://cwe.mitre.org/data/definitions/');
-    /^(?:\s*)\d+[.)]\s/m.test(findings).should.equal(false);
   });
 
   it('carries custom finding notes and recorded evidence into the appropriate sections', () => {
-    const markdown = renderClientMarkdown([issue('OPEN_EXTERNAL_JS_CHECK', severity.HIGH, confidence.FIRM, {
+    const findings = [issue('OPEN_EXTERNAL_JS_CHECK', severity.HIGH, confidence.FIRM, {
       notes: {
         about: 'The reviewed link comes from a document.',
         impact: 'The client confirmed the operating system hand-off.',
@@ -144,11 +146,18 @@ describe('Client report outputs', () => {
       },
       properties: { evidence: ['GET https://example.test/open?target=custom'], screenshot: '/evidence/hand-off.png' },
       validation: { status: 'confirmed', text: 'Observed in the watch session.' },
-    })], { app: { name: 'Client App' } });
-    for (const value of ['The reviewed link comes from a document.', 'The client confirmed the operating system hand-off.',
-      'A recipient can click the link.', 'Open a shared document.', 'Click the crafted link.', 'Observe the handler invocation.',
-      'Allow only the approved host.', 'GET https://example.test/open?target=custom', '/evidence/hand-off.png',
-      'Observed in the watch session.']) markdown.should.include(value);
+    })];
+    const markdown = renderClientMarkdown(findings, { app: { name: 'Client App' } });
+    const section = (heading) => markdown.split(`## ${heading}\n`)[1].split(/^## /m)[0];
+    section('Issue Description').should.include('The reviewed link comes from a document.');
+    section('Implication').should.include('The client confirmed the operating system hand-off.').and.include('A recipient can click the link.');
+    section('Reproduction and Evidence').should.include('Open a shared document.').and.include('1. Click the crafted link.')
+      .and.include('During testing, observed in the watch session.').and.include('`hand-off.png`');
+    section('Recommendations').should.include('1. Allow only the approved host.');
+    // what the tester checks by hand, and the raw evidence, are in the tester notes
+    const [notes] = renderTesterNotes(findings, { app: { name: 'Client App' } });
+    for (const value of ['Observe the handler invocation.', 'GET https://example.test/open?target=custom', '/evidence/hand-off.png', 'Observed in the watch session.'])
+      notes.content.should.include(value);
     markdown.should.include('## Implication');
     markdown.should.include('## Reproduction and Evidence');
     markdown.should.include('## Recommendations');
@@ -159,26 +168,28 @@ describe('Client report outputs', () => {
       issue('CSP_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { file: 'N/A', sample: '' }),
       issue('IFRAME_SANDBOX_HTML_CHECK', severity.MEDIUM, confidence.FIRM, { file: '/client/app/index.html', sample: '', manualReview: true }),
     ], { app: { name: 'Client App' } });
-    markdown.should.include('Application-wide');
-    markdown.should.include('**CSP_GLOBAL_CHECK** at Application-wide');
+    markdown.should.include('- Client App (application-wide) — ');
+    markdown.should.include('Review the configuration of Client App, which shows that');
     markdown.should.match(/```html\n\s*<iframe/);
-    markdown.should.include('- Embedded content (IFRAME_SANDBOX_HTML_CHECK)\n\n  https://');
-    markdown.should.include('requires reachability or configuration review');
+    markdown.should.include('- Electron security checklist\n\n  https://');
+    const notes = renderTesterNotes([issue('IFRAME_SANDBOX_HTML_CHECK', severity.MEDIUM, confidence.FIRM, { file: '/client/app/index.html', sample: '', manualReview: true })])[0].content;
+    notes.should.include('requires reachability or configuration review');
   });
 
   it('keeps several alternatives inside one finding and across all six sections', () => {
     const issues = [issue('OPEN_EXTERNAL_JS_CHECK'), issue('OPEN_PATH_JS_CHECK')];
     const markdown = renderClientMarkdown(issues, { app: { name: 'Client App' } });
-    (markdown.match(/^# Unsafe Hand-off of URLs and Files to the Operating System$/gm) || []).length.should.equal(1);
+    (markdown.match(/^# Unvalidated URLs and Files Passed to the Operating System$/gm) || []).length.should.equal(1);
     const sections = ['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References'];
     for (const label of ['External URL or protocol', 'File path handed to the host']) {
-      for (const heading of sections) {
+      const [description, implication, recommendation] = CLIENT_COPY[label];
+      const parts = [[CLIENT_LABELS[label], description], [CLIENT_LABELS[label]], [CLIENT_LABELS[label], implication], [], [recommendation], []];
+      sections.forEach((heading, n) => {
         const section = markdown.split(`## ${heading}\n`)[1].split(/^## /m)[0];
-        section.should.include(label, `${heading} omitted ${label}`);
-      }
+        for (const value of parts[n]) section.should.include(value, `${heading} omitted ${label}`);
+        section.trim().length.should.be.greaterThan(0);
+      });
     }
-    markdown.should.include('The relevant boundary is whether a page, document or other external input can select the destination.');
-    markdown.should.include('Confirm path validation using a harmless file');
     markdown.split('## Implication\n')[1].split('## Reproduction and Evidence')[0].should.not.include('Potential worst case');
     const fuseVariants = matchingVariations('Insecure Electron Fuse Configuration', [issue('PACKAGED_FUSES')], id => id);
     fuseVariants.length.should.equal(3);
@@ -186,17 +197,17 @@ describe('Client report outputs', () => {
 
   it('groups every finding that can reach the client report under a named problem, never under Other', () => {
     const titleOf = (id, sev = severity.MEDIUM) => groupClientFindings([issue(id, sev)])[0]?.definition[0];
-    titleOf('DYNAMIC_MODULE_JS_CHECK', severity.HIGH).should.equal('Code or Command Execution from Untrusted Data');
-    titleOf('RUNTIME_MARKER_MODULE').should.equal('Code or Command Execution from Untrusted Data');
-    for (const id of ['RUNTIME_CAMPAIGN_FS_READ', 'RUNTIME_CAMPAIGN_NODE', 'RUNTIME_CAMPAIGN_ELECTRON', 'PRELOAD_JS_CHECK']) titleOf(id).should.equal('Renderer Isolation Weakened', id);
-    titleOf('RUNTIME_CAMPAIGN_EVAL', severity.LOW).should.equal('Missing or Weak Content Security Policy');
-    titleOf('UNTRUSTED_LOAD_URL_JS_CHECK', severity.HIGH).should.equal('Insufficient Navigation and Window Controls');
-    titleOf('CERTIFICATE_PINNING_GLOBAL_CHECK', severity.INFORMATIONAL).should.equal('Certificate Pinning Not Implemented (hardening)');
-    titleOf('CERTIFICATE_VERIFY_PROC_JS_CHECK', severity.HIGH).should.equal('Insecure Transport and Certificate Validation');
+    titleOf('DYNAMIC_MODULE_JS_CHECK', severity.HIGH).should.equal('Command or Code Execution from Variable Input');
+    titleOf('RUNTIME_MARKER_MODULE').should.equal('Command or Code Execution from Variable Input');
+    for (const id of ['RUNTIME_CAMPAIGN_FS_READ', 'RUNTIME_CAMPAIGN_NODE', 'RUNTIME_CAMPAIGN_ELECTRON', 'PRELOAD_JS_CHECK']) titleOf(id).should.equal('Insufficient Renderer Process Isolation', id);
+    titleOf('RUNTIME_CAMPAIGN_EVAL', severity.LOW).should.equal('Missing or Insufficient Content Security Policy');
+    titleOf('UNTRUSTED_LOAD_URL_JS_CHECK', severity.HIGH).should.equal('Insufficient Navigation and New Window Restrictions');
+    titleOf('CERTIFICATE_PINNING_GLOBAL_CHECK', severity.INFORMATIONAL).should.equal('Certificate Pinning Not Implemented');
+    titleOf('CERTIFICATE_VERIFY_PROC_JS_CHECK', severity.HIGH).should.equal('Insecure Network Transport and Certificate Validation');
     // the tool's own housekeeping is not a finding about the app
     groupClientFindings([issue('RUNTIME_CAMPAIGN_RESTORE'), issue('RUNTIME_CAMPAIGN_CLEANUP', severity.INFORMATIONAL)]).should.have.length(0);
     // a campaign's file read is runtime evidence: the payload's script ran and signalled it
-    ratingOf(issue('RUNTIME_CAMPAIGN_FS_READ', severity.HIGH), 'Renderer Isolation Weakened').likelihood.should.equal('Very Likely');
+    ratingOf(issue('RUNTIME_CAMPAIGN_FS_READ', severity.HIGH), 'Insufficient Renderer Process Isolation').likelihood.should.equal('Very Likely');
     // "no pinning" is described as a hardening gap, not a validation bypass
     const pinning = renderClientMarkdown([issue('CERTIFICATE_PINNING_GLOBAL_CHECK', severity.INFORMATIONAL)], { app: { name: 'Demo' } });
     pinning.should.include('No certificate pinning').and.not.include('Certificate validation bypass');
@@ -225,7 +236,7 @@ describe('Client report outputs', () => {
         CLIENT_COPY[entry[0]].length.should.equal(3);
       }
     }
-    matchingVariations('Other Security Observations', [issue('NEW_CHECK')], id => id).map(v => v.label).should.deep.equal(['NEW_CHECK']);
+    matchingVariations('Additional Security Observations', [issue('NEW_CHECK')], id => id).map(v => v.label).should.deep.equal(['NEW_CHECK']);
   });
 
   it('lists the components needing action, most urgent first, with plain status labels and an action', () => {
@@ -340,16 +351,16 @@ describe('Client report outputs', () => {
         { app: { name: 'Example' }, outputs: [md, xlsx], dependencies: { rows: [] } });
       fs.existsSync(md).should.equal(false);
       // the .md asks for the reports folder: the findings and the components workbook they refer to
-      fs.readFileSync(path.join(dir, 'reports', 'Renderer Isolation Weakened.md'), 'utf8').should.include('# Renderer Isolation Weakened');
+      fs.readFileSync(path.join(dir, 'reports', 'Insufficient Renderer Process Isolation.md'), 'utf8').should.include('# Insufficient Renderer Process Isolation');
       zipEntry(fs.readFileSync(path.join(dir, 'reports', 'components.xlsx')), 'xl/worksheets/sheet1.xml').should.include('Component');
       zipEntry(fs.readFileSync(xlsx), 'xl/worksheets/sheet1.xml').should.include('Component');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
   it('selects the scenarios a finding\'s own data supports', () => {
     const labels = (title, findings) => matchingVariations(title, findings, id => id.replace(/_(JS|HTML|JSON|GLOBAL|LOCK)_CHECK$/, '')).map(v => v.label);
-    labels('Missing or Weak Content Security Policy', [issue('CSP_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { description: 'No CSP has been detected in the target application' })])
+    labels('Missing or Insufficient Content Security Policy', [issue('CSP_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { description: 'No CSP has been detected in the target application' })])
       .should.deep.equal(['No effective policy']);
-    labels('Missing or Weak Content Security Policy', [issue('CSP_GLOBAL_CHECK', severity.LOW, confidence.CERTAIN, { description: 'One or more CSP directives detected are vulnerable' })])
+    labels('Missing or Insufficient Content Security Policy', [issue('CSP_GLOBAL_CHECK', severity.LOW, confidence.CERTAIN, { description: 'One or more CSP directives detected are vulnerable' })])
       .should.deep.equal(['Unsafe script directives']);
     labels('Insecure Electron Fuse Configuration', [issue('PACKAGED_FUSES', severity.HIGH, confidence.CERTAIN, { properties: { fuse: 'RunAsNode', value: true } })])
       .should.deep.equal(['Local Node entry points']);
@@ -357,21 +368,21 @@ describe('Client report outputs', () => {
       .should.deep.equal(['Credential or token in code']);
     labels('Hard-coded Secrets in the Application Package', [issue('HARDCODED_SECRET', severity.HIGH, confidence.FIRM, { properties: { kind: 'Google API key' } })])
       .should.deep.equal(['Public key or false positive']);
-    labels('Unsafe Hand-off of URLs and Files to the Operating System', [issue('OPEN_EXTERNAL_JS_CHECK', severity.LOW, confidence.CERTAIN, { properties: { value: 'http://example.com' } })])
+    labels('Unvalidated URLs and Files Passed to the Operating System', [issue('OPEN_EXTERNAL_JS_CHECK', severity.LOW, confidence.CERTAIN, { properties: { value: 'http://example.com' } })])
       .should.deep.equal(['External URL or protocol']);
-    labels('Unsafe Hand-off of URLs and Files to the Operating System', [issue('OPEN_EXTERNAL_JS_CHECK', severity.LOW, confidence.CERTAIN, { properties: { value: '\\\\server\\share' } })])
+    labels('Unvalidated URLs and Files Passed to the Operating System', [issue('OPEN_EXTERNAL_JS_CHECK', severity.LOW, confidence.CERTAIN, { properties: { value: '\\\\server\\share' } })])
       .should.deep.equal(['External URL or protocol', 'Non-web protocol launch', 'Network-share credential exposure']);
-    labels('Cross-Site Scripting Exposure in Content Rendering', [issue('RUNTIME_MARKER', severity.HIGH, confidence.CERTAIN, { properties: { live: true, executed: true } })])
+    labels('Cross-Site Scripting in Content Rendering', [issue('RUNTIME_MARKER', severity.HIGH, confidence.CERTAIN, { properties: { live: true, executed: true } })])
       .should.not.include('Markup without proven execution');
     // a finding its data selects nothing for still gets its check's first scenario
-    labels('Insecure Update Mechanism', [issue('UPDATE_SECURITY_JS_CHECK')]).should.deep.equal(['Update feed transport']);
+    labels('Insecure Software Update Mechanism', [issue('UPDATE_SECURITY_JS_CHECK')]).should.deep.equal(['Update feed transport']);
     // one fallback scenario per unknown check, however many findings it has
-    labels('Other Security Observations', [issue('EXOTIC'), issue('EXOTIC', severity.LOW), issue('OTHER')]).should.deep.equal(['EXOTIC', 'OTHER']);
+    labels('Additional Security Observations', [issue('EXOTIC'), issue('EXOTIC', severity.LOW), issue('OTHER')]).should.deep.equal(['EXOTIC', 'OTHER']);
   });
 
   it('rates runtime settings by confidence and leaves accepted risks out of the rating', () => {
-    ratingOf(issue('RUNTIME_NODE_INTEGRATION', severity.LOW, confidence.TENTATIVE), 'Renderer Isolation Weakened').likelihood.should.equal('Unlikely');
-    ratingOf(issue('RUNTIME_NODE_INTEGRATION', severity.LOW, confidence.TENTATIVE, { validation: { status: 'confirmed', text: 'ran' } }), 'Renderer Isolation Weakened')
+    ratingOf(issue('RUNTIME_NODE_INTEGRATION', severity.LOW, confidence.TENTATIVE), 'Insufficient Renderer Process Isolation').likelihood.should.equal('Unlikely');
+    ratingOf(issue('RUNTIME_NODE_INTEGRATION', severity.LOW, confidence.TENTATIVE, { validation: { status: 'confirmed', text: 'ran' } }), 'Insufficient Renderer Process Isolation')
       .likelihood.should.equal('Very Likely');
     const [group] = groupClientFindings([issue('NODE_INTEGRATION_JS_CHECK', severity.LOW, confidence.TENTATIVE),
       issue('CONTEXT_ISOLATION_JS_CHECK', severity.HIGH, confidence.CERTAIN, { suppression: { reason: 'accepted' } })]);
@@ -390,7 +401,11 @@ describe('Client report outputs', () => {
     markdown.should.include('`src/main.js:8`');
     markdown.should.not.include(os.homedir());
     // app text is Markdown-escaped, so a Windows backslash is written as \\ (it renders as one)
-    markdown.should.include(path.sep === '\\' ? '~\\\\notes.txt' : '~/notes.txt');
+    const notes = renderTesterNotes([issue('NODE_INTEGRATION_JS_CHECK', severity.HIGH, confidence.CERTAIN, {
+      file: path.join(root, 'src', 'main.js'), description: `Seen in ${path.join(root, 'src', 'main.js')} and ${path.join(os.homedir(), 'notes.txt')}` })], { app: { name: 'Acme' }, root })[0].content;
+    notes.should.not.include(os.homedir());
+    notes.should.include(path.sep === '\\' ? '~\\\\notes.txt' : '~/notes.txt');
+    notes.should.include('Seen in src/main.js');
   });
 
   it('escapes what the app supplies, cuts long code and keeps code out of the finding separators', () => {
@@ -402,11 +417,11 @@ describe('Client report outputs', () => {
     markdown.should.include('\\<script\\>alert(1)\\</script\\> Evil$\'App');
     markdown.should.include('`/x/[a](javascript:alert(1)).js:8`');
     markdown.length.should.be.below(20000);
-    markdown.should.include('more characters not shown');
+    markdown.should.include('characters are not shown');
     // one finding: its two YAML delimiters are the only lines that are exactly ---
     (markdown.match(/^---\s*$/gm) || []).length.should.equal(2);
     const front = YAML.parse(markdown.split(/^---\s*$/m)[1]);
-    front.Title.should.equal('Cross-Site Scripting Exposure in Content Rendering');
+    front.Title.should.equal('Cross-Site Scripting in Content Rendering');
   });
 
   it('lists only validated instances in the Cross-Site Scripting evidence, keeping the rest under Affected', () => {
@@ -418,9 +433,11 @@ describe('Client report outputs', () => {
     const [finding] = renderClientFindings([notRun, observed, inconclusive], { root: '/client/app', app: { name: 'Demo' } });
     const section = (heading) => finding.content.split(`## ${heading}\n`)[1].split(/^## /m)[0];
     const evidence = section('Reproduction and Evidence');
-    evidence.should.include('viewer.js').and.include('seenValue').and.include('**observed**');
-    evidence.should.not.include('static-only.js').and.not.include('notRunValue').and.not.include('Validation: not run').and.not.include('**inconclusive**');
-    evidence.should.include('2 observations not validated at runtime, or with an inconclusive result, are not listed here');
+    evidence.should.include('viewer.js').and.include('seenValue').and.include('During testing, test markup reached innerHTML.');
+    evidence.should.not.include('static-only.js').and.not.include('notRunValue').and.not.include('editor').and.not.include('execution signal');
+    // the tester notes say what was left out, and keep it
+    const [notes] = renderTesterNotes([notRun, observed, inconclusive], { root: '/client/app', app: { name: 'Demo' } });
+    notes.content.should.include('2 instances were not validated at runtime, or had an inconclusive result').and.include('static-only.js').and.include('**inconclusive**');
     // still listed as affected, and in every other report
     section('Affected').should.include('static-only.js').and.include('app.test/editor');
     // a screenshot is runtime evidence: kept
@@ -428,10 +445,10 @@ describe('Client report outputs', () => {
     renderClientFindings([pictured], { root: '/client/app', app: { name: 'Demo' } })[0].content.split('## Reproduction and Evidence\n')[1].should.include('static-only.js');
     // nothing validated: one sentence instead of the evidence
     const [none] = renderClientFindings([notRun], { root: '/client/app', app: { name: 'Demo' } });
-    none.content.split('## Reproduction and Evidence\n')[1].should.include('No instance of this finding was validated at runtime.');
+    none.content.split('## Reproduction and Evidence\n')[1].should.include('No instance of this issue was validated at runtime during testing.');
     // other findings keep every instance
-    const [other] = renderClientFindings([issue('NODE_INTEGRATION_JS_CHECK', severity.HIGH)], { app: { name: 'Demo' } });
-    other.content.should.include('Validation: not run');
+    const [other] = renderClientFindings([issue('NODE_INTEGRATION_JS_CHECK', severity.HIGH, confidence.FIRM, { file: '/client/app/static-only.js' })], { root: '/client/app', app: { name: 'Demo' } });
+    other.content.split('## Reproduction and Evidence\n')[1].should.include('Open `static-only.js`');
   });
 
   it('says so when nothing is reportable', () => {
@@ -444,19 +461,22 @@ describe('Client report outputs', () => {
       fs.mkdirSync(path.join(dir, 'reports'));
       fs.writeFileSync(path.join(dir, 'reports', 'Fixed Since.md'), '---\nTitle: Fixed Since\n---\n');
       // A legacy generated report is recognisable by its known title and six report sections.
-      fs.writeFileSync(path.join(dir, 'reports', 'Development and Debugging Features in Production.md'), renderClientMarkdown([issue('DEVTOOLS_JS_CHECK')]).replace('GeneratedBy: Electronegativity\n', ''));
+      fs.writeFileSync(path.join(dir, 'reports', 'Debugging Features Enabled in Production.md'), renderClientMarkdown([issue('DEVTOOLS_JS_CHECK')]).replace('GeneratedBy: Electronegativity\n', ''));
       fs.writeFileSync(path.join(dir, 'reports', 'my notes.md'), 'kept');
       const files = writeClientMarkdown(dir, [issue('NODE_INTEGRATION_JS_CHECK', severity.HIGH), issue('CSP_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { file: 'N/A' }),
         issue('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { properties: { advisories: ['OSV-1'] } })],
       { app: { name: 'Example' }, outputs: [path.join(dir, 'components.xlsx')] });
-      files.map(f => path.basename(f)).sort().should.deep.equal(['Missing or Weak Content Security Policy.md', 'Outdated Software Components.md', 'Renderer Isolation Weakened.md']);
-      fs.readdirSync(path.join(dir, 'reports')).should.include('my notes.md').and.include('Fixed Since.md').and.not.include('Development and Debugging Features in Production.md');
+      files.map(f => path.basename(f)).sort().should.deep.equal(['Insufficient Renderer Process Isolation.md', 'Missing or Insufficient Content Security Policy.md', 'Outdated Software Components.md']);
+      fs.readdirSync(path.join(dir, 'reports')).should.include('my notes.md').and.include('Fixed Since.md').and.not.include('Debugging Features Enabled in Production.md');
       for (const file of files) {
         const text = fs.readFileSync(file, 'utf8');
         (text.match(/^---$/gm) || []).length.should.equal(2);
         YAML.parse(text.split(/^---$/m)[1]).Title.should.equal(path.basename(file, '.md'));
       }
       fs.readFileSync(path.join(dir, 'reports', 'Outdated Software Components.md'), 'utf8').should.include('the attached spreadsheet - `components.xlsx`');
+      // the tester's notes for each finding, next to the client findings
+      fs.readdirSync(path.join(dir, 'testerNotes')).sort().should.deep.equal(['Insufficient Renderer Process Isolation - tester notes.md',
+        'Missing or Insufficient Content Security Policy - tester notes.md', 'Outdated Software Components - tester notes.md']);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     findingFileName('A/B: C?').should.equal('A-B- C-.md');
     renderClientFindings([]).should.deep.equal([]);
@@ -477,7 +497,10 @@ describe('Client report outputs', () => {
     suppressed.map(i => i.id).should.deep.equal(['DEVTOOLS_JS_CHECK']);
     // static and runtime evidence of the same problem end up in one finding
     const findings = renderClientFindings(reported, { suppressed });
-    findings.find(f => f.title === 'Renderer Isolation Weakened').content.should.include('RUNTIME_NODE_INTEGRATION').and.include('**NODE_INTEGRATION_JS_CHECK**');
+    const isolation = findings.find(f => f.title === 'Insufficient Renderer Process Isolation').content;
+    isolation.should.include('During testing, the window ran with nodeIntegration.').and.include('`app://index.html:8`');
+    renderTesterNotes(reported, { suppressed }).find(f => f.title === 'Insufficient Renderer Process Isolation').content
+      .should.include('**RUNTIME_NODE_INTEGRATION**').and.include('**NODE_INTEGRATION_JS_CHECK**');
   });
 
   it('lists each reference as its title with the address on its own line', () => {
@@ -486,7 +509,7 @@ describe('Client report outputs', () => {
     markdown.slice(markdown.indexOf('## References')).should.equal([
       '## References', '',
       '- CWE-494: Download of Code Without Integrity Check', '', '  https://cwe.mitre.org/data/definitions/494.html', '',
-      '- Source map exposure (SOURCE_MAP_SHIPPED)', '', '  https://developer.mozilla.org/en-US/docs/Glossary/Source_map', '',
-      '- Electron security guidance', '', '  https://www.electronjs.org/docs/latest/tutorial/security', ''].join('\n'));
+      '- MDN Web Docs: Source map', '', '  https://developer.mozilla.org/en-US/docs/Glossary/Source_map', '',
+      '- Electron security checklist', '', '  https://www.electronjs.org/docs/latest/tutorial/security', ''].join('\n'));
   });
 });

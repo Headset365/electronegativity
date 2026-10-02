@@ -10,7 +10,7 @@ import { consequenceOf, validationHint, interactionOf } from '../finder/conseque
 import { remediationOf } from '../finder/remediation.js';
 import { cycloneDx } from '../report/cyclonedx.js';
 import { renderDocx } from '../report/docx.js';
-import { writeClientMarkdown, findingFingerprints, MARKDOWN_FOLDER } from '../report/markdown.js';
+import { writeClientMarkdown, findingFingerprints, MARKDOWN_FOLDER, TESTER_NOTES_FOLDER } from '../report/markdown.js';
 import { COMPONENTS_SHEET } from '../report/markdown_outdated.js';
 import { renderComponentsXlsx } from '../report/xlsx.js';
 import { scores } from '../report/scores.js';
@@ -310,9 +310,9 @@ function jsonReport(result, meta) {
  * The client deliverables of a run in <base>/reports: one Markdown file per finding and the components workbook
  * (components.xlsx) the outdated components finding refers to. Returns { dir, findings, sheet }.
  */
-export function writeReports(base, result, meta = {}, subfolder = MARKDOWN_FOLDER) {
+export function writeReports(base, result, meta = {}, subfolder = MARKDOWN_FOLDER, notesSubfolder = TESTER_NOTES_FOLDER) {
   const dir = path.join(path.resolve(base), subfolder);
-  const findings = writeClientMarkdown(path.resolve(base), result, meta, subfolder);
+  const findings = writeClientMarkdown(path.resolve(base), result, meta, subfolder, notesSubfolder);
   const sheet = path.join(dir, COMPONENTS_SHEET);
   fs.writeFileSync(sheet, renderComponentsXlsx(meta.dependencies, { appName: meta.app?.name }));
   // what was written, section by section: kept in report.json, so a later --rerender can tell the tester's edits apart

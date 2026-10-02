@@ -8,13 +8,17 @@ import path from 'node:path';
 import { severity, confidence } from '../finder/attributes.js';
 import { parseFinding, sectionDigest, findingFingerprints } from './markdown.js';
 import { writeReports } from '../util/index.js';
+import { TITLES } from './markdown_style.js';
+import { findingFileName } from './markdown.js';
 
 export const NEW_REPORTS = 'newReports';
+export const NEW_TESTER_NOTES = 'newTesterNotes';
 
 // findings an earlier version wrote under another name
 const RENAMED = {
   'Outdated Electron Runtime.md': 'Outdated Software Components.md',
   'Outdated Third-Party Components.md': 'Outdated Software Components.md',
+  ...Object.fromEntries(Object.entries(TITLES).filter(([from, to]) => from !== to).map(([from, to]) => [findingFileName(from), findingFileName(to)])),
 };
 
 /** A finding of report.json as the report writers take it. */
@@ -141,7 +145,7 @@ export function rerender({ dataFile, oldDir, version }) {
   const suppressed = (data.suppressed || []).map(issueFromReport);
   const meta = { ...data, version, generatedAt: new Date().toISOString(), suppressed, root: data.input, app: data.app, dependencies: data.dependencies };
   const old = readFindings(folder);
-  const reports = writeReports(folder, issues, meta, NEW_REPORTS);
+  const reports = writeReports(folder, issues, meta, NEW_REPORTS, NEW_TESTER_NOTES);
   const fresh = readFindings(reports.dir);
   // the same data with what the tool wrote this time, so the new findings can be re-rendered again later
   const { markdown: earlier, ...rest } = data;
@@ -153,20 +157,22 @@ export function rerender({ dataFile, oldDir, version }) {
   const gone = [];
   for (const [file, parsed] of old) {
     const title = parsed.front.Title;
-    if (fresh.has(file)) {
-      compared.push({ file, newFile: file, title, ...compareFinding(parsed, recorded[file], fresh.get(file)) });
+    // the same finding, under its name or a later one
+    const target = fresh.has(file) ? file : RENAMED[file] && fresh.has(RENAMED[file]) ? RENAMED[file] : undefined;
+    const merged = target && target !== file && Object.values(RENAMED).filter(to => to === target).length > 1;
+    if (target && !merged) {
+      compared.push({ file, newFile: target, title, ...compareFinding(parsed, recorded[file], fresh.get(target)) });
       continue;
     }
     // not written any more, or merged into another finding (whose text can't be compared with it): its edits are still
     // listed when the tool recorded what it wrote
-    const merged = RENAMED[file] && fresh.has(RENAMED[file]) ? RENAMED[file] : undefined;
-    gone.push({ file, title, newFile: merged });
-    if (recorded[file]) compared.push({ file, newFile: merged, title, ...compareFinding(parsed, recorded[file]) });
+    gone.push({ file, title, newFile: target });
+    if (recorded[file]) compared.push({ file, newFile: target, title, ...compareFinding(parsed, recorded[file]) });
   }
   const added = [...fresh.keys()].filter(file => !old.has(file) && !Object.entries(RENAMED).some(([from, to]) => to === file && old.has(from)));
   const review = path.join(folder, `${NEW_REPORTS}-review.md`);
   fs.writeFileSync(review, reviewDocument({ data, dataFile: path.resolve(dataFile), oldDir: folder, outDir: reports.dir, compared, gone, added, version }));
-  return { dir: reports.dir, review, findings: reports.findings, compared, gone, added };
+  return { dir: reports.dir, notesDir: path.join(folder, NEW_TESTER_NOTES), review, findings: reports.findings, compared, gone, added };
 }
 
 export { findingFingerprints };

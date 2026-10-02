@@ -90,7 +90,7 @@ async function main() {
     .option('--redact <terms>', __('redactOptionDescription'))
     .option('--share <file>', __('shareOptionDescription'))
     .option('--share-code', __('shareCodeOptionDescription'))
-    .option('--rerender <report.json>', 'write the client findings of an earlier scan again with the current templates, from its report.json, into a newReports subfolder of its findings folder; manual edits in the earlier findings are listed in newReports-review.md')
+    .option('--rerender <report.json>', 'write the client findings of an earlier scan again with the current templates, from its report.json, into a newReports subfolder of its findings folder (tester notes in newTesterNotes); manual edits in the earlier findings are listed in newReports-review.md')
     .option('--old-reports <folder>', 'with --rerender: the folder of the earlier findings (default: the reports folder next to report.json)')
     .parse(process.argv);
 
@@ -101,7 +101,7 @@ async function main() {
       const result = rerender({ dataFile: options.rerender, oldDir: options.oldReports, version: VER });
       const edited = result.compared.filter(c => c.known && c.changes.length).length;
       const unknown = result.compared.filter(c => !c.known && c.changes.length).length;
-      console.log(chalk.green(`${result.findings.length} finding${result.findings.length === 1 ? '' : 's'} and the components workbook written to ${result.dir}`));
+      console.log(chalk.green(`${result.findings.length} finding${result.findings.length === 1 ? '' : 's'} and the components workbook written to ${result.dir}, the tester notes to ${result.notesDir}`));
       console.log(chalk[edited || unknown ? 'yellow' : 'gray'](`${edited} earlier finding${edited === 1 ? '' : 's'} edited by hand${unknown ? `, ${unknown} that may have been (written before edits could be told apart)` : ''}: see ${result.review}`));
     } catch (error) {
       console.error(chalk.red(error.message));

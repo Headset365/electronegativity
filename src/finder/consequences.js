@@ -203,7 +203,7 @@ const HOW_TO_VALIDATE = {
   PERMISSION_REQUEST_HANDLER: 'Automatic: a watch session records the permissions pages were granted.',
   FILE_HANDLER: 'Partly automatic: during a watch session, open a deep link or file association carrying the marker; the report lists the entry points used.',
   RUNTIME_HTML_ENDPOINT: 'Semi-automatic: during a watch session the tool asks you to send this endpoint the marker, then view the content as the second user. Whether the server itself strips markup is best checked with your proxy too.',
-  DEVTOOLS: 'Manual, local access only: check that DevTools cannot be opened in the shipped build (the call is behind a development flag). Content from other users cannot use it.',
+  DEVTOOLS: 'Manual, local access only: in the installed build, press Ctrl+Shift+I (or use the View menu) and check whether DevTools open; they don\'t when the call is behind a development flag. Content from other users cannot use it.',
   WRITE_SHORTCUT: 'Manual: check that the shortcut\'s target and path are fixed values, not taken from IPC or page content. If so, dismiss it: it needs local access.',
   FUSES: 'Manual, local access only: set the fuses in the build (@electron/fuses). Content from other users cannot use them.',
   TRAFFIC_IDOR_CANDIDATE: 'Manual, on a test server: sign in as a second test account and repeat the request with the first account\'s id (replay it from your proxy). The tool never requests other ids.',

@@ -429,7 +429,7 @@ module.exports = { unzip, unzipSafe };` });
       // the client findings are written once for the whole run, one file per finding
       fs.existsSync(path.join(out, 'steps', 'static-findings.md')).should.equal(false);
       fs.existsSync(path.join(out, 'steps', 'reports')).should.equal(false);
-      fs.readFileSync(path.join(out, 'reports', 'Renderer Isolation Weakened.md'), 'utf8').should.include('# Renderer Isolation Weakened');
+      fs.readFileSync(path.join(out, 'reports', 'Insufficient Renderer Process Isolation.md'), 'utf8').should.include('# Insufficient Renderer Process Isolation');
       fs.rmSync(out, { recursive: true, force: true });
     });
 

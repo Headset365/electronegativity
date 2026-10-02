@@ -21,7 +21,7 @@ const REMEDIATION = {
   COMMAND_INJECTION: ['Never build a command line from input. Use execFile or spawn with an argument array and no shell, validate each argument against an allowlist, and prefer a library call to a command.',
     'execFile(\'converter\', [\'--input\', validatedPath]);   // not exec(`converter ${name}`)'],
   CONTEXT_BRIDGE_EXPOSURE: ['Expose one narrow function per action through contextBridge, validate its arguments in the main process, and never expose ipcRenderer, require or send/on wrappers that accept any channel name.',
-    'contextBridge.exposeInMainWorld(\'api\', { openMatter: (id) => ipcRenderer.invoke(\'matter:open\', String(id)) });'],
+    'contextBridge.exposeInMainWorld(\'api\', { openDocument: (id) => ipcRenderer.invoke(\'document:open\', String(id)) });'],
   CONTEXT_ISOLATION: ['Turn contextIsolation on (the default since Electron 12) and give the page only what it needs through contextBridge in the preload script.',
     'webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, \'preload.js\') }'],
   CSP: ['Serve a Content-Security-Policy with every page, from a <meta> tag or the response headers, and start strict.',

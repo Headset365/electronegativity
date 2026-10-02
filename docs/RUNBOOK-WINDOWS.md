@@ -85,9 +85,13 @@ What happens:
 5. Press `s` when asked about session 3 to finish. The results folder then holds:
    - `report.html` and `report.json`: **one report of the whole run**, the static findings with what each session
      validated (marked with the session that showed it) and what the sessions found;
-   - `reports\`: the client findings, one Markdown file per finding, and `components.xlsx`, the components workbook the
-     "Outdated Software Components" finding refers to (its links are checked; any that couldn't be are named in its
-     "Links to validate manually" column);
+   - `reports\`: the client findings, one Markdown file per finding, ready for the client report (Australian English,
+     numbered reproduction steps and recommendations, the app named after its `.exe`), and `components.xlsx`, the
+     components workbook the "Outdated Software Components" finding refers to (its links are checked; any that couldn't
+     be are named in its "Links to validate manually" column);
+   - `testerNotes\`: for each finding, your working notes: how it was rated, every instance with its recorded evidence
+     (including those left out of the client finding), how to check each one by hand, and what the sessions covered.
+     They are not for the client;
    - `diagnostics.json`, with a section per step;
    - `steps\`: each step's own reports (`static-report.html`, `session-1-report.html`, ...), kept as backups.
 
@@ -136,8 +140,9 @@ electronegativity --watch-log "$env:TEMP\electronegativity-watch-XXXXXX\session.
 
 The individual options still work on their own: `-i "C:\Program Files\MyApp" -o static.html` for a static scan, and
 `--watch "C:\Program Files\MyApp" -o session.html` for one watch session. Every run also writes the client findings and
-the components workbook to a `reports` folder: in the run's report folder, next to the first `-o` file, or in the folder
-you ran it from, with `report.json` next to it: the data the findings were written from.
+the components workbook to a `reports` folder, and the tester notes to a `testerNotes` folder next to it: in the run's
+report folder, next to the first `-o` file, or in the folder you ran it from, with `report.json` next to them: the data
+the findings were written from.
 
 ### Updating the findings of an earlier scan to new templates
 
@@ -145,15 +150,17 @@ After a finding template changes (a revised fuse finding, say), the findings of 
 from that scan's `report.json`, without scanning again:
 
 ```powershell
-electronegativity --rerender C:\eng-results\report.json
+electronegativity --rerender "C:\eng-results\report.json"
 ```
 
-The new findings go to `reports\newReports\`, with a new `components.xlsx`. All their content comes from the scan's data;
-the earlier findings are only read and left as they are. `reports\newReports-review.md` lists what was changed by hand in
-the earlier findings (a rating, an edited, added or removed section), quoting the earlier text so you can carry it over.
-For findings written before this version, the tool can't tell a template change from a manual edit: the review then
-lists every part that differs, for you to check. Use `--old-reports <folder>` if the earlier findings are not in the
-`reports` folder next to `report.json`.
+The new findings go to `reports\newReports\`, with a new `components.xlsx`, and their tester notes to
+`reports\newTesterNotes\`. All their content comes from the scan's data; the earlier findings are only read and left as
+they are. `reports\newReports-review.md` lists what was changed by hand in the earlier findings (a rating, an edited,
+added or removed section), quoting the earlier text so you can carry it over. A finding since renamed (such as "Renderer
+Isolation Weakened", now "Insufficient Renderer Process Isolation") is compared with its new file. For findings written
+before this version, the tool can't tell a template change from a manual edit: the review then lists every part that
+differs, for you to check. Use `--old-reports <folder>` if the earlier findings are not in the `reports` folder next to
+`report.json` (an older scan may have them in a `markdown` folder, which is found by itself).
 
 ## 5. What to send back
 

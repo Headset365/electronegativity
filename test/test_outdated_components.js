@@ -116,7 +116,7 @@ describe('Reports folder', () => {
       fs.mkdirSync(path.join(dir, 'out'));
       const result = await run({ input: app, offline: true, output: [path.join(dir, 'out', 'report.sarif')] }, false);
       result.reports.dir.should.equal(path.join(dir, 'out', 'reports'));
-      fs.readdirSync(result.reports.dir).should.include('components.xlsx').and.include('Renderer Isolation Weakened.md');
+      fs.readdirSync(result.reports.dir).should.include('components.xlsx').and.include('Insufficient Renderer Process Isolation.md');
       // a step of a guided run leaves them out; the run writes them once
       const step = await run({ input: app, offline: true, output: [path.join(dir, 'step.json')], reports: false }, false);
       (step.reports === undefined).should.equal(true);

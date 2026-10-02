@@ -98,7 +98,15 @@ export function sensitiveTerms(input, extra = []) {
   if (resolved) {
     folders.push(resolved);
     const packaged = resolved.match(/^(.*?)[\\/](?:Contents[\\/])?resources[\\/]app(\.asar)?$/i);
-    if (packaged) folders.push(packaged[1]);
+    if (packaged) {
+      folders.push(packaged[1]);
+      // the reports name the app after its executable
+      try {
+        for (const file of fs.readdirSync(packaged[1])) if (/\.exe$/i.test(file) && !/^(uninstall|squirrel|update|elevate)/i.test(file)) add(file.replace(/\.exe$/i, ''));
+      } catch {
+        // no readable install folder
+      }
+    }
   }
   for (const folder of folders) {
     const base = path.basename(folder).replace(/\.(app|asar)$/i, '');

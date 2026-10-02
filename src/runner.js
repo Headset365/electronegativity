@@ -436,6 +436,7 @@ async function scan(options, forCli) {
   // new, unchanged or changed since an earlier JSON report (--compare), and what was fixed since
   const comparison = options.compare ? compareWithReport(reported, options.compare, options.input, suppressed) : undefined;
   const manifest = topManifest(filenames, loader) || {};
+  const appName = appNameFor(options.input, manifest);
   // the client deliverables (reports/: the findings and the components workbook) go with every run: next to the .md asked
   // for, or else the first output, or else where the caller says (the CLI: the folder it was run from). options.reports === false
   // leaves them out (each step of a guided run: the run writes them once, for all its steps).
@@ -448,7 +449,7 @@ async function scan(options, forCli) {
     await checkComponentLinks(dependencies);
   }
   const outputMeta = {
-    app: { name: manifest.productName || manifest.name, version: manifest.version },
+    app: { name: appName, version: manifest.version },
     outputs,
     suppressedByBaseline: baselineSuppressed,
     suppressed,
@@ -539,7 +540,7 @@ async function scan(options, forCli) {
   }
 
   return {
-    app: { name: manifest.productName || manifest.name, version: manifest.version },
+    app: { name: appName, version: manifest.version },
     electronVersion: electronVersion || null,
     electronVersionSource,
     globalChecks: globalChecker._enabled_checks.length,
@@ -568,6 +569,18 @@ function bundledRuntimes(releases, electronVersion, input) {
   const chromium = (release && release.chrome) || chromiumFromBinary(input);
   if (!release && !chromium) return undefined;
   return { electron: electronVersion, chromium, node: release && release.node, v8: release && release.v8, openssl: release && release.openssl };
+}
+
+// the app's name in the reports: its executable's name (MyApp.exe: MyApp), or else its package's product name
+function appNameFor(input, manifest) {
+  let binary;
+  try {
+    binary = input ? packagedBinaryFor(input) : undefined;
+  } catch {
+    binary = undefined;
+  }
+  const mac = String(binary || '').match(/([^\\/]+)\.app[\\/]/);
+  return (mac ? mac[1] : binary ? path.basename(binary).replace(/\.exe$/i, '') : undefined) || manifest.productName || manifest.name;
 }
 
 // the Chromium version written into a packaged app's executable (its user agent string)
