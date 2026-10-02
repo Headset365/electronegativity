@@ -86,7 +86,7 @@ What happens:
    - `report.html` and `report.json`: **one report of the whole run**, the static findings with what each session
      validated (marked with the session that showed it) and what the sessions found;
    - `reports\`: the client findings, one Markdown file per finding, ready for the client report (Australian English,
-     numbered reproduction steps and recommendations, the app named after its `.exe`), and `components.xlsx`, the
+     reproduction steps and recommendations as bullets, the app named after its `.exe`), and `components.xlsx`, the
      components workbook the "Outdated Software Components" finding refers to (its links are checked; any that couldn't
      be are named in its "Links to validate manually" column);
    - `testerNotes\`: for each finding, your working notes: how it was rated, every instance with its recorded evidence

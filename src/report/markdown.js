@@ -210,8 +210,9 @@ function context(meta) {
     out = out.replace(tempPattern, '');
     return home && home.length > 1 ? out.split(home).join('~') : out;
   };
-  const packaged = !!root && /[\\/]resources[\\/]app\.asar$/i.test(root);
-  return { app: meta.app?.name || 'the application', bases, scrub, packaged, outputFile: meta.outputFile, dependencies: meta.dependencies,
+  // what the scanned folder is: the archive of an installed app, its unpacked app folder, or the app's source
+  const layout = !root ? undefined : /[\\/]resources[\\/]app\.asar$/i.test(root) ? 'archive' : /[\\/]resources[\\/]app$/i.test(root) ? 'folder' : 'source';
+  return { app: meta.app?.name || 'the application', bases, scrub, layout, outputFile: meta.outputFile, dependencies: meta.dependencies,
     reportRoot: meta.reportRoot || (meta.outputFile && path.dirname(path.resolve(meta.outputFile))), outputs: meta.outputs || [] };
 }
 
@@ -360,19 +361,43 @@ function proseNotes(g, ctx) {
   return notes;
 }
 
-// Markdown blocks in a row: consecutive bullets stay one list; everything else is a paragraph of its own
-const joinBlocks = lines => lines.filter(line => line !== undefined && line !== '').reduce((out, line) =>
-  out + (out && out.split('\n').at(-1).startsWith('- ') && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();
-// a numbered list: each item's further lines indented under its number
-function numbered(items) {
-  const multiline = items.some(item => item.includes('\n'));
-  return items.map((item, n) => {
-    const marker = `${n + 1}. `;
-    return marker + item.split('\n').map((line, k) => !k || !line ? line : ' '.repeat(marker.length) + line).join('\n');
-  }).join(multiline ? '\n\n' : '\n');
+// Australian spelling for the words the checks write in US spelling, outside code: not in a code span or block, a name
+// in code (event.sanitize, ngSanitize) or a constant (NODE_TLS_REJECT_UNAUTHORIZED)
+const US_Z = /(?<![\w.$])((?:un)?(?:recogni|organi|saniti|analy|authori|minimi|normali|prioriti|characteri|randomi|customi|utili|initiali|seriali|summari|speciali|categori))z(e|es|ed|ing|ation|ations|er|ers)(?![\w(])/gi;
+const US_WORDS = /(?<![\w.$])(behavior|color|favor|honor|center|defense)(s?)(?![\w(])/gi;
+const OURS = { behavior: 'behaviour', color: 'colour', favor: 'favour', honor: 'honour', center: 'centre', defense: 'defence' };
+const keepCase = (word, to) => word[0] === word[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to;
+const australianText = value => value.replace(US_Z, (m, stem, end) => `${stem}s${end}`)
+  .replace(US_WORDS, (m, word, plural) => keepCase(word, OURS[word.toLowerCase()]) + plural);
+export function australian(markdown) {
+  return String(markdown).split(/(^ *`{3,}[\s\S]*?^ *`{3,}\s*$|`[^`\n]*`|https?:\/\/\S+|\b[A-Z0-9]+(?:_[A-Z0-9]+)+\b)/m)
+    .map((part, n) => n % 2 ? part : australianText(part)).join('');
 }
-// "that A", "that A, and that B", "that A, that B, and that C"
-const thatList = facts => facts.length === 1 ? `that ${facts[0]}` : `${facts.slice(0, -1).map(f => `that ${f}`).join(', ')}, and that ${facts.at(-1)}`;
+
+// Markdown blocks in a row: consecutive bullets (and the bullets nested in them) stay one list; everything else is a paragraph of its own
+const joinBlocks = lines => lines.filter(line => line !== undefined && line !== '').reduce((out, line) =>
+  out + (out && /^ *- /.test(out.split('\n').at(-1)) && line.startsWith('- ') ? '\n' : '\n\n') + line, '').trim();
+// a bulleted list: each item's further lines (code, screenshots) indented under it
+function bullets(items) {
+  const multiline = items.some(item => item.includes('\n'));
+  return items.map(item => `- ${item.split('\n').map((line, k) => !k || !line ? line : `  ${line}`).join('\n')}`).join(multiline ? '\n\n' : '\n');
+}
+// "that A", "that A, and that B", "that A, that B, and that C"; facts with the same subject name it once ("that the
+// handler for the `run` channel does not validate…, and passes…")
+const VERB = /^(?:does|do|is|are|was|were|passes|pass|allows|accepts|uses|grants|never|has|have|can|reaches|comes|runs|exposes|serves|loads|opens|keeps|leaves|writes|starts)\b/;
+function thatList(facts) {
+  if (facts.length === 1) return `that ${facts[0]}`;
+  const words = facts.map(f => f.split(' '));
+  let shared = 0;
+  while (words.every(w => w.length > shared + 1 && w[shared] === words[0][shared])) shared++;
+  // back to where every fact continues with its verb
+  while (shared > 0 && !words.every(w => VERB.test(w[shared]))) shared--;
+  if (shared >= 2) {
+    const rests = words.map(w => w.slice(shared).join(' '));
+    return `that ${words[0].slice(0, shared).join(' ')} ${rests.length === 2 ? rests.join(', and ') : `${rests.slice(0, -1).join(', ')}, and ${rests.at(-1)}`}`;
+  }
+  return `${facts.slice(0, -1).map(f => `that ${f}`).join(', ')}, and that ${facts.at(-1)}`;
+}
 // a runtime result recorded against a static finding, as client text: the confirmed and observed ones
 const validatedFacts = i => unique(validationResults(i).filter(r => ['confirmed', 'observed'].includes(r.status) && r.text)
   .map(r => runtimeFact({ id: 'RUNTIME_VALIDATION', description: r.text })));
@@ -445,8 +470,14 @@ function reproductionSteps(g, ctx, parts) {
     if (!locations.has(key)) locations.set(key, []);
     locations.get(key).push(i);
   }
-  const fromArchive = ctx.packaged && staticOnes.some(i => place(i, ctx) && !/\.(exe|dll|node)$/i.test(i.file));
-  if (fromArchive) steps.push(`Extract the application archive ${codeSpan('resources\\app.asar')} from the installation folder of ${app}, for example with ${codeSpan('npx @electron/asar extract "resources\\app.asar" app')}. The file paths below are relative to the extracted folder.`);
+  // where the files the steps open are
+  const inApp = staticOnes.some(i => place(i, ctx) && !/^[a-z][\w+.-]*:\/\//i.test(i.file) && !/\.(exe|dll|node)$/i.test(i.file));
+  const orientation = !inApp ? undefined : {
+    archive: `Extract the application archive ${codeSpan('resources\\app.asar')} from the installation folder of ${app}, for example with ${codeSpan('npx @electron/asar extract "resources\\app.asar" app')}. The file paths below are relative to the extracted folder.`,
+    folder: `Open the application folder ${codeSpan('resources\\app')} in the installation folder of ${app}. The file paths below are relative to it.`,
+    source: `Obtain the source code of ${app}. The file paths below are relative to its root folder.`,
+  }[ctx.layout];
+  if (orientation) steps.push(orientation);
   const facts = [];
   // code shown in an earlier step is not shown again
   const shownCode = new Set();
@@ -481,7 +512,7 @@ function reproductionSteps(g, ctx, parts) {
     const images = screenshotsOf(i).map(file => image(file, ctx));
     facts.push(`During testing, ${text(fact, ctx, 1000)}.${images.length ? `\n\n${images.join('\n\n')}` : ''}`);
   }
-  const room = MAX_STEPS - (fromArchive ? 1 : 0);
+  const room = MAX_STEPS - (orientation ? 1 : 0);
   steps.push(...facts.slice(0, room));
   return { steps, more: facts.length > room };
 }
@@ -504,7 +535,12 @@ function renderGroup(g, ctx) {
     entry.accepted = entry.accepted && !!i.suppression;
     affected.set(where, entry);
   }
-  const places = [...affected].map(([where, entry]) => `- ${where} — ${unique(entry.labels).join('; ')}${entry.accepted ? ' (accepted risk)' : ''}`);
+  // one scenario on the location's line; several listed under it
+  const places = [...affected].map(([where, entry]) => {
+    const labels = unique(entry.labels);
+    const accepted = entry.accepted ? ' (accepted risk)' : '';
+    return labels.length > 1 ? `- ${where}${accepted}\n${labels.map(label => `  - ${label}`).join('\n')}` : `- ${where} — ${labels[0]}${accepted}`;
+  });
 
   // the limits of testing, once; what testing confirmed or what the application blocked qualifies it
   const confirmed = parts.shown.some(isConfirmed) || parts.supporting.some(isConfirmed);
@@ -551,11 +587,11 @@ function renderGroup(g, ctx) {
     `*Note:* ${note}`,
     '## Reproduction and Evidence',
     ...(preconditions.length ? [`The following preconditions apply: ${preconditions.join(' ')}`] : []),
-    ...(steps.length ? ['The issue can be reproduced as follows:', numbered(steps)]
+    ...(steps.length ? ['The issue can be reproduced as follows:', bullets(steps)]
       : validatedOnly ? ['No instance of this issue was validated at runtime during testing. The locations identified through review of the application code are listed under Affected.']
         : [`The locations listed under Affected were identified through review of ${app}.`]),
     ...(more ? ['Further instances are listed under Affected.'] : []),
-    '## Recommendations', numbered(recommendations),
+    '## Recommendations', bullets(recommendations),
     ...(examples.length ? [`The following example${examples.length === 1 ? ' illustrates' : 's illustrate'} the recommended approach:`,
       ...examples.map(example => codeBlock(example, exampleLanguage(example), ''))] : []),
     '## References', ...references];
@@ -624,7 +660,7 @@ export function renderClientFindings(issues, meta = {}) {
   return groupClientFindings(all).map(g => {
     const file = findingFileName(g.definition[0]);
     const ctx = context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile });
-    return { title: g.definition[0], file, content: `${renderGroup(g, ctx)}\n` };
+    return { title: g.definition[0], file, content: `${australian(renderGroup(g, ctx))}\n` };
   });
 }
 
@@ -637,11 +673,11 @@ export function renderTesterNotes(issues, meta = {}) {
   const notes = groupClientFindings(all).map(g => {
     const file = testerNotesFileName(g.definition[0]);
     const ctx = context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile });
-    return { title: g.definition[0], file, content: `${testerNotesDocument(g, ctx, findingFileName(g.definition[0]))}\n` };
+    return { title: g.definition[0], file, content: `${australian(testerNotesDocument(g, ctx, findingFileName(g.definition[0])))}\n` };
   });
   const file = findingFileName(COVERAGE_TITLE);
   const coverage = coverageDocument(all, context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile }));
-  if (coverage) notes.push({ title: COVERAGE_TITLE, file, content: coverage });
+  if (coverage) notes.push({ title: COVERAGE_TITLE, file, content: australian(coverage) });
   return notes;
 }
 
@@ -772,5 +808,5 @@ export function combineRuns(runs) {
 export function renderClientMarkdown(issues, meta = {}) {
   const ctx = context(meta);
   const groups = groupClientFindings([...issues, ...(meta.suppressed || [])]);
-  return groups.length ? `${groups.map(g => renderGroup(g, ctx)).join('\n\n')}\n` : `No reportable findings were identified in ${text(ctx.app, ctx)}.\n`;
+  return groups.length ? `${groups.map(g => australian(renderGroup(g, ctx))).join('\n\n')}\n` : `No reportable findings were identified in ${text(ctx.app, ctx)}.\n`;
 }

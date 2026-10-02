@@ -137,19 +137,38 @@ describe('Client findings in house style', () => {
     }
   });
 
-  it('is written in Australian English', () => {
+  it('is written in Australian English, the tester notes too', () => {
     const american = /\b\w*(sanitiz|organiz|behavior|authoriz|analyz|randomiz|recogniz|minimiz|prioritiz|utiliz|customiz|centraliz|characteriz|color|honor|favor|center|defense|catalog\b)\w*/i;
     for (const { title, content } of findings) prose(content).should.not.match(american, title);
+    // the checks' own descriptions (\"no rejecting input guard was recognized\") are respelt; code and constants are not
+    const notes = renderTesterNotes([issue('IPC_HANDLER_JS_CHECK', { description: "IPC handler: 'run' uses processes; no rejecting input guard was recognized; NODE_TLS_REJECT_UNAUTHORIZED, ngSanitize" })], META)[0].content;
+    notes.should.include('was recognised;').and.include('NODE_TLS_REJECT_UNAUTHORIZED, ngSanitize');
+    for (const { title, content } of renderTesterNotes(ISSUES, META)) content.replace(/`[^`]*`/g, '').replace(/\b[A-Z0-9]+(?:_[A-Z0-9]+)+\b/g, '').should.not.match(american, title);
   });
 
-  it('keeps the parts of a finding in order, with numbered steps and recommendations', () => {
+  it('names a shared subject once, nests several scenarios under one location, and says where the files are', () => {
+    const [ipc] = renderClientFindings([issue('IPC_SENDER_VALIDATION_JS_CHECK', { file: '/client/src/main.js', properties: { channel: 'run' } }),
+      issue('IPC_HANDLER_JS_CHECK', { file: '/client/src/main.js', description: "IPC handler: 'run' uses processes with arguments from the page (command)", properties: { channel: 'run' } })],
+    { root: '/client/src', app: { name: 'Client' } });
+    ipc.content.should.include('This shows that the handler for the `run` channel does not validate the sender of the message before acting on it, and passes values');
+    ipc.content.should.match(/^- `main\.js:12` — channel `run`\n {2}- Message sender not validated\n {2}- Message arguments not validated$/m);
+    ipc.content.should.include('- Obtain the source code of Client. The file paths below are relative to its root folder.');
+    const unpacked = renderClientFindings([issue('NODE_INTEGRATION_JS_CHECK', { file: '/opt/Client/resources/app/main.js' })], { root: '/opt/Client/resources/app', app: { name: 'Client' } })[0].content;
+    unpacked.should.include('- Open the application folder `resources\\app` in the installation folder of Client.');
+    // facts without a common subject keep their own
+    const isolation = renderClientFindings([issue('NODE_INTEGRATION_JS_CHECK'), issue('CONTEXT_ISOLATION_JS_CHECK')], META)[0].content;
+    isolation.should.include('that Node.js integration is enabled for the window, and that context isolation is disabled for the window');
+  });
+
+  it('keeps the parts of a finding in order, with steps and recommendations as bullets, never numbered', () => {
     for (const { title, content } of findings) {
       const headings = [...content.matchAll(/^## (.+)$/gm)].map(m => m[1]);
       headings.should.deep.equal(['Issue Description', 'Affected', 'Implication', 'Reproduction and Evidence', 'Recommendations', 'References'], title);
       const front = YAML.parse(content.split(/^---$/m)[1]);
       Object.keys(front).filter(key => key !== 'Notes').should.deep.equal(['Title', 'GeneratedBy', 'Consequence', 'Likelihood'], title);
       if (title === 'Outdated Software Components') continue;
-      content.split('## Recommendations\n')[1].should.match(/^\s*1\. /, title);
+      content.split('## Recommendations\n')[1].should.match(/^\s*- /, title);
+      content.should.not.match(/^ *\d+\. /m, title);
     }
   });
 
@@ -170,7 +189,7 @@ describe('Client findings in house style', () => {
 
   it('starts the reproduction of a packaged app by extracting its archive, and shows validated runtime results', () => {
     const isolation = findings.find(f => f.title === 'Insufficient Renderer Process Isolation').content.split('## Reproduction and Evidence')[1];
-    isolation.should.match(/1\. Extract the application archive `resources\\app\.asar`/);
+    isolation.should.match(/as follows:\n\n- Extract the application archive `resources\\app\.asar`/);
     isolation.should.include('During testing, a page ran with Node.js integration');
     isolation.should.include('![read.png](../shots/read.png)');
     const xss = findings.find(f => f.title === 'Cross-Site Scripting in Content Rendering').content.split('## Reproduction and Evidence')[1];

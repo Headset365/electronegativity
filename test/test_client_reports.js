@@ -151,9 +151,9 @@ describe('Client report outputs', () => {
     const section = (heading) => markdown.split(`## ${heading}\n`)[1].split(/^## /m)[0];
     section('Issue Description').should.include('The reviewed link comes from a document.');
     section('Implication').should.include('The client confirmed the operating system hand-off.').and.include('A recipient can click the link.');
-    section('Reproduction and Evidence').should.include('Open a shared document.').and.include('1. Click the crafted link.')
+    section('Reproduction and Evidence').should.include('Open a shared document.').and.include('- Click the crafted link.')
       .and.include('During testing, observed in the watch session.').and.include('`hand-off.png`');
-    section('Recommendations').should.include('1. Allow only the approved host.');
+    section('Recommendations').should.include('- Allow only the approved host.');
     // what the tester checks by hand, and the raw evidence, are in the tester notes
     const [notes] = renderTesterNotes(findings, { app: { name: 'Client App' } });
     for (const value of ['Observe the handler invocation.', 'GET https://example.test/open?target=custom', '/evidence/hand-off.png', 'Observed in the watch session.'])
