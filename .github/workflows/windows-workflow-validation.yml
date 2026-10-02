@@ -16,7 +16,7 @@ jobs:
         with:
           script: |
             // Only these attempts from this validation task, never other workflows.
-            for (const run_id of [37015607140, 37016737108, 37017658872, 37017990349, 37018332152]) {
+            for (const run_id of [37015607140, 37016737108, 37017658872, 37017990349, 37018332152, 37018654612]) {
               try {
                 const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id});
                 if (run.head_branch === 'validation/windows-workflows-20261002' && run.status !== 'completed') {

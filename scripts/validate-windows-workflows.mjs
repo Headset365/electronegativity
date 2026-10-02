@@ -87,7 +87,12 @@ try {
     transcript += data; fs.appendFileSync(path.join(out, 'cli-transcript.txt'), data);
     const clean = transcript.slice(promptOffset).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
     if (!clean.includes('> ')) return;
-    const q = clean.slice(clean.lastIndexOf('[validate]'));
+    // Ordinary watch messages may arrive after a question. Match actual input
+    // questions before the prompt, not simply the last [validate] message.
+    const head = clean.slice(0, clean.lastIndexOf('> '));
+    const questions = [...head.matchAll(/\[validate\]\s+(?:Fields to test|Saved-content view URL|Run \d+ cases|Send [^\r\n]*)/g)];
+    if (!questions.length) return;
+    const q = head.slice(questions.at(-1).index);
     let answer;
     if (/Fields to test/.test(q)) answer = clean.includes('/api/block/updateBlock') ? 'data' : '';
     else if (/Saved-content view URL/.test(q)) answer = status.savedView || '';
@@ -129,8 +134,17 @@ try {
     step('normal-note-save', { note: await cdp.eval(`({id:glob.getActiveContextNote()?.noteId,title:glob.getActiveContextNote()?.title,url:location.href})`), path: 'Shipped create-note command and title input; no custom payload' });
     await snapshot(cdp, 'saved-note');
   } else {
+    const skipped = await cdp.eval(`const b=[...document.querySelectorAll('button')].find(e=>e.innerText.includes('Skip & go directly')); if(b)b.click(); !!b`);
+    if (skipped) { await delay(4000); step('offline-onboarding', { skippedAccountCreation: true }); }
+    await cdp.eval(`location.hash='/notes/create/1'; true`); await delay(4000);
     await snapshot(cdp, 'ready-renderer');
     step('app-specific-workflow-prepared', { state: await cdp.eval(`({globals:Object.keys(window).filter(k=>/db|database|store|webpack/i.test(k)),buttons:[...document.querySelectorAll('button')].map(e=>e.innerText).slice(0,30)})`) });
+    const titleSelector = await cdp.eval(`const e=[...document.querySelectorAll('input,textarea')].find(e=>/title|untitled/i.test([e.placeholder,e.getAttribute('aria-label')].join(' '))); if(e){e.setAttribute('data-eng-title-input','1');e.focus();e.select();returnValue=true;} typeof returnValue!=='undefined'`);
+    if (titleSelector) {
+      await cdp.send('Input.insertText', { text: 'Disposable note ' + marker });
+      await cdp.eval(`document.querySelector('[data-eng-title-input]').blur(); true`); await delay(3000);
+      step('normal-note-save', { marker, input: 'Shipped title input, plain text only' }); await snapshot(cdp, 'saved-note');
+    } else step('normal-note-save-unavailable', { reason: 'No title editor matched; renderer snapshot retained for a reviewed app-specific driver' });
   }
   await delay(5000);
   step('native-proof-results', { proofs: rows().filter(r => r.kind === 'proof') });
@@ -145,11 +159,13 @@ try {
   status.cliExitCode = exitCode;
   for (const [i,file] of logs().entries()) fs.copyFileSync(file, path.join(out, `session-${i+1}.jsonl`));
   status.runtimeCounts = Object.fromEntries([...new Set(rows().map(r=>r.kind))].map(k=>[k,rows().filter(r=>r.kind===k).length]));
+  status.autoCampaign = { enabled: true, completed: rows().filter(r=>r.kind==='campaign-done'), sends: rows().filter(r=>r.kind==='campaign-send'), views: rows().filter(r=>r.kind==='campaign-view'), restoration: rows().filter(r=>r.kind==='campaign-restore') };
+  status.validationChecks = { earlyNativeHook: rows().some(r=>r.kind==='start' && !r.late), inspectorProof: rows().some(r=>r.kind==='proof' && r.test==='node-inspector' && r.outcome==='connected'), certificateProofRecorded: rows().some(r=>r.kind==='proof' && r.test==='certificate'), rendererInteraction: status.steps.some(s=>s.name==='normal-note-save'||s.name==='auto-campaign-completed'), autoCampaignCompletedWhereRequired: spec.id!=='siyuan'||rows().some(r=>r.kind==='campaign-done'&&r.cases===28) };
   status.shipped.codeHashAfter = await hash(installer.code); status.shipped.exeHashAfter = await hash(installer.mainExe);
   status.shipped.unchanged = status.shipped.codeHashBefore === status.shipped.codeHashAfter && status.shipped.exeHashBefore === status.shipped.exeHashAfter;
   status.completeReports = ['report.html','report.json','components.xlsx'].every(f => fs.existsSync(path.join(out,f)));
   status.finishedAt = new Date().toISOString(); persist();
-  if (exitCode !== 0 || !status.completeReports || !status.shipped.unchanged) process.exitCode = 1;
+  if (exitCode !== 0 || !status.completeReports || !status.shipped.unchanged || Object.values(status.validationChecks).some(v=>!v)) process.exitCode = 1;
 } catch (error) {
   status.error = { message: error.message, stack: error.stack }; persist(); console.error(error);
   if (cdp) { try { await snapshot(cdp, 'failure-renderer'); } catch {} cdp.close(); }
