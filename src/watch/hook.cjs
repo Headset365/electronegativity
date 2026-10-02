@@ -592,16 +592,7 @@ function instrument(electron, late) {
   let replayCounter = 0;
   // headers to leave off a re-send: hop-by-hop or ones fetch/the session set themselves. Cookies come from the session,
   // and we always set our own content-type for the rebuilt body, so both are dropped here to avoid duplicating them.
-  const SKIP_REPLAY_HEADERS = new Set(['host', 'content-length', 'connection', 'accept-encoding', 'cookie', 'content-type']);
-  const replayHeaders = (headers) => {
-    const out = {};
-    if (headers && typeof headers === 'object') for (const key of Object.keys(headers)) {
-      if (SKIP_REPLAY_HEADERS.has(key.toLowerCase())) continue;
-      const value = headers[key];
-      out[key] = Array.isArray(value) ? value.join(', ') : String(value);
-    }
-    return out;
-  };
+  const { replayHeaders } = require('./replay_headers.cjs');
   // Authorization, User-Agent, X-Client-Id and the like the app sent: kept on the replay entry so the re-send carries
   // token-in-header auth, not only session cookies. onBeforeSendHeaders fires after onBeforeRequest, so the entry exists.
   const captureHeaders = (details) => {
@@ -1048,6 +1039,7 @@ function instrument(electron, late) {
           const target = selector.select();
           if (profile.view === 'captured' && !entry?.viewURL) throw new Error('The save has no captured view URL; capture a new save from the intended view');
           write('campaign-window', { webContents: target.id, type: target.getType(), url: redact(target.getURL()) });
+          campaignWrite('campaign-request', { headerNames: Object.keys(request?.headers || {}), transport: 'app-session.fetch' });
           const resourceBase = await resourceReceiver();
           if (request) await runCampaign({ profile: { ...profile, request, resourceBase }, marker: campaignMarker, campaignId: campaignMarker, fetch: (url, options) => ses.fetch(url, options),
             fill: fillMarkerBody, view, write: campaignWrite, canary, seed });

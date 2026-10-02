@@ -134,8 +134,13 @@ try {
     status.noteId = doc.data; status.savedView = `http://127.0.0.1:${apiPort}/stage/build/app/?id=${doc.data}`; persist();
     const seed = await api('/api/block/updateBlock', { id: doc.data, dataType: 'markdown', data: 'Original disposable content' }); step('auto-campaign-seed-save', { result: seed, noteId: doc.data });
     await until(() => rows().find(r => r.kind === 'campaign-done'), 'Completed automatic campaign', 240000);
-    step('auto-campaign-completed', { done: rows().filter(r => r.kind === 'campaign-done'), sends: rows().filter(r => r.kind === 'campaign-send').length, restores: rows().filter(r => r.kind === 'campaign-restore') });
+    const delivered = rows().filter(r => r.kind === 'campaign-send' && r.ok).length;
+    const opened = rows().filter(r => r.kind === 'campaign-view' && r.opened).length;
+    const restores = rows().filter(r => r.kind === 'campaign-restore');
+    step('auto-campaign-completed', { done: rows().filter(r => r.kind === 'campaign-done'), sends: rows().filter(r => r.kind === 'campaign-send').length, delivered, opened, restores });
+    if (!delivered || !opened || !restores.some(r => r.ok)) throw Error('Campaign finished without successful delivery, viewing or restoration');
     const read = await api('/api/block/getBlockKramdown', { id: doc.data }); step('independent-restoration-readback', { result: read, originalPresent: JSON.stringify(read).includes('Original disposable content') });
+    if (read.code !== 0 || !JSON.stringify(read).includes('Original disposable content')) throw Error('Original disposable content was not restored');
     await snapshot(cdp, 'after-campaign');
   } else if (spec.id === 'trilium') {
     const url = await cdp.eval('location.href');
