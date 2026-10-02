@@ -1,0 +1,30 @@
+name: Windows Trilium scan performance
+on:
+  push:
+    branches: [validation/windows-performance-20261002]
+permissions:
+  contents: read
+jobs:
+  profile:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Pin and extract the official release
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://github.com/TriliumNext/Trilium/releases/download/v0.102.1/TriliumNotes-v0.102.1-windows-x64.zip' -OutFile trilium.zip
+          if ((Get-FileHash trilium.zip -Algorithm SHA256).Hash.ToLower() -ne 'dcba492e7c73c74f72a56077fc6e412e9dc336ea54407094ac30b5ddc5a316c5') { throw 'Digest mismatch' }
+          Expand-Archive trilium.zip trilium
+      - name: Profile the unchanged scanner for 90 seconds
+        run: node scripts/profile-windows-scan.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trilium-scan-profile
+          path: scan-profile
