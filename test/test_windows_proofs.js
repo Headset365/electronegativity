@@ -143,6 +143,7 @@ describe('Windows watch proof contracts and evidence', () => {
     const result = await powershell('$d | ConvertTo-Json -Compress', input, { run });
     assert.equal(result.status, 'observed'); assert.deepEqual(JSON.parse(call.options.env.ENG_WINDOWS_INPUT), input);
     assert.equal(Buffer.from(call.args.at(-1), 'base64').toString('utf16le').includes('Start-Process calc'), false);
+    assert.match(Buffer.from(call.args.at(-1), 'base64').toString('utf16le'), /OutputEncoding/);
   });
   it('reads only local observed ADS paths and separates absent stream from missing file and denial', () => {
     const stat = () => ({ isFile: () => true });

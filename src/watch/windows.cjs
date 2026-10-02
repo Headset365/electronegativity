@@ -7,7 +7,7 @@ const path = require('node:path');
 
 function powershell(script, data, { run = spawn, timeout = 12000 } = {}) {
   return new Promise(resolve => {
-    const preamble = "$ErrorActionPreference='Stop'; $d=ConvertFrom-Json $env:ENG_WINDOWS_INPUT; ";
+    const preamble = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $d=ConvertFrom-Json $env:ENG_WINDOWS_INPUT; ";
     const command = Buffer.from(preamble + script, 'utf16le').toString('base64');
     const child = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
       windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ENG_WINDOWS_INPUT: JSON.stringify(data) },
@@ -102,7 +102,7 @@ async function inventory(executable, write, options = {}) {
   write('windows-protocol', { status: protocols.status, errors: protocols.data?.errors, protocols: protocols.data?.protocols?.map(assessProtocol) });
 }
 function observePorts(pid, write, { interval = 10000, inspectorPort, ...options } = {}) {
-  if ((options.platform || process.platform) !== 'win32') return () => {};
+  if ((options.platform || process.platform) !== 'win32' || !Number.isInteger(pid) || pid <= 0) return () => {};
   let closed = false, busy = false;
   const seen = new Set();
   const poll = async () => {

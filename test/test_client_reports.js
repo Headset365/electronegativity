@@ -405,7 +405,7 @@ describe('Client report outputs', () => {
       file: path.join(root, 'src', 'main.js'), description: `Seen in ${path.join(root, 'src', 'main.js')} and ${path.join(os.homedir(), 'notes.txt')}` })], { app: { name: 'Acme' }, root })[0].content;
     notes.should.not.include(os.homedir());
     notes.should.include(path.sep === '\\' ? '~\\\\notes.txt' : '~/notes.txt');
-    notes.should.include('Seen in src/main.js');
+    notes.should.include(path.sep === '\\' ? 'Seen in src\\\\main.js' : 'Seen in src/main.js');
   });
 
   it('escapes what the app supplies, cuts long code and keeps code out of the finding separators', () => {
