@@ -159,3 +159,7 @@ try {
   for (const [i,file] of logs().entries()) fs.copyFileSync(file, path.join(out, `session-${i+1}.jsonl`));
   process.exitCode = 1;
 }
+// ConPTY owns native handles; after reports/logs are flushed, end the harness
+// explicitly rather than leaving the CI job alive because of terminal helpers.
+fs.writeFileSync(path.join(out, 'exit-status.json'), JSON.stringify({ exitCode: process.exitCode || 0, finishedAt: new Date().toISOString() }));
+process.exit(process.exitCode || 0);

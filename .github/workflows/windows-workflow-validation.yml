@@ -24,8 +24,38 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm install --no-save --package-lock=false node-pty@1.1.0
-      - name: Exercise the real CLI, native proofs and renderer workflows
-        run: node --max-old-space-size=6144 scripts/validate-windows-workflows.mjs ${{ matrix.app }}
+      - name: Start the real CLI and Windows workflow driver
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force workflow-results/${{ matrix.app }} | Out-Null
+          $engArgs = @('--max-old-space-size=6144', 'scripts/validate-windows-workflows.mjs', '${{ matrix.app }}')
+          $engProcess = Start-Process -FilePath (Get-Command node).Source -ArgumentList $engArgs -PassThru -RedirectStandardOutput 'workflow-results/${{ matrix.app }}/driver-stdout.log' -RedirectStandardError 'workflow-results/${{ matrix.app }}/driver-stderr.log'
+          $engProcess.Id | Set-Content 'workflow-results/${{ matrix.app }}/driver.pid'
+      - name: Wait for initial renderer or diagnostic evidence
+        shell: pwsh
+        run: |
+          for ($engTick = 0; $engTick -lt 45; $engTick++) {
+            if ((Test-Path 'workflow-results/${{ matrix.app }}/initial-renderer.json') -or (Test-Path 'workflow-results/${{ matrix.app }}/exit-status.json')) { break }
+            Start-Sleep -Seconds 4
+          }
+      - name: Upload intermediate evidence for live review
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint-${{ matrix.app }}
+          path: workflow-results/${{ matrix.app }}
+          retention-days: 1
+      - name: Wait for the workflow and verify its exit status
+        shell: pwsh
+        run: |
+          $engDeadline = (Get-Date).AddMinutes(40)
+          while (-not (Test-Path 'workflow-results/${{ matrix.app }}/exit-status.json')) {
+            if ((Get-Date) -gt $engDeadline) { throw 'Windows workflow driver timed out' }
+            Start-Sleep -Seconds 3
+          }
+          Get-Content 'workflow-results/${{ matrix.app }}/driver-stdout.log'
+          Get-Content 'workflow-results/${{ matrix.app }}/driver-stderr.log'
+          $engExit = Get-Content 'workflow-results/${{ matrix.app }}/exit-status.json' | ConvertFrom-Json
+          exit $engExit.exitCode
       - name: Upload reports and workflow evidence
         if: always()
         uses: actions/upload-artifact@v4
