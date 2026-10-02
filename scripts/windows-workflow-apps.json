@@ -1,0 +1,56 @@
+{
+  "baselineScannerCommit": "d7a48a5698d1bfd3f9004326d0c24bebc21ad51e",
+  "apps": [
+    {
+      "id": "trilium",
+      "name": "Trilium",
+      "version": "0.102.1",
+      "asset": "TriliumNotes-v0.102.1-windows-x64.zip",
+      "url": "https://github.com/TriliumNext/Trilium/releases/download/v0.102.1/TriliumNotes-v0.102.1-windows-x64.zip",
+      "sha256": "dcba492e7c73c74f72a56077fc6e412e9dc336ea54407094ac30b5ddc5a316c5",
+      "advisory": {
+        "id": "GHSA-rrr2-mp2p-9fcp",
+        "url": "https://github.com/TriliumNext/Trilium/security/advisories/GHSA-rrr2-mp2p-9fcp",
+        "summary": "Stored XSS in calendar recurrence error toasts",
+        "expectedChecks": [
+          "XSS_SINK_JS_CHECK",
+          "NODE_INTEGRATION_JS_CHECK"
+        ]
+      }
+    },
+    {
+      "id": "siyuan",
+      "name": "SiYuan",
+      "version": "3.6.0",
+      "asset": "siyuan-3.6.0-win.exe",
+      "url": "https://github.com/siyuan-note/siyuan/releases/download/v3.6.0/siyuan-3.6.0-win.exe",
+      "sha256": "ac4ae3bf3b6eee3429689717478ea5fa5692b8230d648b1d77f86052ec86feae",
+      "advisory": {
+        "id": "CVE-2026-39846",
+        "url": "https://github.com/siyuan-note/siyuan/security/advisories/GHSA-phhp-9rm9-6gr2",
+        "summary": "Stored XSS in table captions",
+        "expectedChecks": [
+          "XSS_SINK_JS_CHECK",
+          "NODE_INTEGRATION_JS_CHECK"
+        ]
+      }
+    },
+    {
+      "id": "notesnook",
+      "name": "Notesnook",
+      "version": "3.3.14",
+      "asset": "notesnook_win_x64_portable.exe",
+      "url": "https://github.com/streetwriters/notesnook/releases/download/v3.3.14/notesnook_win_x64_portable.exe",
+      "sha256": "a5eb1ae0fa2f126752e1a87dc85be85e6bbe0a9b349c58c1b05853a5c3b2bd14",
+      "advisory": {
+        "id": "CVE-2026-42090",
+        "url": "https://github.com/streetwriters/notesnook/security/advisories/GHSA-fjm8-jg78-89h4",
+        "summary": "Stored XSS in PDF export rendering",
+        "expectedChecks": [
+          "XSS_SINK_JS_CHECK",
+          "NODE_INTEGRATION_JS_CHECK"
+        ]
+      }
+    }
+  ]
+}

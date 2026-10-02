@@ -8,7 +8,9 @@ const { StringDecoder } = require('node:string_decoder');
 
 function powershell(script, data, { run = spawn, timeout = 12000 } = {}) {
   return new Promise(resolve => {
-    const preamble = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $d=ConvertFrom-Json $env:ENG_WINDOWS_INPUT; ";
+    // A parent PowerShell 7 shell can pass its module path to Windows PowerShell 5.1, hiding Get-Acl and other
+    // Windows inbox cmdlets. Add the launched interpreter's own modules without removing custom module paths.
+    const preamble = "$ErrorActionPreference='Stop'; $env:PSModulePath=$PSHOME+'\\Modules;'+$env:PSModulePath; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $d=ConvertFrom-Json $env:ENG_WINDOWS_INPUT; ";
     const command = Buffer.from(preamble + script, 'utf16le').toString('base64');
     const child = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
       windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ENG_WINDOWS_INPUT: JSON.stringify(data) },
@@ -32,12 +34,12 @@ function powershell(script, data, { run = spawn, timeout = 12000 } = {}) {
 const ACL_SCRIPT = `
 $rows=@(); foreach($p in $d.paths) {
   try {
-    $a=Get-Acl -LiteralPath $p; $aces=@($a.Access | ForEach-Object {
-      $sid=$null; try {$sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value} catch {}
+    $a=Get-Acl -LiteralPath $p; $aces=@($a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]) | ForEach-Object {
+      $sid=$_.IdentityReference.Value;
       @{sid=$sid; identity=$_.IdentityReference.Value; rights=[int64]$_.FileSystemRights; type=[string]$_.AccessControlType;
         inherited=$_.IsInherited; propagation=[string]$_.PropagationFlags; inheritance=[string]$_.InheritanceFlags}
-    }); $rows+=@{path=$p; status='observed'; owner=$a.Owner; entries=$aces}
-  } catch {$rows+=@{path=$p; status='access-error'}}
+    }); $rows+=@{path=$p; status='observed'; owner=$a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; entries=$aces}
+  } catch {$rows+=@{path=$p; status='access-error'; errorType=$_.Exception.GetType().FullName}}
 }; $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent();
 $principal=New-Object System.Security.Principal.WindowsPrincipal($identity);
 @{paths=$rows; user=$identity.Name; userSid=$identity.User.Value; groups=@($identity.Groups | ForEach-Object {$_.Value});

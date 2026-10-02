@@ -114,11 +114,13 @@ function createProofs(electron, write, { enabled = false, profile = {}, ipc, lat
   async function certificate(ses, label) {
     const nonce = crypto.randomBytes(16).toString('hex');
     let server, window;
+    const sockets = new Set();
     try {
       server = https.createServer({ key: fs.readFileSync(path.join(__dirname, 'fixtures/localhost-key.pem')), cert: fs.readFileSync(path.join(__dirname, 'fixtures/localhost-cert.pem')) }, (req, res) => {
         if (req.url !== `/${nonce}`) { res.writeHead(404); res.end(); return; }
         res.setHeader('Content-Type', 'text/plain'); res.setHeader('Content-Security-Policy', "default-src 'none'"); res.end(nonce);
       });
+      server.on('connection', socket => { sockets.add(socket); socket.once('close', () => sockets.delete(socket)); });
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
       write('proof-listener', { pid: process.pid, port: server.address().port, purpose: 'certificate' });
       const url = `https://127.0.0.1:${server.address().port}/${nonce}`;
@@ -137,7 +139,11 @@ function createProofs(electron, write, { enabled = false, profile = {}, ipc, lat
         record('certificate', body.trim() === nonce ? 'accepted' : 'inconclusive', { session: label, scope: 'chromium-navigation', selfSigned: true, toolWindow: true });
       } catch (e) { record('certificate', /CERT|SSL/i.test(e.message) ? 'blocked' : e.message === 'timeout' ? 'timeout' : 'inconclusive', { session: label, scope: 'chromium-navigation', selfSigned: true, toolWindow: true }); }
     } catch { record('certificate', 'inconclusive', { session: label, scope: 'session-network' }); }
-    finally { if (window && !window.isDestroyed()) window.destroy(); if (server) { server.closeAllConnections(); server.close(); } }
+    finally {
+      if (window && !window.isDestroyed()) window.destroy();
+      for (const socket of sockets) socket.destroy();
+      if (server) server.close();
+    }
   }
   const certificateSessions = new WeakSet();
   function queueCertificate(ses, label) {

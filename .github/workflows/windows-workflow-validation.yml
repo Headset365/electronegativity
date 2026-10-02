@@ -1,0 +1,33 @@
+name: Windows interactive upstream workflows
+on:
+  push:
+    branches: [validation/windows-workflows-20261002]
+permissions:
+  contents: read
+jobs:
+  applications:
+    name: ${{ matrix.app }} interactive Windows workflow
+    runs-on: windows-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [trilium, siyuan, notesnook]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false node-pty@1.1.0
+      - name: Exercise the real CLI, native proofs and renderer workflows
+        run: node --max-old-space-size=6144 scripts/validate-windows-workflows.mjs ${{ matrix.app }}
+      - name: Upload reports and workflow evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflows-${{ matrix.app }}
+          path: workflow-results/${{ matrix.app }}
+          if-no-files-found: error
+          retention-days: 7
