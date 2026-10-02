@@ -95,7 +95,7 @@ export class Dashboard {
     }
     if (lines.length > MAX_LINES) lines.splice(0, lines.length - MAX_LINES);
   }
-  transition() { this.epoch++; this.focus = undefined; this.input = ''; }
+  transition() { this.epoch++; this.focus = undefined; this.input = ''; this.controls = []; }
   get prompt() { return this.localPrompt || this.prompts[0]; }
   receive(message) {
     switch (message.type) {
@@ -110,10 +110,12 @@ export class Dashboard {
         this.session = message.number || this.session + 1; this.phase = `Starting session ${this.session}…`;
         this.sessions.push({ number: this.session, state: 'Starting' }); break;
       case 'session-live':
-        this.live = true; this.phase = `Session ${this.session || 1}: observing app`;
+        this.live = true; this.connection = 'waiting for observer'; this.phase = `Session ${this.session || 1}: app running; waiting for observer…`;
         if (this.sessions.length) this.sessions.at(-1).state = 'Observing'; break;
+      case 'observer-ready':
+        this.connection = 'connected'; this.phase = `Session ${this.session || 1}: observer connected${message.electron ? ` (Electron ${message.electron})` : ''}`; break;
       case 'session-ended':
-        this.live = false; this.activeCampaign = false; this.localPrompt = undefined;
+        this.live = false; this.connection = 'disconnected'; this.activeCampaign = false; this.localPrompt = undefined;
         if (this.sessions.length) this.sessions.at(-1).state = 'Ended';
         for (const item of this.campaigns.values()) if (['ready', 'reviewing', 'running', 'waiting'].includes(item.status)) {
           item.status = item.status === 'running' ? 'incomplete' : 'expired'; item.reason = 'Session ended; its captured requests can no longer be run.';
@@ -261,7 +263,7 @@ export class Dashboard {
     }
     put(0, ' ELECTRONEGATIVITY  |  Windows PowerShell  |  keyboard + mouse');
     put(1, ` ${this.phase}`);
-    put(2, ` Target: ${this.target || 'Resolving command…'}`);
+    put(2, ` Target: ${this.target || 'Resolving command…'}${this.connection ? ` | ${this.connection}` : ''}`);
     put(3, this.counts ? ` Findings: HIGH ${this.counts.high} | MEDIUM ${this.counts.medium} | LOW ${this.counts.low} | INFO ${this.counts.info}` : ' Findings: waiting for scan results');
     const left = Math.max(28, Math.min(44, Math.floor(width * 0.34))), right = width - left - 3;
     this.leftWidth = left;

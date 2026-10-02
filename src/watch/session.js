@@ -97,6 +97,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
     const servicePorts = new Set();
     const toolPorts = new Set();
     const stopFollowing = followLog(logFile, record => {
+      if (record.kind === 'start') tuiEvent('observer-ready', { electron: record.electron });
       assistant.handle(record);
       if (record.kind === 'proof-listener') toolPorts.add(`${record.pid}:${record.port}`);
       if (prove && record.kind === 'windows-listener' && !record.toolInspector && !toolPorts.has(`${record.pid}:${record.port}`) && !servicePorts.has(record.port)) {

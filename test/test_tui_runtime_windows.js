@@ -63,6 +63,8 @@ describe('Windows TUI with real Electron', function () {
           messages.push(message);
           if (message.type !== 'prompt') return;
           const task = (async () => {
+            // The worker message precedes the dashboard's next frame; click only after the new controls are drawn.
+            await pause(100);
             if (message.kind === 'session') {
               input.write('\r\r'); // neither keypress may start another session
               await pause(100);

@@ -57,6 +57,17 @@ describe('Windows PowerShell TUI', function () {
     click(ui, 'campaign:2'); assert.equal(answers.length, 2);
   });
 
+  it('ignores mouse hit targets from a previous frame until the new prompt has been drawn', () => {
+    const { ui, answers } = model();
+    ui.receive({ type: 'prompt', id: 1, kind: 'confirm', question: 'First?' }); ui.render();
+    const oldButton = ui.controls.find(control => control.id === 'approve');
+    click(ui, 'approve');
+    ui.receive({ type: 'prompt', id: 2, kind: 'confirm', question: 'Second?' });
+    ui.handle({ key: 'mouse', button: 0, x: oldButton.x + 1, y: oldButton.y });
+    assert.equal(answers.length, 1);
+    click(ui, 'approve'); assert.equal(answers.length, 2);
+  });
+
   it('expires offers and clears text input when the session closes', () => {
     const { ui, answers } = model();
     ui.receive({ type: 'session-start', number: 1 }); ui.receive({ type: 'session-live' });

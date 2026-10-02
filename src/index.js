@@ -44,7 +44,7 @@ async function main() {
     .option(__('excludeChecksOption'), __('excludeChecksOptionDescription'))
     .option(__('severityOption'), __('severityOptionDescription'))
     .option(__('confidenceOption'), __('confidenceOptionDescription'))
-    .option(__('outputOption'), __('outputOptionDescription'))
+    .option(__('outputOption').replace('<filename>', '<filenames...>'), __('outputOptionDescription'))
     .option(__('relativeOption'), __('relativeOptionDescription'))
     .option(__('verboseOption'), __('verboseOptionDescription'))
     .option(__('upgradeOption'), __('upgradeOptionDescription'))
@@ -103,6 +103,8 @@ async function main() {
     .parse(process.argv);
 
   const options = program.opts();
+  // Windows PowerShell versions can pass an unquoted comma list as one spaced value or several native arguments.
+  if (options.output) options.output = splitOutputs(options.output).join(',');
   if (options.tui && !isTuiWorker) {
     const { runDashboard } = await import('./tui/dashboard.js');
     const result = await runDashboard(process.argv.slice(2));
