@@ -9,6 +9,25 @@ function rendererObserver(marker, OBSERVER_KEY, removable = false) {
       var inspect = function (node) {
         if (!node || node.nodeType !== 1) return;
         if (node.tagName === 'SCRIPT' && (node.src || (node.textContent || '').trim())) push({ type: 'script', detail: node.src ? 'src' : 'inline' });
+        // frames: what they show, whether they share this page's origin (srcdoc and same-origin src do), their sandbox,
+        // and the external scripts a srcdoc document loads (they run in this origin too). Read-only.
+        if (node.tagName === 'IFRAME') {
+          try {
+            var hasDoc = node.hasAttribute('srcdoc');
+            var src = node.getAttribute('src') || '';
+            var origin = '';
+            try { origin = src ? new URL(src, location.href).origin : ''; } catch (e) {}
+            var sameOrigin = hasDoc || origin === location.origin;
+            var sandbox = node.hasAttribute('sandbox') ? node.getAttribute('sandbox') : null;
+            var scripts = [];
+            if (hasDoc) {
+              var html = node.getAttribute('srcdoc') || '', re = /<script[^>]*\\ssrc\\s*=\\s*["']?(https?:)?\\/\\/([^\\/"'\\s>]+)/gi, found;
+              while ((found = re.exec(html)) && scripts.length < 5) if (scripts.indexOf(found[2]) === -1) scripts.push(found[2]);
+            }
+            if (hasDoc || sameOrigin || (src && sandbox === null && !/^(about|data|blob):/i.test(src)))
+              push({ type: 'iframe', detail: JSON.stringify({ content: hasDoc ? 'srcdoc' : 'src', origin: hasDoc ? location.origin : origin, sameOrigin: sameOrigin, sandbox: sandbox, scripts: scripts }) });
+          } catch (e) {}
+        }
         var attrs = node.attributes || [];
         for (var i = 0; i < attrs.length; i++) {
           var a = attrs[i];

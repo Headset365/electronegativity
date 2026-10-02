@@ -10,7 +10,7 @@ import { packagedBinaryFor, readFuseWire, fuseBinaryFor } from '../watch/fuses.j
 import { parsePe, findResources, isPe } from './pe.js';
 import { machoInfo } from './macho.js';
 import { elfInfo } from './elf.js';
-import { verifySignature, VALID, NOT_SIGNED } from './signature.js';
+import { verifySignature, inconclusiveSignature, VALID, NOT_SIGNED } from './signature.js';
 
 const INTEGRITY_DOCS = 'https://www.electronjs.org/docs/latest/tutorial/asar-integrity';
 const SIGNING_DOCS = 'https://www.electronjs.org/docs/latest/tutorial/code-signing';
@@ -143,6 +143,10 @@ export function analyzeBinary(input, { executable = appExecutableFor(input), pla
     if (signature.status === NOT_SIGNED)
       issues.push(issue('CODE_SIGNING', executable, severity.MEDIUM, confidence.CERTAIN,
         `${name} is not code-signed (${signature.message}): users and the OS cannot tell a genuine copy from a modified one, and SmartScreen / Gatekeeper warn`, { status: signature.status }, SIGNING_DOCS));
+    else if (inconclusiveSignature(signature))
+      issues.push(issue('CODE_SIGNING', executable, severity.INFORMATIONAL, confidence.TENTATIVE,
+        `${name} carries a signature${signature.signer ? ` by ${signature.signer}` : ''}, but the operating system could not finish verifying it (${signature.status}${signature.message ? `: ${signature.message}` : ''}); this is often an offline or locked-down machine. Verify the signature on a connected workstation`,
+        { status: signature.status, signer: signature.signer, verifiedBy: signature.verifiedBy, inconclusive: true }, SIGNING_DOCS));
     else if (signature.verifiedBy !== 'none' && signature.status !== VALID) {
       const tampered = signature.status === 'HashMismatch' || /modified|invalid/i.test(signature.message);
       issues.push(issue('CODE_SIGNING', executable, tampered ? severity.HIGH : severity.MEDIUM, confidence.CERTAIN,
@@ -191,8 +195,12 @@ export function updateConfigIssues(resources, { signed = false } = {}) {
     entry.sample = `url: ${url}`;
     out.push(entry);
   }
-  if (!/^\s*publisherName:/m.test(text) && !signed)
+  // electron-updater on Windows checks a downloaded installer's signature against publisherName from this file, and
+  // skips the check when it is missing, whether or not the app itself is signed (a custom signing script leaves it out)
+  const provider = (text.match(/^\s*provider:\s*['"]?([\w-]+)/m) || [])[1];
+  if (!/^\s*publisherName:/m.test(text))
     out.push(issue('UPDATE_SECURITY_PACKAGED', file, severity.MEDIUM, confidence.FIRM,
-      'app-update.yml names no publisherName and the app is not signed: electron-updater has no signer to check downloaded updates against', {}, reference));
+      signed ? 'app-update.yml names no publisherName: electron-updater does not check the signature of the installers it downloads on Windows (the app itself is signed, but nothing ties an update to that signer); only the hash from the same update feed protects them'
+        : 'app-update.yml names no publisherName and the app is not signed: electron-updater has no signer to check downloaded updates against', { provider, signed }, reference));
   return out;
 }

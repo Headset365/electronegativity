@@ -2,7 +2,7 @@
 // types it registers (deep links and file associations: entry points for content from outside the app).
 import path from 'node:path';
 import { severity, confidence } from '../finder/attributes.js';
-import { verifySignature, NOT_SIGNED, VALID } from '../binary/signature.js';
+import { verifySignature, inconclusiveSignature, NOT_SIGNED, VALID } from '../binary/signature.js';
 
 const issue = (id, file, sev, conf, description, properties, reference) => ({
   file, sample: '', location: { line: 0, column: 0 }, id, description, properties, shortenedURL: reference, severity: sev, confidence: conf,
@@ -19,6 +19,10 @@ export function installerIssues(unpacked, { signing = true, platform, run } = {}
     if (signature.status === NOT_SIGNED)
       issues.push(issue('CODE_SIGNING', file, severity.MEDIUM, confidence.CERTAIN, `The installer ${name} is not code-signed: users cannot tell it from a modified copy, and SmartScreen warns`,
         { status: signature.status, installer: true }, 'https://www.electronjs.org/docs/latest/tutorial/code-signing'));
+    else if (inconclusiveSignature(signature))
+      issues.push(issue('CODE_SIGNING', file, severity.INFORMATIONAL, confidence.TENTATIVE,
+        `The installer ${name} carries a signature${signature.signer ? ` by ${signature.signer}` : ''}, but the operating system could not finish verifying it (${signature.status}${signature.message ? `: ${signature.message}` : ''}); verify it on a connected workstation`,
+        { status: signature.status, signer: signature.signer, installer: true, inconclusive: true }, 'https://www.electronjs.org/docs/latest/tutorial/code-signing'));
     else if (signature.verifiedBy !== 'none' && signature.status !== VALID)
       issues.push(issue('CODE_SIGNING', file, signature.status === 'HashMismatch' ? severity.HIGH : severity.MEDIUM, confidence.CERTAIN,
         `The installer ${name}: the operating system reports the signature as ${signature.status}${signature.message ? `: ${signature.message}` : ''}`, { status: signature.status, signer: signature.signer, installer: true },

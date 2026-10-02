@@ -775,7 +775,7 @@ const bindingCache = new WeakMap();
 
 function requiredModule(node) {
   if (isCall(node) && node.callee.type === 'Identifier' && node.callee.name === 'require') return literalValue(node.arguments[0]);
-  if (isCall(node) && /^(?:__importDefault|__importStar)$/.test(node.callee.name || '') && node.arguments.length === 1) return requiredModule(node.arguments[0]);
+  if (isCall(node) && /^(?:__importDefault|__importStar|__toESM|_interopRequireDefault|_interopRequireWildcard)$/.test(node.callee.name || '') && node.arguments.length === 1) return requiredModule(node.arguments[0]);
   // await import('m')
   if (node && node.type === 'AwaitExpression') return requiredModule(node.argument);
   if (node && node.type === 'ImportExpression') return literalValue(node.source);

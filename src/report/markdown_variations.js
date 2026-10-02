@@ -51,6 +51,8 @@ export const VARIATIONS = {
       'Trace the channel to its handler and check event.senderFrame.url against a live sender.'],
     ['Arguments or file paths trusted', /^(IPC_HANDLER|IPC_FILE_ACCESS)/,
       'Inspect the handler body and exercise a benign out-of-scope argument in an authorised test.'],
+    ['Privileged procedure exposed', /^IPC_RPC_PROCEDURE/,
+      'List the procedures behind the RPC channel, and call one with a benign out-of-scope input from an authorised test page.'],
     ['Unused or unexpected channel', /^IPC_CHANNEL_MAP/,
       'Compare registered channels with the shipped renderer and a representative watch session.'],
   ],
@@ -97,7 +99,7 @@ export const VARIATIONS = {
       'Exercise a benign external link and redirect while recording the final URL and window settings.'],
     ['Popup or middle-click', /^(WINDOW_OPEN_HANDLER|AUXCLICK|ALLOWPOPUPS|RUNTIME_NEW_WINDOW|RUNTIME_MARKER_NEW_WINDOW)/,
       'Test a benign popup and middle-click in the affected renderer and inspect its options.'],
-    ['Embedded content', /^(WEBVIEW|IFRAME_SANDBOX|RUNTIME_WEBVIEW)/,
+    ['Embedded content', /^(WEBVIEW|IFRAME_SANDBOX|RUNTIME_WEBVIEW|RUNTIME_IFRAME)/,
       'Inspect webview attachment and iframe sandbox attributes for the actual loaded source.'],
   ],
   'Permissive Browser Permission Handling': [
@@ -109,6 +111,8 @@ export const VARIATIONS = {
   'Cross-Site Scripting in Content Rendering': [
     ['HTML sink or editor', /^(XSS_SINK|RICH_TEXT_EDITOR|RUNTIME_DOM_INJECTION|RUNTIME_HTML_ENDPOINT)/,
       'Follow a harmless unique marker from its input to the rendered sink; distinguish text from live HTML and script execution.'],
+    ['HTML built from unescaped values', /^HTML_TEMPLATE/,
+      'Put a harmless unique marker into each listed value (a title, a tag) and follow the built HTML to where it is rendered or exported.'],
     ['Sanitiser or framework bypass', /^(SANITIZER_CONFIG|ANGULAR)/,
       'Inspect the configured allowlist and the exact binding that consumes the value.'],
     ['Runtime reflection or message', /^(RUNTIME_MARKER|RUNTIME_ACTIVE_SCRIPT|RUNTIME_CAMPAIGN_SCRIPT|TRAFFIC_WS_HTML_MESSAGE|TRAFFIC_REFLECTED_INPUT)/,
@@ -129,6 +133,8 @@ export const VARIATIONS = {
       'Check the effective script-src of the tested view for unsafe-eval and repeat the campaign case.'],
   ],
   'Insecure Processing of Untrusted Documents': [
+    ['Pasted, dropped or opened content', /^RENDERER_INPUT/,
+      'Paste, drop or open a harmless file carrying a unique marker and follow it to the operation the code reaches.'],
     ['Untrusted document intake', /^DOCUMENT_PIPELINE/,
       'Identify the accepted formats, parser and isolation boundary; use a benign malformed fixture where authorised.'],
     ['Rendered conversion output', /^DOCUMENT_PIPELINE/,
@@ -159,6 +165,8 @@ export const VARIATIONS = {
       'Inspect mitigation flags in the exact shipped binary and any native modules.'],
   ],
   'Insecure Software Update Mechanism': [
+    ['Update files fetched during testing', /^RUNTIME_UPDATE_DOWNLOAD/,
+      'Note the version downloaded, and repeat later sessions against the scanned version only.'],
     ['Update feed transport', /^UPDATE_SECURITY/,
       'Inspect the packaged feed URL and observe a benign update check.', i => !/signature|downgrade|publisher/i.test(describe(i))],
     ['Update signature or publisher', /^UPDATE_SECURITY/,

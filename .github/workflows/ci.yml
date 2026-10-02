@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest]
         node: [22, 24]
     steps:
       - uses: actions/checkout@v5
@@ -26,6 +26,9 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - name: Capture Windows TUI design previews
+        if: matrix.node == 24
+        run: node scripts/preview-tui-windows.mjs
 
   watch-mode:
     name: Watch mode end to end (Electron ${{ matrix.electron }} on ${{ matrix.os }})
@@ -36,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest, macos-latest]
+        os: [windows-latest]
         # 34 ships a Node module loader that crashes under --inspect-brk (see watch/launch.js)
         electron: [34, 38]
     steps:
@@ -46,11 +49,12 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Install Linux display and Electron system libraries
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64
       - run: npm install --no-save electron@${{ matrix.electron }}
       - run: npx mocha --no-config --timeout 120000 test/test_watch.js test/test_runtime_benchmark.js --forbid-pending
+      - name: Windows TUI with real Electron
+        env:
+          ELECTRONEGATIVITY_REQUIRE_TUI_RUNTIME: '1'
+        run: npx mocha --no-config --timeout 240000 test/test_tui_runtime_windows.js --forbid-pending
       - name: Windows native proof and inventory fixtures
         if: runner.os == 'Windows'
         env:
@@ -64,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [windows-latest]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

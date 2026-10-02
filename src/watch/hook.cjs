@@ -892,6 +892,9 @@ function instrument(electron, late) {
   safely(() => {
     require('./update-observer.cjs').observeUpdater(electron.autoUpdater, write);
   });
+  safely(() => {
+    require('./update-observer.cjs').observeUpdateTraffic(electron.net, write);
+  });
   // where the app keeps its profile (cookies, web storage): reviewed after the session for data at rest. Read when the
   // app is ready, after any app.setPath('userData') of its own.
   app.whenReady().then(() => safely(() => {

@@ -105,7 +105,9 @@ async function inventory(executable, write, options = {}) {
   const protocols = await powershell(PROTOCOL_SCRIPT, { executable }, options);
   write('windows-protocol', { status: protocols.status, errors: protocols.data?.errors, protocols: protocols.data?.protocols?.map(assessProtocol) });
 }
-function observePorts(pid, write, { interval = 10000, inspectorPort, ...options } = {}) {
+// the debugging ports the tool itself opened (the Node inspector, a --remote-debugging-port): a portable app's launcher
+// starts the real app as a child process, so the port is matched in the whole process tree, not only the launched pid
+function observePorts(pid, write, { interval = 10000, inspectorPort, toolPorts = [], ...options } = {}) {
   if ((options.platform || process.platform) !== 'win32' || !Number.isInteger(pid) || pid <= 0) return () => {};
   let closed = false, busy = false;
   const seen = new Set();
@@ -116,7 +118,7 @@ function observePorts(pid, write, { interval = 10000, inspectorPort, ...options 
     if (result.status !== 'observed') { if (!seen.has(result.status)) { seen.add(result.status); write('windows-ports', { status: result.status }); } return; }
     for (const row of result.data.listeners || []) {
       const key = JSON.stringify(row); if (seen.has(key)) continue; seen.add(key);
-      write('windows-listener', { ...row, toolInspector: row.pid === pid && row.port === inspectorPort });
+      write('windows-listener', { ...row, toolInspector: row.transport === 'tcp' && (row.port === inspectorPort || toolPorts.includes(row.port)) });
     }
   };
   void poll(); const timer = setInterval(poll, interval); timer.unref();

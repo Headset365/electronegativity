@@ -15,9 +15,10 @@ import { createAssistant, followLog, writeMarkerFiles } from './assistant.js';
 import { watchDebug } from './debug.js';
 import { watchDebugApp } from './debug_launch.js';
 import { inspectFeed, inspectServices } from './network-proofs.js';
-import { feedFromAppUpdate, resourcesFolder, APP_UPDATE_FILE } from './app-update.js';
+import { feedFromAppUpdate, feedFromCode, resourcesFolder, APP_UPDATE_FILE } from './app-update.js';
 import { logoutCheck } from './logout.js';
 import { createRequire } from 'node:module';
+import { isTuiWorker, tuiEvent } from '../tui/bridge.js';
 const { validateProfile } = createRequire(import.meta.url)('./proof-profile.cjs');
 
 export function parseHeaders(list = []) {
@@ -87,6 +88,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
       commandsFile = path.join(logDir, 'commands.jsonl');
       fs.writeFileSync(commandsFile, '');
       assistant.useChannel({ confirm: logout ? undefined : confirm, ask: logout ? undefined : confirm?.ask, cancel: typeof confirm?.cancel === 'function' ? () => confirm.cancel() : undefined,
+        offer: logout ? undefined : confirm?.offer, onCampaign: confirm?.onCampaign,
         send: (command) => { try { fs.appendFileSync(commandsFile, JSON.stringify(command) + '\n'); } catch { /* best effort */ } } });
       if (campaign?.mode === 'request' || campaign?.mode === 'docx')
         fs.appendFileSync(commandsFile, JSON.stringify({ kind: 'run-campaign', profile: campaign }) + '\n');
@@ -95,6 +97,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
     const servicePorts = new Set();
     const toolPorts = new Set();
     const stopFollowing = followLog(logFile, record => {
+      if (record.kind === 'start') tuiEvent('observer-ready', { electron: record.electron });
       assistant.handle(record);
       if (record.kind === 'proof-listener') toolPorts.add(`${record.pid}:${record.port}`);
       if (prove && record.kind === 'windows-listener' && !record.toolInspector && !toolPorts.has(`${record.pid}:${record.port}`) && !servicePorts.has(record.port)) {
@@ -116,10 +119,11 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
     const headersFile = remoteHosts.length > 0 && headerNames.length > 0 ? path.join(logDir, 'remote-headers.json') : undefined;
     const remoteOptions = { remoteHosts, headerNames, headersFile };
     try {
-      const debugOptions = { target: debugTarget, duration: debugDuration, marker, active, campaign: !!campaign || autoCampaign,
+      const terminal = isTuiWorker ? { onReady: () => tuiEvent('session-live'), onOutput: (stream, text) => tuiEvent('app-output', { stream, text }) } : {};
+      const debugOptions = { ...terminal, target: debugTarget, duration: debugDuration, marker, active, campaign: !!campaign || autoCampaign,
         traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile, ...remoteOptions };
       log = debugUrl ? await watchDebug(debugUrl, debugOptions) : debugLaunch ? await watchDebugApp(located.kind === 'project' ? located.folder : located.executable,
-        { ...debugOptions, args, onNote: note => { injection = note; } }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { args, marker, active, campaign: !!campaign || autoCampaign, prove, proofConfig: proofFile, preserveLog: true, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
+        { ...debugOptions, args, onNote: note => { injection = note; } }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { ...terminal, args, marker, active, campaign: !!campaign || autoCampaign, prove, proofConfig: proofFile, preserveLog: true, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
         ...remoteOptions, onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
       logoutController?.stop();
@@ -131,6 +135,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
       }
       stopFollowing();
       if (assistant.clearChannel) assistant.clearChannel();
+      tuiEvent('session-ended');
       if ((campaign || autoCampaign || logout) && commandsFile) try { fs.unlinkSync(commandsFile); } catch { /* best effort */ }
     }
     await Promise.allSettled(serviceTasks);
@@ -147,12 +152,15 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
       if (/(?:latest[^/]*\.ya?ml|RELEASES)$/i.test(new URL(feed.url).pathname)) { if (!feeds.has(feed.url)) feeds.set(feed.url, 'observed at runtime'); }
       else records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'feed directory/provider requires an exact metadata URL in --proof-profile' });
     }
-    // an electron-builder app ships its feed in resources/app-update.yml, which the updater reads instead of setting it
-    const shipped = packagedApp ? feedFromAppUpdate(resourcesFolder({ code: staticInput, executable: packagedApp })) : undefined;
-    if (shipped?.url && !feeds.has(shipped.url)) feeds.set(shipped.url, APP_UPDATE_FILE);
-    else if (shipped?.skipped && !feeds.size) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', source: APP_UPDATE_FILE, provider: shipped.provider, reason: shipped.skipped });
+    // a feed the app sets in code overrides resources/app-update.yml: use it, or say why it can't be known; the shipped
+    // app-update.yml is the feed only when the code sets none
+    const coded = feedFromCode(staticIssues);
+    const shipped = !coded && packagedApp ? feedFromAppUpdate(resourcesFolder({ code: staticInput, executable: packagedApp })) : undefined;
+    const fallback = coded ? { ...coded, source: 'setFeedURL in the app code' } : shipped ? { ...shipped, source: APP_UPDATE_FILE } : undefined;
+    if (fallback?.url && !feeds.has(fallback.url)) feeds.set(fallback.url, fallback.source);
+    else if (fallback?.skipped && !feeds.size) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', source: fallback.source, provider: fallback.provider, reason: fallback.skipped });
     for (const [url, source] of [...feeds].slice(0, 8)) records.push({ t: Date.now(), kind: 'proof', ...await inspectFeed(url), source });
-    if (!feeds.size && !shipped?.skipped) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'no exact metadata feed observed, configured or shipped in app-update.yml' });
+    if (!feeds.size && !fallback?.skipped) records.push({ t: Date.now(), kind: 'proof', test: 'update-feed', outcome: 'skipped', reason: 'no exact metadata feed observed, configured or shipped in app-update.yml' });
     if (!proofProfile?.links?.length) records.push({ t: Date.now(), kind: 'proof', test: 'external-scheme', outcome: 'skipped', reason: 'reviewed app link route required' });
     if (!ipcProfile) records.push({ t: Date.now(), kind: 'proof', test: 'ipc', outcome: 'skipped', reason: 'separate reviewed IPC profile required' });
     for (const test of ['navigation', 'window-open', 'permission-request', 'permission-check', 'certificate']) {

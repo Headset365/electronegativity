@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { createRequire } from 'node:module';
+import { StringDecoder } from 'node:string_decoder';
 import { proveRunAsNode } from './fuses.js';
 
 const { inventory: windowsInventory, observePorts } = createRequire(import.meta.url)('./windows.cjs');
@@ -12,6 +13,19 @@ const { inventory: windowsInventory, observePorts } = createRequire(import.meta.
 const HOOK = path.join(import.meta.dirname, 'hook.cjs');
 // how long an app that has quit gets to end its process before it is closed
 const QUIT_GRACE_MS = 15000;
+// Keep UTF-8 characters and partial lines together; app output is never connected to the dashboard's terminal.
+export function pipeAppOutput(child, onOutput) {
+  for (const name of ['stdout', 'stderr']) {
+    const decoder = new StringDecoder('utf8');
+    let rest = '';
+    child[name].on('data', chunk => {
+      const lines = (rest + decoder.write(chunk)).split(/\r?\n|\r/); rest = lines.pop();
+      for (const line of lines) onOutput(name, line);
+      if (rest.length > 4096) { onOutput(name, rest.slice(0, 4096)); rest = ''; }
+    });
+    child[name].on('end', () => { const tail = rest + decoder.end(); if (tail) onOutput(name, tail); });
+  }
+}
 const exists = (file) => {
   try {
     fs.accessSync(file);
@@ -63,7 +77,7 @@ export function resolveApp(target, extraArgs = []) {
  * (--inspect-brk, on a local port), the hook is loaded through it before any of the app's code runs, and the app is
  * resumed. That needs the EnableNodeCliInspectArguments fuse, on unless the build switched it off.
  */
-export function watchApp(target, { args = [], marker, active = false, campaign = false, capture = true, traffic = true, scope = [], reveal = false, screenshots, commands, proofConfig, prove = false, preserveLog = false, remoteHosts = [], headerNames = [], headersFile, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onNote = () => {} } = {}) {
+export function watchApp(target, { args = [], marker, active = false, campaign = false, capture = true, traffic = true, scope = [], reveal = false, screenshots, commands, proofConfig, prove = false, preserveLog = false, remoteHosts = [], headerNames = [], headersFile, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onOutput, onReady = () => {}, onNote = () => {} } = {}) {
   const { command, args: commandArgs, packaged, staticInput } = resolveApp(target, args);
   if (!preserveLog) fs.writeFileSync(log, '');
   const quotedHook = HOOK.includes(' ') ? `"${HOOK}"` : HOOK;
@@ -108,10 +122,13 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
     // Electron releases, 34 among them, crash on that path: "ReferenceError: resolvedArgv is not defined".)
     const finalArgs = packaged ? [`--inspect-brk-node=127.0.0.1:${port}`, ...commandArgs] : commandArgs;
     return new Promise((resolve, reject) => {
-      const child = spawn(command, finalArgs, { env, stdio });
-      const stopPorts = observePorts(child.pid, record, { inspectorPort: port });
+      const child = spawn(command, finalArgs, { env, stdio: onOutput ? ['ignore', 'pipe', 'pipe'] : stdio });
+      if (onOutput) pipeAppOutput(child, onOutput);
+      const debugPorts = finalArgs.map(arg => String(arg).match(/^--remote-debugging-port=(\d+)$/)).filter(Boolean).map(m => Number(m[1]));
+      const stopPorts = observePorts(child.pid, record, { inspectorPort: port, toolPorts: debugPorts });
       const stop = () => child.kill();
       process.once('SIGINT', stop);
+      onReady();
       let exited = false;
       // An app that has quit (the observer recorded it) but whose process stays alive, e.g. held open by a dialog the
       // operating system showed for a link or file it was handed, would keep the session waiting for good: after a grace

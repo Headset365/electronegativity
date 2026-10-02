@@ -106,7 +106,48 @@ content reaches another user's view unneutralized, script execution not proven);
 as text. Don't filter the report to HIGH only: this finding would be hidden.
 
 The code the app's pages loaded from the server is downloaded during each session with your logged-in session and
-scanned too: findings in it point at the URL it came from.
+scanned too: findings in it point at the URL it came from. A captured file identical to one in the package (an app
+that serves its own pages through `protocol.handle('https')` or an `app://` scheme) is scanned once, as the package file;
+the console says how many.
+
+### What to look at in the results
+
+- **Electron end of life and advisories** are raised even when only the `.exe` names the Electron version (packaged apps
+  rarely have it in `package.json`): "Outdated Software Components" then includes Electron, its advisories and the
+  Chromium fixes it misses.
+- **RPC routers** (electron-trpc and similar) answer on one IPC channel. Each procedure behind it that writes or deletes
+  files, opens paths, starts processes, changes the proxy or returns decrypted secrets is listed on its own
+  (`IPC_RPC_PROCEDURE_JS_CHECK`, e.g. `osIntegrationRouter.deleteFile`), under "Insufficient Validation of
+  Inter-Process Messages".
+- **HTML built from strings**: a template literal with tags and unescaped `${…}` values (titles, tags, names) is
+  reported (`HTML_TEMPLATE_JS_CHECK`), as are the sinks such HTML usually ends in: `iframe.srcdoc`, `srcDoc` in compiled
+  React, `contentDocument.write` and `createContextualFragment`. Iframes created in compiled code without `sandbox` are
+  reported too, HIGH when the frame shows generated HTML in a window with `nodeIntegration` and no context isolation.
+  To check one, put the marker in the listed value (a note title, a tag), then use the feature that builds the HTML:
+  export, print or preview.
+- **Frames seen during a session** (`RUNTIME_IFRAME`): every frame a page showed, its origin, its sandbox and any
+  external script inside it. A frame in the app's own origin without an effective sandbox is reported.
+- **Navigation allowlists** that compare host names only (no scheme check) are reported MEDIUM: `http://` on the allowed
+  host gets through.
+- **`--prove` navigation and new-window results**: "the app opened no window of its own, but its handler passed the URL
+  to the operating system" means the in-app window was denied and the URL went to `shell.openExternal()`. That is not
+  "blocked"; check the scheme handling.
+- **Updates**: the feed check uses the address the app sets in code (`setFeedURL`) before `app-update.yml`. A missing
+  `publisherName` is reported even when the `.exe` is signed: electron-updater then checks no installer signature. If
+  the app downloads an update during a session, a note says so (later sessions may run a newer version). Turn off
+  automatic updates in the test environment where the app allows it.
+- **Cleartext addresses handed to Electron APIs** (spell-check dictionaries, `downloadURL`, `net.request`) are reported
+  with the API and address.
+- **Components workbook**: React sub-packages (`react-is`, `scheduler`) are named as themselves, not as React. pdf.js is
+  listed, with a note when the app turns off `isEvalSupported` (CVE-2024-4367 mitigated). A library found only in code
+  loaded from the app's server is marked `loaded-from-server`: the fix is a server deployment, not the installer.
+
+Less noise than before: timers given a callback are not code evaluation; paste, drop, file-picker, FileReader and
+`message` handlers are their own check (`RENDERER_INPUT_JS_CHECK`, not "Deep Links") and are informational unless the
+input reaches an operation; template credentials (`username:password@…`), routes, selectors and constant names are not
+secrets; signed download links (S3, Azure SAS, GitHub release assets) and JSON query values are not "secret in URL"; the
+tool's own debugging port is left out and UDP endpoints are summarised once; a signature Windows could not finish
+checking (`Unknown`) is informational, to verify on a connected workstation.
 
 ## 4. Useful variations
 

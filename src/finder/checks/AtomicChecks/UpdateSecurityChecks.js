@@ -18,10 +18,21 @@ export class UpdateSecurityJSCheck {
       const arg = astNode.arguments[0];
       const url = arg.type === 'ObjectExpression' ? (findProperty(arg, 'url') || [])[1] : arg;
       const value = url && constantValue(url, scope);
-      if (typeof value === 'string' && /^http:/i.test(value))
-        return [finding(this, astNode, { severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false,
-          description: `${this.description} (updates are downloaded over plain HTTP: ${value})` })];
-      return null;
+      const address = typeof value === 'string' ? value : feedTemplate(url, scope);
+      const results = [];
+      if (typeof address === 'string' && /^http:/i.test(address))
+        results.push(finding(this, astNode, { severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false,
+          description: `${this.description} (updates are downloaded over plain HTTP: ${address})` }));
+      // the feed the app really uses (it overrides resources/app-update.yml), for the --prove feed check
+      if (typeof address === 'string') {
+        const provider = arg.type === 'ObjectExpression' ? constantValue((findProperty(arg, 'provider') || [])[1], scope) : undefined;
+        const channel = arg.type === 'ObjectExpression' ? constantValue((findProperty(arg, 'channel') || [])[1], scope) : undefined;
+        results.push(finding({ id: 'UPDATE_FEED_JS_CHECK', description: __('UPDATE_FEED_JS_CHECK'), shortenedURL: 'https://www.electron.build/auto-update' }, astNode, {
+          severity: severity.INFORMATIONAL, confidence: confidence.CERTAIN, manualReview: false,
+          description: `${__('UPDATE_FEED_JS_CHECK')}: ${address}${provider ? ` (${provider} provider)` : ''}`,
+          properties: { feed: address, provider: typeof provider === 'string' ? provider : undefined, channel: typeof channel === 'string' ? channel : arg.type === 'ObjectExpression' && findProperty(arg, 'channel') ? '${channel}' : undefined } }));
+      }
+      return results.length ? results : null;
     }
     // { allowDowngrade: true } or autoUpdater.allowDowngrade = true
     const isAssignment = astNode.type === 'AssignmentExpression' && astNode.operator === '=' && memberName(astNode.left);
@@ -31,7 +42,8 @@ export class UpdateSecurityJSCheck {
       if (name === 'verifyUpdateCodeSignature' && value === false)
         return [finding(this, astNode, { severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false,
           description: `${this.description} (the code signature of Windows updates is not verified)` })];
-      if (name === 'allowDowngrade' && value === true)
+      // (this.allowDowngrade = true inside electron-updater's own classes is the library, not the app's setting)
+      if (name === 'allowDowngrade' && value === true && !(isAssignment && astNode.left.object && astNode.left.object.type === 'ThisExpression'))
         return [finding(this, astNode, { severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: true,
           description: `${this.description} (downgrades are allowed, so an older vulnerable version can be installed)` })];
     }
@@ -65,4 +77,22 @@ export class UpdateSecurityJSONCheck {
     if (build.win && build.win.verifyUpdateCodeSignature === false) report('verifyUpdateCodeSignature', severity.HIGH, 'the code signature of Windows updates is not verified');
     return issues;
   }
+}
+
+// a feed address built in code, with what can't be known before the app runs shown as ${…}:
+// `https://example.com/releases/${process.platform}/${track}` -> "https://example.com/releases/${process.platform}/${track}"
+function feedTemplate(node, scope) {
+  if (!node || node.type !== 'TemplateLiteral') return undefined;
+  let out = '';
+  node.quasis.forEach((quasi, index) => {
+    out += quasi.value.cooked ?? quasi.value.raw;
+    const expression = node.expressions[index];
+    if (!expression) return;
+    const known = constantValue(expression, scope);
+    if (typeof known === 'string' || typeof known === 'number') { out += known; return; }
+    const name = expression.type === 'Identifier' ? expression.name
+      : expression.type === 'MemberExpression' && expression.object.type === 'Identifier' ? `${expression.object.name}.${memberName(expression)}` : 'value';
+    out += `\${${name}}`;
+  });
+  return out;
 }

@@ -4,6 +4,13 @@ export function annotateShipment(rows, { packaged = false } = {}) {
   for (const row of rows) {
     const kinds = row.kinds || [];
     const present = kinds.some(k => ['node_modules', 'bundled library', 'Electron runtime'].includes(k));
+    // loaded at run time from the app's server, never installed: the fix belongs to the server-hosted front end
+    if (!present && kinds.includes('served by the app server')) {
+      row.shipment = { status: 'loaded-from-server', evidence: kinds.filter(k => k !== 'lockfile'), scope: 'server-hosted-front-end',
+        note: 'Found only in code the app loads from its server, not in the installed package; the fix is a server-side deployment.' };
+      row.dev = false;
+      continue;
+    }
     row.shipment = {
       status: present ? packaged ? 'present-in-package' : 'present-in-scanned-code' : row.dev ? 'development-metadata-only' : 'unverified',
       evidence: kinds.filter(k => k !== 'lockfile'),

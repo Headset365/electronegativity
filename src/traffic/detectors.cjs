@@ -98,6 +98,16 @@ const RULES = {
  * into one with a count and up to five evidence lines.
  * @param {{ scope?: string[] }} options scope: the app's own domains; learned from the traffic when not given
  */
+
+// the parameters of a presigned download link, and the shape that marks one: an S3 or GCS signature, or an Azure-style
+// SAS signature (sig) with its expiry (se), as GitHub's release-asset links use
+const PRESIGNED_PARAMS = /^(x-amz-[\w-]+|x-goog-[\w-]+|sig|se|sp|sv|sr|st|skoid|sktid|skt|ske|sks|skv|spr|rscd|rsct|jwt|signature|expires|key-pair-id|policy)$/i;
+function presignedUrl(names) {
+  const lower = names.map(name => String(name).toLowerCase());
+  return lower.includes('x-amz-signature') || lower.includes('x-goog-signature') || (lower.includes('sig') && lower.includes('se'))
+    || (lower.includes('signature') && lower.includes('expires') && (lower.includes('key-pair-id') || lower.includes('policy')));
+}
+
 class TrafficAnalyzer {
   constructor({ scope = [], reveal = false } = {}) {
     // --show-secrets: evidence keeps the full values instead of a redacted prefix
@@ -220,15 +230,22 @@ class TrafficAnalyzer {
   }
 
   secretInUrl(e) {
-    const hits = queryPairs(e.u).filter(([name, value]) => value && ((isSensitiveParam(name) && value.length >= 6 && !/^(true|false|null)$/i.test(value)) ||
-      looksRandomSecret(value) || findSecrets(value).some(s => !s.kind.startsWith('Hard-coded'))));
+    const pairs = queryPairs(e.u);
+    // a JSON value (an RPC call's input: ?input={"0":…}) is data; only a provider-format secret inside it counts
+    const json = (value) => /^\s*[[{]/.test(value);
+    const hits = pairs.filter(([name, value]) => value && (json(value) ? findSecrets(value).some(s => !s.kind.startsWith('Hard-coded'))
+      : (isSensitiveParam(name) && value.length >= 6 && !/^(true|false|null)$/i.test(value)) || looksRandomSecret(value) || findSecrets(value).some(s => !s.kind.startsWith('Hard-coded'))));
     if (hits.length === 0) return;
     const names = [...new Set(hits.map(([name]) => name))].sort();
     const cleartext = e.scheme === 'http';
+    // a time-limited signed link (S3/GCS presigned URL, Azure SAS, GitHub release assets): the signature belongs in the URL
+    const presigned = !cleartext && presignedUrl(pairs.map(([name]) => name)) && names.every(name => PRESIGNED_PARAMS.test(name));
     this.report('TRAFFIC_SECRET_IN_URL', `${e.host}:${names.join(',')}`, {
-      description: `The URL of requests to ${e.host}${e.path} carries secret-like parameters (${names.join(', ')})${cleartext ? ', over unencrypted http' : ''}: URLs end up in logs, history and Referer headers`,
+      description: presigned
+        ? `Requests to ${e.host}${e.path} use a time-limited signed link (${names.join(', ')}); the storage provider issues these for one download, so the signature in the URL is expected. Check only that the link expires soon`
+        : `The URL of requests to ${e.host}${e.path} carries secret-like parameters (${names.join(', ')})${cleartext ? ', over unencrypted http' : ''}: URLs end up in logs, history and Referer headers`,
       evidence: `${e.method} ${e.scheme}://${e.host}${e.path}?${hits.map(([n, v]) => `${n}=${this.show(v)}`).join('&')}`,
-      location: `${e.scheme}://${e.host}${e.path}`, severity: 'HIGH', properties: { host: e.host, params: names, cleartext } });
+      location: `${e.scheme}://${e.host}${e.path}`, severity: presigned ? 'INFORMATIONAL' : 'HIGH', properties: { host: e.host, params: names, cleartext, ...(presigned ? { presigned: true } : {}) } });
   }
 
   authToThirdParty(e) {

@@ -5,7 +5,13 @@ import { constantValue, isCall, isMember, resolveLocal, onlyConstantParts, curre
   functionDefinition, inFile, returnedValues, visit } from '../analysis.js';
 import { htmlOrigin, looksLikeHtml, ORIGINS } from '../html.js';
 
-const HTML_PROPERTIES = ['innerHTML', 'outerHTML'];
+// properties that parse their value as HTML: an iframe's srcdoc becomes a whole document in the frame, which shares the
+// window's origin (and, with nodeIntegration and no sandbox, its Node.js access through parent.require)
+const HTML_PROPERTIES = ['innerHTML', 'outerHTML', 'srcdoc'];
+// what document.write is called on: the page's document, or a frame's (iframe.contentDocument, frame.contentWindow.document)
+const DOCUMENT_OBJECTS = new Set(['document', 'contentDocument']);
+// jsx("iframe", props), React.createElement("iframe", props) and similar compiled JSX calls
+const ELEMENT_FACTORIES = new Set(['jsx', 'jsxs', '_jsx', '_jsxs', 'jsxDEV', 'createElement', 'h']);
 const JQUERY_INSERTION = ['append', 'prepend', 'before', 'after', 'replaceWith'];
 // sanitizers make the value safe to insert
 const SANITIZER_MODULES = /^(dompurify|isomorphic-dompurify|sanitize-html|escape-html|he|lodash|underscore)(\/|$)/;
@@ -28,11 +34,23 @@ export default class XssSinkJSCheck {
       sink = memberName(astNode.left);
       value = astNode.right;
     }
-    // el.insertAdjacentHTML(pos, x), document.write(x), document.writeln(x)
+    // el.insertAdjacentHTML(pos, x), document.write(x), document.writeln(x), iframe.contentDocument.write(x)
     if (isCall(astNode) && astNode.type !== 'NewExpression') {
       const method = memberName(astNode.callee);
       if (method === 'insertAdjacentHTML') { sink = method; value = astNode.arguments[1]; }
-      if ((method === 'write' || method === 'writeln') && astNode.callee.object && astNode.callee.object.name === 'document') { sink = `document.${method}`; value = astNode.arguments[0]; }
+      if ((method === 'write' || method === 'writeln') && DOCUMENT_OBJECTS.has(calleeObjectName(astNode.callee))) {
+        sink = `${calleeObjectName(astNode.callee)}.${method}`;
+        value = astNode.arguments[0];
+      }
+      // el.setAttribute('srcdoc', x) and range.createContextualFragment(x), which runs the scripts in its markup
+      if (method === 'setAttribute' && String(constantValue(astNode.arguments[0], scope)).toLowerCase() === 'srcdoc') { sink = 'srcdoc'; value = astNode.arguments[1]; }
+      if (method === 'createContextualFragment') { sink = method; value = astNode.arguments[0]; }
+      // jsx("iframe", { srcDoc: x }) in a compiled bundle
+      const factory = astNode.callee.type === 'Identifier' ? astNode.callee.name : method;
+      if (ELEMENT_FACTORIES.has(factory) && constantValue(astNode.arguments[0], scope) === 'iframe' && astNode.arguments[1] && astNode.arguments[1].type === 'ObjectExpression') {
+        const property = astNode.arguments[1].properties.find(p => p.type !== 'SpreadElement' && /^srcdoc$/i.test(keyName(p.key) || ''));
+        if (property) { sink = 'srcdoc'; value = property.value; }
+      }
       // document.execCommand('insertHTML', false, x) parses its argument as HTML
       if (method === 'execCommand' && String(constantValue(astNode.arguments[0], scope)).toLowerCase() === 'inserthtml') { sink = "execCommand('insertHTML')"; value = astNode.arguments[2]; }
       // jQuery: $el.html(x); append/prepend/before/after/replaceWith parse strings as HTML too, flag them when given built strings
@@ -54,6 +72,11 @@ export default class XssSinkJSCheck {
           if (index !== undefined) { sink = 'HTML helper'; value = astNode.arguments[index]; }
         }
       }
+    }
+    // <iframe srcDoc={x} />
+    if (astNode.type === 'JSXAttribute' && astNode.name && /^srcdoc$/i.test(astNode.name.name || '')) {
+      sink = 'srcdoc';
+      value = astNode.value && (astNode.value.type === 'JSXExpressionContainer' ? astNode.value.expression : astNode.value);
     }
     // <div dangerouslySetInnerHTML={{ __html: x }} />
     if (astNode.type === 'JSXAttribute' && astNode.name && astNode.name.name === 'dangerouslySetInnerHTML') {

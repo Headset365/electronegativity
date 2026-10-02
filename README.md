@@ -166,6 +166,7 @@ $ electronegativity -h
 |    Option    |                 Description                       |
 |:------------:|:-------------------------------------------------:|
 | -V           | output the version number                         |
+| --tui        | interactive Windows PowerShell dashboard: separate app/tool/validation logs, findings, clickable campaign controls and session review |
 | -i, --input  | input (directory, .js, .html, .asar, an installed app's folder or executable, or an installer or package: NSIS or Squirrel `.exe`, `.7z`, `.zip`, `.nupkg`) |
 | --app <location> | guided run: find the app in this install folder (or its executable), scan it, then walk through watch sessions, writing every report to one results folder. Each step writes an HTML report, or with `-o` every report named there, prefixed with the step (`-o "report.html,findings.md,components.xlsx"` gives `static-report.html`, `static-components.xlsx`, then `session-1-...`). The client Markdown (`.md`) is written once, at the end, from the static scan and every session together: one file per finding in the results folder's `markdown` folder |
 | --out <dir> | results folder for `--app` (default `electronegativity-results-<date>`) |
@@ -285,6 +286,33 @@ $ electronegativity -i ./my-app --remote https://test.example.com/ --remote-head
 ```
 
 The page, its scripts and the HTML templates and chunks the code names (AngularJS `templateUrl`, `ng-include`, lazy `import()`s) are fetched from the same site. When a script has a source map with the original sources, those are scanned instead of the minified bundle, which the checks follow far better. Findings point at the URL the file was served from, e.g. `https://test.example.com/static/app.js (source: src/editor/paste.js)`. Headers are only sent to the site given, never to third-party script hosts. Watch mode does the same automatically for the pages you open (see below). A test server whose certificate comes from an internal CA needs `NODE_EXTRA_CA_CERTS=/path/to/ca.pem` for `--remote` (watch mode downloads through the app, which already trusts it).
+
+### Windows PowerShell dashboard (`--tui`)
+
+Add `--tui` to your existing command. The same command options, output formats, remote hosts and headers, redaction, secret visibility and proof options are passed to the CLI unchanged. Use an interactive PowerShell tab in Windows Terminal, at least 77 columns by 20 rows (120 by 32 is more comfortable):
+
+```powershell
+electronegativity --tui --app "C:\Users\USER\AppData\Local\Programs\MyApp" `
+  -o "report.html,report.json" `
+  --all-files --auto-campaign --user-data auto `
+  --watch-screenshots screenshots `
+  --remote app.example.com api.example.com `
+  --remote-header Authorization Cookie `
+  --redact "USER,MyApp" `
+  --show-secrets --share-code --watch-marker ENGTEST2026 --prove
+```
+
+The dashboard opens in **Obsidian**, a charcoal, ivory and champagne theme with rounded panels, a findings/campaign/session/observer summary, a campaign sidebar and a tabbed workspace. Click the theme control or press **T** to switch to **Midnight** or **Porcelain**. It uses the existing npm installation and needs no Python runtime or additional packages.
+
+The campaign list and session history sit beside separate **Validation**, **App output**, **Tool logs** and **Findings** views. Validation includes a persistent next-action card in larger windows, so guidance stays visible above its activity log. Click a campaign card to inspect its full route, status, case count, fields and unavailable reason. **Review & run** remains an explicit action. Input, approval and session choices open in a focused dialog; background actions cannot be clicked through it. File progress, the current phase and finding counts remain visible. Logs can be scrolled without blocking observation; terminal control codes printed by an app cannot overwrite the interface.
+
+With `--auto-campaign`, save a disposable record in the app. Eligible captured saves appear as **ready: review & run**. Click that button, choose the captured content fields and saved-content view, and explicitly approve execution. Other captures stay available while you review. The list shows waiting, reviewing, running, completed, unavailable and expired states, with reasons and case progress; full reasons are also in Validation. A failed save, an unsupported body, missing replay data or an out-of-scope endpoint is displayed without offering execution. An explicit `--campaign` profile retains its existing automatic execution behavior.
+
+In guided `--app` mode without `--sessions`, the static scan and each watch session finish at a review screen. Choose **Start next session** or **Finish & write reports**. This also applies when `--prove`, `--auto-campaign` or debug options are present. An explicit `--sessions N` keeps the requested automatic session count. **End session** closes a tool-launched app (or stops an attached debug observation), then collects evidence and writes results. Ending an active campaign can leave its coverage or restoration incomplete; the dashboard asks before doing so. After the final reports are written, the dashboard stays open for review, with **Open results folder** and **Close dashboard** buttons. It preserves the CLI's exit code.
+
+Use the mouse to click buttons, campaign cards and view tabs, or Tab/Shift+Tab and arrow keys to select a control and Enter to activate it. Buttons respond across their full surface; hover and keyboard focus are visible. Select the input field before typing. Blank fields accept the displayed default only when you explicitly submit them; confirmations start on Cancel. PgUp/PgDn scroll the selected log view; select its scroll area and use Home/End for the oldest/live output. Mouse-wheel scrolling over the campaign panel browses campaign history; over a log panel it scrolls logs. Long dialog content can be read with PgUp/PgDn or the wheel. Esc cancels a campaign dialog; Ctrl+C asks to end a live session, and Q closes the completed dashboard. A new prompt has no inherited selection, and a pasted or repeated Enter cannot approve the next prompt or start the next session. Mouse support uses Windows Terminal's VT mouse reporting; keyboard navigation remains available when a terminal does not report clicks.
+
+`--tui` requires interactive terminal input and output; use the usual CLI without it for redirected output or unattended CI. Windows is the current supported TUI platform. The CLI without `--tui` keeps its existing prompts and output. Automated TUI checks run on Windows with `npm run test:tui`; Windows runtime CI also exercises the real Electron app, campaign and session controls. A hands-on Windows Terminal check is described in [docs/tui-windows.md](docs/tui-windows.md).
 
 ### Watch mode (runtime observation)
 
