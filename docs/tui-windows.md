@@ -13,3 +13,27 @@ The automated tests cover prompt identity, cancellation, stale/repeated input, m
 7. Close the app with a campaign dialog open. Its prompt and offers must expire. The session review screen must wait for an explicit Start next session or Finish choice.
 8. Start another session, then use End session. Confirm the app closes and evidence is collected. Choose Finish & write reports; open the results folder and close the dashboard. The normal cursor, input and mouse selection should return to PowerShell.
 9. Run with `--sessions 0` and `--sessions 2`: no extra manual session prompts should override those counts. Check a normal command without `--tui`, a saved `--watch-log`, and an invalid command with `--tui`; errors must remain readable and retain their CLI exit codes.
+10. Switch between Obsidian, Midnight and Porcelain with the theme button or T. Check that text, status labels and keyboard focus are legible. Moving the mouse across a button must never activate it; clicking its top, middle or bottom must select the same action.
+11. Open a campaign's details, including an unavailable capture with a long reason. Scroll long dialog text, and verify that clicking behind a dialog cannot activate a campaign or tab. At 80 by 24, session review and text input controls must stay within the window. Repeat with a target path containing accented and wide characters.
+
+`node scripts/preview-tui-windows.mjs` captures six representative screens from the actual renderer on Windows. CI includes these captures for visual review; they represent the terminal cell layout rather than a browser mockup.
+
+## Visual previews
+
+These examples use cell data captured on Windows CI. Text size and glyph shapes depend on your Windows Terminal font; the layout, colours and controls come from the application's renderer.
+
+The default Obsidian theme keeps campaign readiness and your next action visible beside the workspace:
+
+![Obsidian dashboard](resources/img/tui/obsidian-live.png)
+
+Campaign setup puts input in a focused dialog:
+
+![Content field dialog](resources/img/tui/content-fields.png)
+
+Session review waits for an explicit choice:
+
+![Session review dialog](resources/img/tui/session-review.png)
+
+The same controls remain usable in an 80-column PowerShell window:
+
+![Compact session review](resources/img/tui/compact-review.png)

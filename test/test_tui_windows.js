@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import { Dashboard, TerminalInput, cleanText, launchWorker, runDashboard } from '../src/tui/dashboard.js';
 import { createAssistant } from '../src/watch/assistant.js';
 import { pipeAppOutput } from '../src/watch/launch.js';
+import { textWidth } from '../src/tui/surface.js';
 
 const { inspectBody } = createRequire(import.meta.url)('../src/watch/capture.cjs');
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -101,9 +102,50 @@ describe('Windows PowerShell TUI', function () {
     assert.equal(ui.render(60, 12).length, 12);
     assert.match(ui.render(60, 12).join('\n'), /Resize Windows Terminal/);
     const lines = ui.render(80, 24);
-    assert.equal(lines.length, 24); assert.ok(lines.every(line => line.length <= 79));
+    assert.equal(lines.length, 24); assert.ok(lines.every(line => textWidth(line) <= 79));
     for (const tab of ['Validation', 'App output', 'Tool logs', 'Findings']) assert.ok(ui.controls.some(control => control.id === `tab:${tab}`));
     assert.equal(ui.phase, 'Session running');
+  });
+
+  it('uses the entire styled button surface, ignores mouse motion, and isolates modal controls', () => {
+    const { ui, answers } = model();
+    ui.receive({ type: 'prompt', id: 1, kind: 'session', question: 'Next?' }); ui.render();
+    const button = ui.controls.find(control => control.id === 'session-start');
+    ui.handle({ key: 'mouse', button: 35, x: button.x + 1, y: button.y + 2 });
+    assert.equal(answers.length, 0); assert.equal(ui.hover, 'session-start');
+    ui.handle({ key: 'mouse', button: 0, x: 2, y: 2 }); assert.equal(answers.length, 0);
+    assert.ok(!ui.controls.some(control => control.id.startsWith('tab:')));
+    ui.handle({ key: 'mouse', button: 0, x: button.x + 1, y: button.y + 2 });
+    assert.equal(answers[0].answer, 'start');
+  });
+
+  it('keeps long prompts readable by scrolling and keeps compact modal buttons in bounds', () => {
+    const { ui } = model();
+    ui.receive({ type: 'prompt', id: 1, kind: 'confirm', question: Array.from({ length: 40 }, (_, n) => `Evidence line ${n}`).join('\n') });
+    const before = cleanText(ui.render(80, 24).join('\n'));
+    ui.handle({ key: 'pagedown' });
+    assert.ok(ui.promptScroll > 0); assert.notEqual(cleanText(ui.render(80, 24).join('\n')), before);
+    for (const kind of ['session', 'text', 'confirm']) {
+      ui.prompts = [{ id: 2, kind, question: 'Choose a value' }]; ui.transition();
+      ui.render(80, 20);
+      assert.ok(ui.controls.every(control => control.x >= 1 && control.x + control.width - 1 <= 79
+        && control.y >= 1 && control.y + control.height - 1 <= 20));
+      assert.ok(ui.controls.some(control => control.id === (kind === 'session' ? 'session-start' : kind === 'text' ? 'input' : 'approve')));
+    }
+  });
+
+  it('keeps Unicode text, mouse coordinates and input focus correct across theme changes', () => {
+    const { ui } = model();
+    ui.target = 'C:\\应用\\Café 👩🏽‍💻';
+    const initial = ui.render(120, 32).join('\n');
+    assert.match(initial, /\x1b\[0;.*38;2;/);
+    ui.handle({ key: 'text', text: 't' }); assert.equal(ui.themeIndex, 1);
+    assert.notEqual(ui.render().join('\n'), initial);
+    ui.receive({ type: 'prompt', id: 1, kind: 'text', question: 'Fields?' });
+    ui.focus = 'input'; ui.handle({ key: 'text', text: 't' });
+    assert.equal(ui.input, 't'); assert.equal(ui.themeIndex, 1);
+    ui.input = '应用👩🏽‍💻'.repeat(100);
+    assert.ok(ui.render(80, 24).every(line => textWidth(line) <= 79));
   });
 
   it('preserves split UTF-8 app output and partial lines without mixing stdout and stderr', async () => {
