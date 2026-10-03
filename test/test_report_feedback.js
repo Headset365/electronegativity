@@ -1,4 +1,4 @@
-// Regressions from the review of the client reports written for Notesnook, SiYuan, Trilium and DivorceMate: what a
+// Regressions from the review of the client reports written for four packaged apps: what a
 // finding shows (inserted SQL values, second-order sources, code limited to one platform, library code), how it is
 // rated (likelihood of certain findings, outdated components), and how it reads (key instances, lists of facts,
 // references, examples, Windows paths).
@@ -40,24 +40,24 @@ describe('Client report feedback', () => {
   const scan = async (files, checks) => (await run({ input: app(files), offline: true, customScan: checks })).issues;
 
   describe('SQL injection evidence', () => {
-    const files = { 'out/db-import.js': `const electron_1 = require("electron");
+    const files = { 'out/importer.js': `const electron_1 = require("electron");
 let ADODB; ADODB = require('node-adodb');
 const connection = ADODB.open('x');
 function dbQuery(sql) { return connection.query(sql); }
-electron_1.ipcMain.handle('desktop-matter-import-model', async (event, fileID) => {
-  let parties = await dbQuery(\`SELECT * FROM tblParties WHERE FileID = \${fileID};\`);
-  let party = parties[0];
-  let infos = await dbQuery(\`SELECT * FROM tblSepAgrInfo WHERE PartyID = \${party.PartyID};\`);
+electron_1.ipcMain.handle('record-import-model', async (event, recordID) => {
+  let contacts = await dbQuery(\`SELECT * FROM tblContacts WHERE RecordID = \${recordID};\`);
+  let contact = contacts[0];
+  let infos = await dbQuery(\`SELECT * FROM tblDetails WHERE ContactID = \${contact.ContactID};\`);
   return infos;
 });` };
 
     it('shows each inserted value as written, and tells a value read back from the database from one the page sent', async () => {
       const found = (await scan(files, ['sqlinjectionjscheck'])).filter(i => i.id === 'SQL_INJECTION_JS_CHECK').sort((a, b) => a.location.line - b.location.line);
       assert.equal(found.length, 2);
-      assert.equal(found[0].properties.statement, 'SELECT * FROM tblParties WHERE FileID = ${fileID};');
+      assert.equal(found[0].properties.statement, 'SELECT * FROM tblContacts WHERE RecordID = ${recordID};');
       assert.equal(found[0].severity.name, 'HIGH');
       assert.equal(found[0].properties.source, 'an IPC message from a renderer');
-      assert.equal(found[1].properties.statement, 'SELECT * FROM tblSepAgrInfo WHERE PartyID = ${party.PartyID};');
+      assert.equal(found[1].properties.statement, 'SELECT * FROM tblDetails WHERE ContactID = ${contact.ContactID};');
       assert.equal(found[1].properties.secondOrder, true);
       assert.equal(found[1].properties.chosenBy, 'an IPC message from a renderer');
       assert.equal(found[1].severity.name, 'MEDIUM');
@@ -82,19 +82,19 @@ electron_1.ipcMain.handle('touch', (e, table, key, id) => {
     it('gives advice for a driver without parameters in place of the general advice it contradicts', async () => {
       const issues = (await scan(files, ['sqlinjectionjscheck'])).filter(i => i.id === 'SQL_INJECTION_JS_CHECK');
       const content = renderClientFindings(issues, { root, app: { name: 'Client' } }).find(f => f.title === 'SQL Injection in Local Database Queries').content;
-      assert.match(content, /inserting `fileID` into its text \(`SELECT \* FROM tblParties WHERE FileID = \$\{fileID\};`\)/);
+      assert.match(content, /inserting `recordID` into its text \(`SELECT \* FROM tblContacts WHERE RecordID = \$\{recordID\};`\)/);
       assert.match(content, /read by an earlier query whose rows were chosen by an IPC message from a renderer \(second-order\)/);
       assert.match(content, /node-adodb library used by the application does not support query parameters/);
       assert.doesNotMatch(content, /- Pass the value as a query parameter/);
-      assert.match(content, /Number\.parseInt\(fileID, 10\)/);
-      assert.doesNotMatch(content, /FileID = \? ;/);
+      assert.match(content, /Number\.parseInt\(recordID, 10\)/);
+      assert.doesNotMatch(content, /RecordID = \? ;/);
     });
   });
 
   describe('code limited to one operating system', () => {
     it('reads platform branches, early returns and platform-named functions', () => {
       const cases = {
-        "function openInMac(f) { exec('lsof ' + f); }": 'darwin',
+        "function openOnMac(f) { exec('lsof ' + f); }": 'darwin',
         "if (process.platform === 'darwin') { exec('x' + f); }": 'darwin',
         "if (process.platform === 'win32') { a(); } else { exec('x' + f); }": 'non-windows',
         "function g() { if (os.platform() !== 'linux') return; exec('x' + f); }": 'linux',
@@ -111,8 +111,8 @@ electron_1.ipcMain.handle('touch', (e, table, key, id) => {
 
     it('labels a finding in macOS-only code and asks the tester whether that build is in scope', async () => {
       const issues = await scan({ 'out/check.js': `const cp = require("node:child_process");
-function byPath(p) { return process.platform === 'win32' ? openInWindows(p) : openInMac(p); }
-function openInMac(filePath) { cp.exec('lsof "' + filePath + '"', () => {}); }
+function byPath(p) { return process.platform === 'win32' ? openOnWindows(p) : openOnMac(p); }
+function openOnMac(filePath) { cp.exec('lsof "' + filePath + '"', () => {}); }
 module.exports = { byPath };` }, ['commandinjectionjscheck']);
       const command = issues.find(i => i.id === 'COMMAND_INJECTION_JS_CHECK');
       assert.equal(command.properties.platform, 'darwin');
@@ -165,9 +165,9 @@ module.exports = { byPath };` }, ['commandinjectionjscheck']);
 
     it('reports state a page sets for window loads and credentials as its own finding, and a write-then-open handler with the operating system hand-offs', () => {
       const issues = [
-        issue('IPC_STATE_DESTINATION_JS_CHECK', { severity: severity.HIGH, properties: { channel: 'login-success', setter: 'setLoginModel', loads: ['out/main.window.js'], credentialed: ['out/api.js'] } }),
-        issue('IPC_HANDLER_JS_CHECK', { severity: severity.HIGH, properties: { channel: 'file-open-docx', issue: 'write-then-open' } }),
-        issue('IPC_SENDER_VALIDATION_JS_CHECK', { properties: { channel: 'login-success' } }),
+        issue('IPC_STATE_DESTINATION_JS_CHECK', { severity: severity.HIGH, properties: { channel: 'session-ready', setter: 'setSessionModel', loads: ['out/main.window.js'], credentialed: ['out/api.js'] } }),
+        issue('IPC_HANDLER_JS_CHECK', { severity: severity.HIGH, properties: { channel: 'open-document', issue: 'write-then-open' } }),
+        issue('IPC_SENDER_VALIDATION_JS_CHECK', { properties: { channel: 'session-ready' } }),
       ];
       const titles = groupClientFindings(issues).map(g => g.definition[0]);
       assert.ok(titles.includes('Application Destinations Controlled by Web Content'));
@@ -248,14 +248,14 @@ w.loadURL('http://127.0.0.1:37840/');` }, ['httpresourcesjavascriptcheck', 'node
     });
   });
 
-  describe('DivorceMate report review', () => {
+  describe('Report review of a packaged TypeScript app', () => {
     it('rates a hidden window that only loads the application’s own page low, and says why', async () => {
       const issues = await scan({ 'out/legacy.js': `const electron_1 = require("electron");
 async function readLegacy() {
-  const oldWin = new electron_1.BrowserWindow({ show: false, webPreferences: { contextIsolation: false } });
-  await oldWin.loadFile('src/legacy/settings.html');
-  const value = await oldWin.webContents.executeJavaScript('localStorage.getItem("x")');
-  oldWin.close();
+  const hiddenWin = new electron_1.BrowserWindow({ show: false, webPreferences: { contextIsolation: false } });
+  await hiddenWin.loadFile('src/migrate/settings.html');
+  const value = await hiddenWin.webContents.executeJavaScript('localStorage.getItem("x")');
+  hiddenWin.close();
   return value;
 }
 const main = new electron_1.BrowserWindow({ webPreferences: { contextIsolation: false } });
@@ -263,10 +263,10 @@ main.loadURL('https://app.example.com');
 module.exports = { readLegacy, main };` }, ['contextisolationjscheck', 'fileprotocoljscheck']);
       const isolation = issues.filter(i => i.id === 'CONTEXT_ISOLATION_JS_CHECK').sort((a, b) => a.location.line - b.location.line);
       assert.deepEqual(isolation.map(i => i.severity.name), ['LOW', 'HIGH']);
-      assert.deepEqual(isolation[0].properties.loads, ['src/legacy/settings.html']);
+      assert.deepEqual(isolation[0].properties.loads, ['src/migrate/settings.html']);
       const content = renderClientFindings(issues, { root, app: { name: 'Client' } });
       const report = content.find(f => f.title === 'Insufficient Renderer Process Isolation').content;
-      assert.match(report, /the window is hidden and only loads the application’s own local page \(`src\/legacy\/settings\.html`\)/);
+      assert.match(report, /the window is hidden and only loads the application’s own local page \(`src\/migrate\/settings\.html`\)/);
       // a local page over file: is an isolation matter, not a deep link one
       assert.ok(!content.some(f => f.title === 'Insecure Handling of Deep Links and File Associations'));
       assert.match(report, /Local pages loaded over file: URLs/);
@@ -290,8 +290,8 @@ module.exports = { windowCommonConfig };` }, ['limitnavigationjscheck', 'windowo
 
     it('names the files a page-chosen destination reaches by their path in the application', async () => {
       const issues = await scan({
-        'out/auth.js': `let endpoints = { ui: '' };\nfunction setLoginModel(model) { endpoints = model.endpoints; }\nfunction getEndpoints() { return { ...endpoints }; }\nexports.setLoginModel = setLoginModel; exports.getEndpoints = getEndpoints;`,
-        'out/login/index.js': `const electron_1 = require("electron");\nconst auth_1 = require("../auth");\nelectron_1.ipcMain.handle('login-success', (event, model) => { (0, auth_1.setLoginModel)(model); });`,
+        'out/auth.js': `let endpoints = { ui: '' };\nfunction setSessionModel(model) { endpoints = model.endpoints; }\nfunction getEndpoints() { return { ...endpoints }; }\nexports.setSessionModel = setSessionModel; exports.getEndpoints = getEndpoints;`,
+        'out/login/index.js': `const electron_1 = require("electron");\nconst auth_1 = require("../auth");\nelectron_1.ipcMain.handle('session-ready', (event, model) => { (0, auth_1.setSessionModel)(model); });`,
         'out/main/main.window.js': `const electron_1 = require("electron");\nconst auth_1 = require("../auth");\nfunction create() { const w = new electron_1.BrowserWindow({}); w.loadURL((0, auth_1.getEndpoints)().ui); }\nexports.create = create;` },
       ['ipcstatedestinationjscheck']);
       assert.deepEqual(issues.find(i => i.id === 'IPC_STATE_DESTINATION_JS_CHECK').properties.loads, ['out/main/main.window.js']);

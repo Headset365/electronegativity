@@ -29,7 +29,7 @@ function shellCallCheck({ className, id, methods, sev, reference }) {
       if (astNode.type !== 'CallExpression' && astNode.type !== 'OptionalCallExpression') return null;
       if (!methods.includes(memberName(astNode.callee)) || calleeObjectName(astNode.callee) !== 'shell') return null;
       if (astNode.arguments.length === 0) return null;
-      // a shortcut to the app itself with fixed arguments (target: process.execPath, args: '--quick-calc'): what it runs
+      // a shortcut to the app itself with fixed arguments (target: process.execPath, args: '--quick-note'): what it runs
       // is the developer's choice, wherever the shortcut is written
       if (methods.includes('writeShortcutLink') && fixedShortcut(astNode.arguments[astNode.arguments.length - 1], scope))
         return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, shortenedURL: this.shortenedURL,

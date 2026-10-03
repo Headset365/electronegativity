@@ -878,10 +878,10 @@ export function localWindowContent(newNode, ancestors) {
 
 // The operating system a piece of code is limited to: 'darwin', 'linux', 'win32', 'non-windows' or 'non-darwin'; undefined
 // when it runs everywhere. Read from the enclosing branches (process.platform === 'darwin', os.platform() !== 'win32',
-// isMac), early returns (if (process.platform !== 'darwin') return;) and the function's name (openInMac, linuxHelper).
+// isMac), early returns (if (process.platform !== 'darwin') return;) and the function's name (openOnMac, linuxHelper).
 const PLATFORM_NAMES = { darwin: 'darwin', mac: 'darwin', macos: 'darwin', osx: 'darwin', linux: 'linux', win32: 'win32', windows: 'win32', win: 'win32' };
 const PLATFORM_FLAG = /^(?:is|on)?(Mac|MacOS|OSX|Darwin|Linux|Windows|Win|Win32)$/i;
-// openInMac, runOnLinux, forWindows, macOpen, darwinHelper (not getMacAddress or closeAllWindows)
+// openOnMac, runOnLinux, forWindows, macOpen, darwinHelper (not getMacAddress or closeAllWindows)
 const NAMED_PLATFORM = /(?:In|On|For|Only)(Mac|MacOS|OSX|Darwin|Linux|Windows|Win32)(?=[A-Z_$0-9]|$)|^(mac|macos|osx|darwin|linux|win32)(?=[A-Z_$0-9]|$)/;
 function isPlatformRead(node) {
   if (!node) return false;

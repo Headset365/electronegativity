@@ -170,7 +170,7 @@ export class Finder {
               if (failed.has(check)) continue;
               const matches = this.runCheck(check, file, failed, () => check.match(astNode, rootData.astParser, rootData.Scope, defaults, electronVersion, context));
               if (matches) {
-                // code that runs on one operating system only (if (process.platform === 'darwin'), openInMac)
+                // code that runs on one operating system only (if (process.platform === 'darwin'), openOnMac)
                 const platform = matches.length ? platformGuard(ancestors, astNode) : undefined;
                 // a window that only ever shows the application's own local files: its settings matter less
                 const local = matches.length && astNode.type === 'NewExpression' && matches.some(m => WINDOW_SETTINGS.has(m.id)) ? localWindowContent(astNode, ancestors) : undefined;

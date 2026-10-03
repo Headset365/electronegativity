@@ -55,7 +55,7 @@ const REMEDIATION = {
   INSTALLER_FILE_HANDLER: ['Validate what the installer registers as a file or URL handler, and parse anything the app receives from it as untrusted input.'],
   IPC_FILE_ACCESS: ['Resolve the requested path against one base folder and reject anything that leaves it; never accept an absolute path or ../ from the renderer.',
     'const full = path.resolve(base, name); if (!full.startsWith(base + path.sep)) throw new Error(\'blocked\');'],
-  SQL_INJECTION: ['Pass values as query parameters (? placeholders, named parameters) and validate identifiers as integers before use.', "connection.query('SELECT * FROM tblFiles WHERE FileID = ?', [Number(fileID)]);"],
+  SQL_INJECTION: ['Pass values as query parameters (? placeholders, named parameters) and validate identifiers as integers before use.', "connection.query('SELECT * FROM tblRecords WHERE RecordID = ?', [Number(recordID)]);"],
   RELATIVE_EXECUTABLE_PATH: ['Build program and script paths from the installation folder: path.join(process.resourcesPath, \'adodb.js\').'],
   IPC_STATE_DESTINATION: ['Keep window and API addresses in the main process; if a page must report them, accept only https addresses on the application\'s own domains, and never let a page choose where the token is sent.'],
   AUTH_MODE_BYPASS: ['Apply the same authentication middleware in every build; give the desktop windows a per-session token instead of skipping the check.'],
@@ -168,12 +168,12 @@ const DRIVER_ADVICE = {
     'node-adodb': {
       fix: 'node-adodb passes the statement text to the Access database engine and does not support bound parameters. Convert identifiers to integers and reject anything else, double single quotes in text values, or move the queries to a driver that supports parameters (such as odbc).',
       clientFix: 'The node-adodb library used by the application does not support query parameters. Convert each identifier to an integer and reject any other value before it is used, escape single quotes in text values, or move the queries to a database driver that supports parameters. Verify that a non-numeric identifier is rejected.',
-      example: "const id = Number.parseInt(fileID, 10);\nif (!Number.isSafeInteger(id)) throw new Error('Invalid file identifier');\nconst rows = await dbQuery(`SELECT * FROM tblFiles WHERE FileID = ${id};`);",
+      example: "const id = Number.parseInt(recordID, 10);\nif (!Number.isSafeInteger(id)) throw new Error('Invalid file identifier');\nconst rows = await dbQuery(`SELECT * FROM tblRecords WHERE RecordID = ${id};`);",
     },
-    'better-sqlite3': { example: "db.prepare('SELECT * FROM tblFiles WHERE FileID = ?').get(fileID);" },
-    sqlite3: { example: "db.get('SELECT * FROM tblFiles WHERE FileID = ?', [fileID], callback);" },
-    pg: { example: "await client.query('SELECT * FROM files WHERE file_id = $1', [fileID]);" },
-    mssql: { example: "await pool.request().input('id', sql.Int, fileID).query('SELECT * FROM tblFiles WHERE FileID = @id');" },
+    'better-sqlite3': { example: "db.prepare('SELECT * FROM tblRecords WHERE RecordID = ?').get(recordID);" },
+    sqlite3: { example: "db.get('SELECT * FROM tblRecords WHERE RecordID = ?', [recordID], callback);" },
+    pg: { example: "await client.query('SELECT * FROM files WHERE file_id = $1', [recordID]);" },
+    mssql: { example: "await pool.request().input('id', sql.Int, recordID).query('SELECT * FROM tblRecords WHERE RecordID = @id');" },
   },
 };
 

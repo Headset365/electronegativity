@@ -165,10 +165,10 @@ the console says how many.
 
 - **TypeScript and Babel builds**: calls compiled as `(0, module_1.fn)(…)` are read as `module_1.fn(…)`, so checks see
   `exec`, `writeFile` and `shell.openPath` in compiled CommonJS code too.
-- **SQL built from values** (`` `SELECT … WHERE FileID = ${fileID}` ``) is reported, HIGH when the value comes from an
+- **SQL built from values** (`` `SELECT … WHERE RecordID = ${recordID}` ``) is reported, HIGH when the value comes from an
   IPC message, under "SQL Injection in Local Database Queries".
 - **Programs started from the working directory** (`ADODB.PATH = './resources/adodb.js'`, `spawn('./bin/tool.exe')`).
-- **A page choosing the app's destinations**: an IPC handler that stores what a page sends (`setLoginModel(model)`) in
+- **A page choosing the app's destinations**: an IPC handler that stores what a page sends (`setSessionModel(model)`) in
   state that later decides which address windows load, or where requests carrying the token go.
 - **Write, then open**: an IPC handler that writes a file at a page-chosen path and then opens it with
   `shell.openPath` is HIGH.
@@ -199,10 +199,10 @@ app itself with fixed arguments, and a `second-instance` handler that only looks
   `mermaid.core-C91UIso6.js`) is listed after the application's own locations, under its own paragraph. The finding is
   rated from the application's code. Check whether the app passes untrusted content to the library before keeping those
   rows.
-- **Code that runs on one operating system only** (`openInMac()`, `if (process.platform === 'darwin')`) is marked
+- **Code that runs on one operating system only** (`openOnMac()`, `if (process.platform === 'darwin')`) is marked
   "(macOS only)" under Affected and in the step. The tester notes ask whether that build is in scope: remove the row or
   say it doesn't affect the tested build if not.
-- **SQL**: the statement shows the inserted value as written (`` `… WHERE FileID = ${fileID}` ``). A value read from
+- **SQL**: the statement shows the inserted value as written (`` `… WHERE RecordID = ${recordID}` ``). A value read from
   an earlier query's rows is labelled second-order ("Query built from stored values"). For node-adodb, which has no
   query parameters, the advice is integer conversion or escaping instead of parameters. Table and column names
   (`` `UPDATE ${table} SET x = ? WHERE ${key} = ?` ``), the statement's own `?`/`@name` placeholders (including lists

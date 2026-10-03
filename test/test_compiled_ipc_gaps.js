@@ -1,4 +1,4 @@
-// Regressions from the DivorceMate 2.1.2 review: TypeScript's (0, mod.fn)(...) calls, state a page sets through IPC
+// Regressions from the review of a packaged TypeScript app: TypeScript's (0, mod.fn)(...) calls, state a page sets through IPC
 // that decides where windows load and credentials go, write-then-open handlers, allowlists in helpers, allowed windows
 // child preload configuration, and the shortcut and second-instance false positives.
 import assert from 'node:assert/strict';
@@ -11,7 +11,7 @@ import _i18n from '../src/locales/i18n.js';
 
 await _i18n();
 
-describe('Gaps from the DivorceMate review', () => {
+describe('Gaps from the review of a packaged TypeScript app', () => {
   let root;
   beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-dm-')); });
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -33,7 +33,7 @@ describe('Gaps from the DivorceMate review', () => {
   });
 
   it('finds a shell command built from a variable through a compiled call', async () => {
-    const issues = await scan({ 'out/check.js': 'const node_child_process_1 = require("node:child_process");\nfunction openInMac(filePath) { (0, node_child_process_1.exec)(\'lsof "\' + filePath + \'"\', () => {}); }\nmodule.exports = { openInMac };' },
+    const issues = await scan({ 'out/check.js': 'const node_child_process_1 = require("node:child_process");\nfunction openOnMac(filePath) { (0, node_child_process_1.exec)(\'lsof "\' + filePath + \'"\', () => {}); }\nmodule.exports = { openOnMac };' },
       ['commandinjectionjscheck']);
     assert.equal(issues.filter(issue => issue.id === 'COMMAND_INJECTION_JS_CHECK').length, 1);
   });
@@ -43,17 +43,17 @@ describe('Gaps from the DivorceMate review', () => {
       'out/auth.js': `const electron_1 = require("electron");
 let endpoints = { api: '', ui: 'https://app.example.com' };
 let creds = {};
-function setLoginModel(model) { creds = model.creds; endpoints = model.endpoints; }
+function setSessionModel(model) { creds = model.creds; endpoints = model.endpoints; }
 function getEndpoints() { return { ...endpoints }; }
-function getAuthCreds() { return { ...creds }; }
-exports.setLoginModel = setLoginModel; exports.getEndpoints = getEndpoints; exports.getAuthCreds = getAuthCreds;`,
+function getSessionCreds() { return { ...creds }; }
+exports.setSessionModel = setSessionModel; exports.getEndpoints = getEndpoints; exports.getSessionCreds = getSessionCreds;`,
       'out/login.js': `const electron_1 = require("electron");\nconst auth_1 = require("./auth");
-electron_1.ipcMain.handle('login-success', (event, model) => { (0, auth_1.setLoginModel)(model); });`,
+electron_1.ipcMain.handle('session-ready', (event, model) => { (0, auth_1.setSessionModel)(model); });`,
       'out/main.window.js': `const electron_1 = require("electron");\nconst auth_1 = require("./auth");
 function createMainWindow() { const w = new electron_1.BrowserWindow({ webPreferences: { preload: 'p.js' } }); w.loadURL((0, auth_1.getEndpoints)().ui); return w; }
 exports.createMainWindow = createMainWindow;`,
       'out/api.js': `const axios = require("axios");\nconst auth_1 = require("./auth");
-function upload(form) { return axios.post((0, auth_1.getEndpoints)().api + 'blobs', form, { headers: { Authorization: 'Bearer ' + (0, auth_1.getAuthCreds)().token } }); }
+function upload(form) { return axios.post((0, auth_1.getEndpoints)().api + 'blobs', form, { headers: { Authorization: 'Bearer ' + (0, auth_1.getSessionCreds)().token } }); }
 exports.upload = upload;`,
     }, ['ipcstatedestinationjscheck']);
     const found = issues.filter(issue => issue.id === 'IPC_STATE_DESTINATION_JS_CHECK');
@@ -65,8 +65,8 @@ exports.upload = upload;`,
 
   it('rates a handler that writes a page-named file and opens it as HIGH', async () => {
     const issues = await scan({ 'out/files.js': `const electron_1 = require("electron");\nconst fs_1 = require("fs");\nconst path_1 = require("path");
-electron_1.ipcMain.handle('file-open-docx', (event, { base64File, fileName, matterId }) => {
-  const filePath = path_1.join('/data', 'matter_' + matterId, fileName);
+electron_1.ipcMain.handle('open-document', (event, { base64File, fileName, recordId }) => {
+  const filePath = path_1.join('/data', 'record_' + recordId, fileName);
   fs_1.writeFile(filePath, base64File, 'base64', () => { electron_1.shell.openPath(filePath); });
 });` }, ['ipchandlerjscheck']);
     assert.ok(issues.some(issue => issue.id === 'IPC_HANDLER_JS_CHECK' && issue.severity.name === 'HIGH' && issue.properties.issue === 'write-then-open'));
@@ -98,8 +98,8 @@ windowCommonConfig(main);` }, ['limitnavigationjscheck', 'windowopenhandlerjsche
 
   it('does not rate the app’s own shortcut or a switch-only second-instance handler', async () => {
     const issues = await scan({ 'out/app.js': `const electron_1 = require("electron");\nconst path_1 = require("path");
-electron_1.shell.writeShortcutLink(path_1.join(electron_1.app.getPath('desktop'), 'Calc.lnk'), { target: process.execPath, args: '--quick-calc' });
-electron_1.app.on('second-instance', (event, commandLine) => { if (commandLine.includes('--quick-calc')) showCalc(); else focusMain(); });
+electron_1.shell.writeShortcutLink(path_1.join(electron_1.app.getPath('desktop'), 'Notes.lnk'), { target: process.execPath, args: '--quick-note' });
+electron_1.app.on('second-instance', (event, commandLine) => { if (commandLine.includes('--quick-note')) showNote(); else focusMain(); });
 electron_1.app.on('second-instance', (event, commandLine) => { openDocument(commandLine[1]); });` }, ['writeshortcutjscheck', 'filehandlerjscheck']);
     assert.equal(issues.find(issue => issue.id === 'WRITE_SHORTCUT_JS_CHECK').severity.name, 'INFORMATIONAL');
     const handlers = issues.filter(issue => issue.id === 'FILE_HANDLER_JS_CHECK').map(issue => issue.severity.name).sort();

@@ -288,9 +288,9 @@ describe('Marker evidence', () => {
 
 describe('Marker request body', () => {
   it('uses executable markup only for an explicitly active HTML field, retaining every other value', () => {
-    const body = '{"matterId":1234567890123456789,"title":"ordinary","html":"<p>old</p>"}';
+    const body = '{"recordId":1234567890123456789,"title":"ordinary","html":"<p>old</p>"}';
     const out = fillMarkerBody(body, M, [{ name: 'html', html: true }], true);
-    out.body.should.equal(`{"matterId":1234567890123456789,"title":"ordinary","html":${JSON.stringify(activeHtml(M))}}`);
+    out.body.should.equal(`{"recordId":1234567890123456789,"title":"ordinary","html":${JSON.stringify(activeHtml(M))}}`);
     activeHtml(M).should.include(`ENG_ACTIVE_EXEC:${M}`);
     (fillMarkerBody(body, `x' onerror='evil`, [{ name: 'html', html: true }], true) === null).should.equal(true);
   });

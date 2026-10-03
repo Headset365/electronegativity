@@ -1,8 +1,8 @@
 // SQL assembled from values instead of passed as parameters:
-//   dbQuery(`SELECT * FROM tblFiles WHERE FileID = ${fileID};`)
+//   dbQuery(`SELECT * FROM tblRecords WHERE RecordID = ${recordID};`)
 // A local database (SQLite, Access through ADODB, an embedded server) holds the app's data; a value from a renderer,
-// a file or the network that reaches the statement can change what it does (DivorceMate's legacy import read the
-// matter id a page sent straight into its Access query).
+// a file or the network that reaches the statement can change what it does (a legacy import that puts the record id a
+// page sends straight into an Access query).
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { finding, visit, isFunction } from '../helpers.js';
@@ -17,7 +17,7 @@ const SAFE_TAGS = /^(sql|SQL|Prisma\.sql|raw|unsafe)$/;
 const DRIVERS = /^(node-adodb|better-sqlite3|sqlite3|sqlite|mysql2?|pg|mssql|tedious|oracledb|odbc|sql\.js|knex|sequelize|typeorm)$/;
 const driverCache = new WeakMap();
 
-// the value an expression names, as the report shows it: fileID, party.PartyID, args[0]; a longer one as …
+// the value an expression names, as the report shows it: recordID, contact.ContactID, args[0]; a longer one as …
 function shownValue(node) {
   if (!node) return '…';
   if (node.type === 'Identifier') return node.name;
@@ -37,7 +37,7 @@ function shownValue(node) {
 }
 
 // the constant text of a template or a concatenation (values as ?, to test its shape), the same text with each value
-// written as in the code (${fileID}, to show it), and the parts that are not constant
+// written as in the code (${recordID}, to show it), and the parts that are not constant
 function pieces(node, scope, out = { text: '', shown: '', dynamic: [] }) {
   const value = (expression) => {
     out.dynamic.push(expression);
@@ -134,7 +134,7 @@ function hasSqlArgument(call) {
   });
 }
 
-// names in fn holding rows read by an earlier query: parties = await dbQuery(`SELECT …`), party = parties[0]
+// names in fn holding rows read by an earlier query: parties = await dbQuery(`SELECT …`), party = contacts[0]
 function queryResults(fn) {
   const names = new Set();
   const assignments = [];
@@ -158,7 +158,7 @@ function queryResults(fn) {
     for (const [name, init] of assignments) {
       if (names.has(name)) continue;
       const value = unwrap(init);
-      // a row or a field of one: parties[0], rows.find(...), res.LawyerID, a ? rows[0] : null
+      // a row or a field of one: contacts[0], rows.find(...), res.OwnerID, a ? rows[0] : null
       const reads = [...identifiersIn(value)];
       if (reads.length && reads.some(n => names.has(n)) && !isCall(value)) { names.add(name); changed = true; }
       else if (isCall(value) && value.callee.type !== 'Identifier' && value.callee.object && [...identifiersIn(value.callee.object)].some(n => names.has(n))) { names.add(name); changed = true; }

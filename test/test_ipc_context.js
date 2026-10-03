@@ -39,9 +39,9 @@ ipcMain.handle('fallback-read', read);` });
   it('follows namespace and reexported helpers to local file reads and network uploads', async () => {
     const issues = await scan({
       'main.js': `import { ipcMain } from 'electron'; import * as api from './api.js';
-ipcMain.handle('import-file-upload', (event, {filePath, matterId}) => {
-  if (typeof matterId !== 'number') return;
-  return api.upload(filePath, matterId);
+ipcMain.handle('import-file-upload', (event, {filePath, recordId}) => {
+  if (typeof recordId !== 'number') return;
+  return api.upload(filePath, recordId);
 });`,
       'api.js': `export { upload } from './backend/upload.js';`,
       'backend/upload.js': `import fs from 'node:fs';
@@ -53,7 +53,7 @@ export function upload(p, id) { const data = fs.readFileSync(p); return fetch('h
     context.status.should.equal('analyzed');
     context.helpers.some(helper => /backend[\\/]upload\.js$/.test(helper.file)).should.equal(true);
     context.arguments.find(arg => arg.name === 'argument1.filePath').validation.should.equal('not-recognized');
-    context.arguments.find(arg => arg.name === 'argument1.matterId').validation.should.equal('recognized-unverified');
+    context.arguments.find(arg => arg.name === 'argument1.recordId').validation.should.equal('recognized-unverified');
     context.effects.find(effect => effect.kind === 'file-read').pathControl.should.equal('not-recognized');
     item.properties.validatesArguments.should.equal(false);
   });
@@ -62,15 +62,15 @@ export function upload(p, id) { const data = fs.readFileSync(p); return fetch('h
     const issues = await scan({
       'main.js': `const electron_1 = require('electron'); const auth_1 = require('./auth');
 new electron_1.BrowserWindow({webPreferences:{preload:'main.preload.js'}});
-electron_1.ipcMain.on('auth-get-creds', event => { event.returnValue = auth_1.getAuthCreds(); });`,
-      'auth.js': `let creds = {}; function getAuthCreds() { return {...creds}; } exports.getAuthCreds = getAuthCreds;`,
+electron_1.ipcMain.on('auth-get-token', event => { event.returnValue = auth_1.getSessionCreds(); });`,
+      'auth.js': `let creds = {}; function getSessionCreds() { return {...creds}; } exports.getSessionCreds = getSessionCreds;`,
       'main.preload.js': `const electron_1 = require('electron');
-electron_1.contextBridge.exposeInMainWorld('electronAPI', {auth: () => electron_1.ipcRenderer.sendSync('auth-get-creds')});`,
+electron_1.contextBridge.exposeInMainWorld('electronAPI', {auth: () => electron_1.ipcRenderer.sendSync('auth-get-token')});`,
     });
-    const item = handler(issues, 'auth-get-creds');
+    const item = handler(issues, 'auth-get-token');
     item.properties.issue.should.equal('credential');
     item.properties.context.credentials[0].reference.should.equal('creds');
-    const map = issues.find(issue => issue.id === 'IPC_CHANNEL_MAP_GLOBAL_CHECK' && issue.properties.channel === 'auth-get-creds');
+    const map = issues.find(issue => issue.id === 'IPC_CHANNEL_MAP_GLOBAL_CHECK' && issue.properties.channel === 'auth-get-token');
     map.properties.exposedAPIs[0].api.should.equal('window.electronAPI.auth');
     map.properties.windows.should.have.length(1);
     map.properties.context.credentials.should.have.length(1);
@@ -164,14 +164,14 @@ ipcMain.handle('missing',missing); ipcMain.handle(channel, (event,p) => handlers
   it('finds module-state writers and their callers across the codebase', async () => {
     const issues = await scan({
       'main.js': `const {ipcMain} = require('electron'); const auth = require('./auth');
-ipcMain.on('login-success', (event,model) => auth.setLoginModel(model));
-ipcMain.on('auth-get-creds', event => { event.returnValue = auth.getAuthCreds(); });`,
-      'auth.js': `let creds={}; function setLoginModel(onLogin) { creds=onLogin.creds; } function getAuthCreds(){return {...creds};}
-exports.setLoginModel=setLoginModel; exports.getAuthCreds=getAuthCreds;`,
+ipcMain.on('session-ready', (event,model) => auth.setSessionModel(model));
+ipcMain.on('auth-get-token', event => { event.returnValue = auth.getSessionCreds(); });`,
+      'auth.js': `let creds={}; function setSessionModel(onLogin) { creds=onLogin.creds; } function getSessionCreds(){return {...creds};}
+exports.setSessionModel=setSessionModel; exports.getSessionCreds=getSessionCreds;`,
     });
-    const state = handler(issues, 'auth-get-creds').properties.context.state[0];
+    const state = handler(issues, 'auth-get-token').properties.context.state[0];
     state.writes[0].source.should.equal('onLogin.creds');
-    state.callers.some(caller => caller.writer === 'setLoginModel' && /main.js$/.test(caller.file)).should.equal(true);
+    state.callers.some(caller => caller.writer === 'setSessionModel' && /main.js$/.test(caller.file)).should.equal(true);
   });
 
   it('handles every supported registration method and ipcMain aliases', async () => {
@@ -188,12 +188,12 @@ ipc.handle('d',event=>{}); ipc.handleOnce('e',event=>{}); const register=ipc.han
 
   it('maps a preload helper to its fixed channel without calling it an arbitrary-channel API', async () => {
     const issues = await scan({
-      'main.js': `const {ipcMain,BrowserWindow}=require('electron'); new BrowserWindow({webPreferences:{preload:'preload.js'}}); ipcMain.handle('auth-get-creds',()=>({}));`,
-      'preload.js': `const {contextBridge}=require('electron'); const {request}=require('./bridge'); contextBridge.exposeInMainWorld('api',{auth:()=>request('auth-get-creds')});`,
+      'main.js': `const {ipcMain,BrowserWindow}=require('electron'); new BrowserWindow({webPreferences:{preload:'preload.js'}}); ipcMain.handle('auth-get-token',()=>({}));`,
+      'preload.js': `const {contextBridge}=require('electron'); const {request}=require('./bridge'); contextBridge.exposeInMainWorld('api',{auth:()=>request('auth-get-token')});`,
       'bridge.js': `const {ipcRenderer}=require('electron'); exports.request=function request(channel){return ipcRenderer.sendSync(channel);};`,
     });
     const api = issues.find(issue => issue.id === 'EXPOSED_API_JS_CHECK');
-    api.properties.memberChannels.auth.should.deep.equal(['auth-get-creds']);
+    api.properties.memberChannels.auth.should.deep.equal(['auth-get-token']);
     const map = issues.find(issue => issue.id === 'IPC_CHANNEL_MAP_GLOBAL_CHECK');
     map.properties.exposedAPIs[0].api.should.equal('window.api.auth');
     map.properties.windows.should.have.length(1);
@@ -262,7 +262,7 @@ ipcMain.handle('callback-sender',event=>{setTimeout(()=>{if(!trusted(event.sende
   it('keeps different fields of an undestructured payload independent', async () => {
     const issues = await scan({
       'main.js': `const {ipcMain}=require('electron'); const fs=require('fs');
-ipcMain.handle('payload',(event,payload)=>{if(typeof payload.matterId!=='number') return; return fs.readFileSync(payload.filePath);});`,
+ipcMain.handle('payload',(event,payload)=>{if(typeof payload.recordId!=='number') return; return fs.readFileSync(payload.filePath);});`,
     });
     const context = handler(issues,'payload').properties.context;
     context.arguments.find(arg => arg.name==='payload.filePath').validation.should.equal('not-recognized');
@@ -271,9 +271,9 @@ ipcMain.handle('payload',(event,payload)=>{if(typeof payload.matterId!=='number'
 
   it('follows credential returns through Promise resolvers', async () => {
     const issues = await scan({
-      'main.js': `const {ipcMain}=require('electron'); const {getAuthCreds}=require('./auth');
-ipcMain.handle('promise',()=>new Promise(resolve=>resolve(getAuthCreds())));`,
-      'auth.js': `let creds={}; exports.getAuthCreds=function getAuthCreds(){return {...creds};};`,
+      'main.js': `const {ipcMain}=require('electron'); const {getSessionCreds}=require('./auth');
+ipcMain.handle('promise',()=>new Promise(resolve=>resolve(getSessionCreds())));`,
+      'auth.js': `let creds={}; exports.getSessionCreds=function getSessionCreds(){return {...creds};};`,
     });
     handler(issues,'promise').properties.context.credentials[0].reference.should.equal('creds');
   });

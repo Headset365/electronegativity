@@ -336,7 +336,7 @@ async function scan(options, forCli) {
   if (options.dependencies !== false) {
     for (const issue of inventory) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
     // where the Electron version was read, for the components catalog
-    // (the executable of an installed app, relative to its install folder: DivorceMate.exe, not ../DivorceMate.exe)
+    // (the executable of an installed app, relative to its install folder: MyApp.exe, not ../MyApp.exe)
     const installFolder = /[\\/]resources[\\/]app(\.asar)?$/i.test(options.input) ? path.dirname(path.dirname(options.input)) : undefined;
     const electronFound = options.electronVersionOverride ? '(set with -e)' : loader.electronVersion ? 'package.json'
       : binaryVersion ? (installFolder && binaryFile && !path.relative(installFolder, binaryFile).startsWith('..') ? path.relative(installFolder, binaryFile).split(path.sep).join('/') : getRelativePath(options.input, binaryFile))

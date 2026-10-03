@@ -54,7 +54,7 @@ export default class FileHandlerJSCheck {
     const event = literalValue(astNode.arguments[0]);
     if (!EVENTS[event]) return null;
     const flow = entryContext(astNode.arguments[1], scope, context.ancestors, event === 'second-instance' ? [null, 'commandLine', 'workingDirectory', 'additionalData'] : [null, event === 'open-url' ? 'url' : 'filePath']);
-    // a handler that only looks for a fixed switch (commandLine.includes('--quick-calc')) and passes nothing on
+    // a handler that only looks for a fixed switch (commandLine.includes('--quick-note')) and passes nothing on
     const fn = handlerFunction(astNode.arguments[1], scope, context.ancestors);
     if (fn && !flow.effects.some(effect => effect.arguments.length) && onlyInspected(fn))
       return [finding(this, astNode, { severity: severity.INFORMATIONAL, confidence: confidence.FIRM, manualReview: false,

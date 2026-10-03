@@ -38,7 +38,7 @@ HTTP 200 is an observed response, not a confirmed authentication bypass.
 
 On Windows, `--prove --empty-working-folder` starts the app in an empty temporary
 working folder and records relative child command candidates. It is a separate opt-in:
-an app that relies on its working folder (DivorceMate's `./resources/adodb.js`) loses
+an app that relies on its working folder (a script found at `./resources/adodb.js`, say) loses
 those features for the whole session, which reduces what the other tests can reach, so
 run it as its own short session. Without it, relative child commands are still recorded
 against the app's normal working folder. No executable is planted. App-owned

@@ -75,7 +75,7 @@ describe('Passive evidence and bounded uplift proofs', () => {
     const value = { endpoint: 'https://user:secret@APP.example/login?token=secret', cycle: null }; value.cycle = value;
     Object.defineProperty(value, 'getter', { get() { throw Error('must not read'); } });
     assert.deepEqual(messageHosts([value]), ['app.example']);
-    const { rows, passive } = observer(); passive.observeIpc('login-success', [value], 'https://local.example');
+    const { rows, passive } = observer(); passive.observeIpc('session-ready', [value], 'https://local.example');
     passive.navigation('https://unrelated.example', 1); assert.equal(rows.length, 1);
     passive.navigation('https://app.example/home', 1); assert.equal(rows.at(-1).correlationOnly, true);
     assert.equal(JSON.stringify(rows).includes('secret'), false);
@@ -152,9 +152,9 @@ describe('Passive evidence and bounded uplift proofs', () => {
       reconcileRuntime([auth, probe], {});
       assert.equal(auth.validation.scope, 'unauthenticated-route-probe'); assert.equal(auth.reachability.exercised, false); assert.equal(auth.severity, severity.INFORMATIONAL);
     }
-    const state = finding('IPC_STATE_DESTINATION_JS_CHECK', { channel: 'login-success' });
+    const state = finding('IPC_STATE_DESTINATION_JS_CHECK', { channel: 'session-ready' });
     state.reachability = { staticStatus: 'unresolved', exercised: false, originalSeverity: 'HIGH' };
-    reconcileRuntime([state, finding('RUNTIME_IPC_STATE_DESTINATION', { channel: 'login-success' })], {});
+    reconcileRuntime([state, finding('RUNTIME_IPC_STATE_DESTINATION', { channel: 'session-ready' })], {});
     assert.equal(state.validation.scope, 'temporal-correlation'); assert.equal(state.reachability.exercised, false);
   });
   it('requests only declared read-only local routes, sends no credentials and never confirms bypass from 200 or follows redirects', async () => {

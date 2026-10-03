@@ -1,10 +1,10 @@
 // Where the app goes, decided by a page: an IPC handler stores what a renderer sent in the main process's state, and
 // that state later says which address windows load, or where requests carrying the user's token are sent.
-//   ipcMain.handle('login-success', (e, model) => setLoginModel(model));        // endpoints = model.endpoints
+//   ipcMain.handle('session-ready', (e, model) => setSessionModel(model));        // endpoints = model.endpoints
 //   mainWindow.loadURL(getEndpoints().ui);                                       // the page chose it
 //   axios.post(getEndpoints().api + 'upload', form, { headers: { Authorization: 'Bearer ' + token } });
 // A page that can send the message (an injected script, a less trusted origin in an allowed window) redirects every
-// window, with its preload, and the bearer token to a server of its choosing (DivorceMate's login model).
+// window, with its preload, and the bearer token to a server of its choosing.
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, literalValue, finding, isFunction } from '../helpers.js';
@@ -102,7 +102,7 @@ function destinations(index, names) {
   return uses;
 }
 
-// a function called directly, or through a module namespace: auth_1.setLoginModel(model) after require('../auth')
+// a function called directly, or through a module namespace: auth_1.setSessionModel(model) after require('../auth')
 function definitionOf(callee, scope) {
   if (callee.type === 'Identifier') return functionDefinition(callee, scope);
   if (!isMember(callee) || callee.object.type !== 'Identifier') return undefined;

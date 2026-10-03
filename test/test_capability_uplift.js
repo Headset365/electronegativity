@@ -89,7 +89,7 @@ ipcMain.handle('read', e => { if(!sender(e.senderFrame)) return; return 'version
 
   it('generates non-executable finding-linked drafts and preserves other API object fields', async () => {
     const { issues } = await scan({
-      'main.js': `const {ipcMain}=require('electron'); const fs=require('fs'); ipcMain.handle('open', (e,{filePath,matterId})=>fs.readFileSync(filePath));`,
+      'main.js': `const {ipcMain}=require('electron'); const fs=require('fs'); ipcMain.handle('open', (e,{filePath,recordId})=>fs.readFileSync(filePath));`,
       'preload.js': `const {contextBridge,ipcRenderer}=require('electron'); contextBridge.exposeInMainWorld('api',{open: p=>ipcRenderer.invoke('open',p)});`,
     });
     const plan = campaignPlan(issues);
@@ -99,9 +99,9 @@ ipcMain.handle('read', e => { if(!sender(e.senderFrame)) return; return 'version
     item.profile.api.mutationPath.should.deep.equal(['filePath']);
     (()=>campaignFromPlan(plan,item.id,{})).should.throw();
     const profile = campaignFromPlan(plan,item.id,{capture:{method:'PUT',route:'https://example.com/test/{id}'},fields:['body'],view:'https://example.com/test/view',
-      cases:['api-null'],api:{args:[{filePath:'test.txt',matterId:1}],mutationIndex:0}});
+      cases:['api-null'],api:{args:[{filePath:'test.txt',recordId:1}],mutationIndex:0}});
     const payload = valueFor('api-null','uplift_marker',{api:profile.api});
-    payload.should.include('&quot;filePath&quot;:null,&quot;matterId&quot;:1');
+    payload.should.include('&quot;filePath&quot;:null,&quot;recordId&quot;:1');
     profile.api.args[0].filePath.should.equal('test.txt');
     const direct = campaignFromPlan(plan,item.id,{request:{method:'PUT',url:'https://example.com/test/1',body:'{"body":"original"}'},fields:['body'],view:'reload',cases:['text']});
     direct.mode.should.equal('request');
