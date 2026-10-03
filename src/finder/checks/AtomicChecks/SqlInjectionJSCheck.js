@@ -109,8 +109,9 @@ function placeholderList(value, ancestors) {
     const fn = ancestors[i];
     if (!isFunction(fn) && fn.type !== 'Program') continue;
     let found;
+    let budget = 20000;
     visit(fn.body || fn, (n) => {
-      if (found !== undefined) return false;
+      if (found !== undefined || --budget < 0) return false;
       if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.id.name === value.name && n.init) found = isPlaceholderList(n.init);
       return true;
     });
@@ -211,14 +212,14 @@ export default class SqlInjectionJSCheck {
       if (SAFE_TAGS.test(tag)) return null;
     }
     const { text, shown, dynamic: all } = pieces(astNode, scope);
-    // markup that carries a query as data (<div data-content="select …">) is a page, not a statement the code runs
-    if (/^\s*</.test(text)) return null;
+    // the cheap tests first, on every template and concatenation of the code: a statement, with a value where values go
+    // (a table or column name chosen in code is the common, safe case), and not markup that carries a query as data
+    // (<div data-content="select …">)
+    if (!all.length || !SQL.test(text) || /^\s*</.test(text) || !inValuePosition(text)) return null;
     // a list of placeholders built from the values' count or names (ids.map(() => '?').join(), keys.map(k => `@${k}`)) is
     // the statement's own parameters
     const dynamic = all.filter(value => !placeholderList(value, context.ancestors));
-    if (!dynamic.length || !SQL.test(text)) return null;
-    // values in a statement's text, never its keywords: a table or column name chosen in code is the common, safe case
-    if (!inValuePosition(text, all.map(value => !dynamic.includes(value)))) return null;
+    if (!dynamic.length || !inValuePosition(text, all.map(value => !dynamic.includes(value)))) return null;
 
     // the value may be a parameter of an outer function: new Promise(async resolve => query(`… ${id}`)) inside a handler
     let source;
