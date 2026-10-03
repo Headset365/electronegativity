@@ -58,8 +58,8 @@ export const CLIENT_COPY = {
     'Validate the type and value of every argument at the handler, allow only the specific operations required, and resolve file paths within an approved directory. Verify that an out-of-scope value is rejected before the sensitive operation.'
   ],
   'Unused or unexpected channel': [
-    'The main process exposes an inter-process communication (IPC) channel that was not used by the application during testing.',
-    'An unused handler still adds privileged functionality that a page could call, without serving a business need.',
+    'The main process handles an inter-process communication (IPC) channel that no reviewed code in the user interface sends. The channel may be unused or used only in development; code the application loads from a server was not part of the review.',
+    'A handler that is no longer needed still adds privileged functionality that a page could call, without serving a business need.',
     'Remove handlers that are not required. For each one that is, document its intended callers and validate the sender, arguments and requested operation.'
   ],
   'External URL or protocol': [
@@ -173,9 +173,24 @@ export const CLIENT_COPY = {
     'Allow cross-origin requests only from the application’s own origins, bind the service to the loopback interface, and require authentication. Verify that a request with a foreign Origin header is refused.'
   ],
   'Page-chosen destination': [
-    'The main process stores an address sent by a page and later uses it to decide which address application windows load and where requests carrying the user’s access token are sent.',
-    'A page that can send the message, for example through a cross-site scripting flaw or a less trusted site opened in an application window, could load its own content into windows that have privileged functions and receive the user’s token.',
+    'The main process stores an address sent by a page and later loads it in application windows.',
+    'A page that can send the message, for example through a cross-site scripting flaw or a less trusted site opened in an application window, could load its own content into windows that have the application’s privileged functions.',
     'Keep the application’s addresses in the main process, or accept only addresses on the application’s own domains over HTTPS. Verify that an address on another domain is rejected.'
+  ],
+  'Page-chosen credential destination': [
+    'The main process stores an address sent by a page and later sends requests carrying the user’s access token to it.',
+    'A page that can send the message could have the user’s access token sent to a server of its choosing, and use it to act as the user against the application’s services.',
+    'Send the access token only to the application’s own API addresses, held in the main process. Verify that a request to an address on another domain is not sent with the token.'
+  ],
+  'Installation folder writable by other accounts': [
+    'The permissions of the application’s installation folder allow accounts other than its owner and administrators to modify the files in it.',
+    'Another user or a program running under another account on the same computer could replace the application’s files, so that their code runs the next time the application is started, with the privileges of the user who starts it.',
+    'Install the application in a folder that only administrators (or, for a per-user installation, only the owning user) can modify, and remove write access for broad groups such as Users and Authenticated Users. Verify with icacls that a standard user cannot modify the folder.'
+  ],
+  'Page-written file opened': [
+    'A message handler writes a file whose name and content are supplied by the user interface, then asks the operating system to open it with its default program.',
+    'Script able to send the message could write a script, shortcut or other executable file and have it run with the privileges of the logged-in user, in a single step and without any further interaction.',
+    'Generate the file name in the main process, or accept only names that match the expected pattern and an allowlisted document extension, keep the file inside the application’s own folder, and open only file types the application created. Verify that a name with another extension or a path separator is rejected.'
   ],
   'Program found through the working directory': [
     'The application starts a program or script named by a path relative to the folder it was started from, rather than its installation folder.',
@@ -422,7 +437,8 @@ export const CLIENT_LABELS = {
   'Shared session between trust levels': 'Session shared between windows of different trust',
   'Sender not restricted': 'Message sender not validated',
   'Arguments or file paths trusted': 'Message arguments not validated',
-  'Unused or unexpected channel': 'Unused message handler exposed',
+  'Unused or unexpected channel': 'Message handler with no identified caller',
+  'Installation folder writable by other accounts': 'Installation folder writable by other accounts',
   'External URL or protocol': 'Unvalidated URLs opened by the operating system',
   'Non-web protocol launch': 'Non-web protocols not blocked',
   'Network-share credential exposure': 'Network share locations not blocked',
@@ -440,7 +456,9 @@ export const CLIENT_LABELS = {
   'Top-level navigation or redirect': 'Navigation and redirects not restricted',
   'Popup or middle-click': 'New windows not restricted',
   'Embedded content': 'Embedded content not restricted',
-  'Page-chosen destination': 'Page decides where windows load and credentials go',
+  'Page-chosen destination': 'Page decides the address application windows load',
+  'Page-chosen credential destination': 'Page decides where the access token is sent',
+  'Page-written file opened': 'File written from page input and opened by the operating system',
   'Program found through the working directory': 'Program started from the working directory',
   'Values from the user interface in a query': 'Query built from user interface values',
   'Values from other data in a query': 'Query built from stored values',

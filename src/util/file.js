@@ -32,8 +32,11 @@ export function getSample(fileLines, index) {
   return sample;
 }
 
-// how much of a minified line is kept around the finding's column, and how long a line of context may be
+// how much of a minified line is kept before and after the finding's column (about one printed line in all), and how long
+// a line of context may be
 const EXCERPT = 150;
+const EXCERPT_BEFORE = 40;
+const EXCERPT_AFTER = 100;
 const CONTEXT_LINE = 200;
 /**
  * The code around a finding, for its evidence: { start, lines } with start the number of the first line, and two lines
@@ -44,8 +47,8 @@ export function getContext(fileLines, index, column = 0) {
   const line = String(fileLines[index] ?? '').replace(/\r$/, '');
   if (!line.trim()) return undefined;
   if (line.length > 2 * EXCERPT) {
-    const from = Math.max(0, column - EXCERPT);
-    const to = Math.min(line.length, column + EXCERPT);
+    const from = Math.max(0, column - EXCERPT_BEFORE);
+    const to = Math.min(line.length, column + EXCERPT_AFTER);
     return { start: index + 1, lines: [`${from > 0 ? '…' : ''}${line.slice(from, to).trim()}${to < line.length ? '…' : ''}`], excerpt: true };
   }
   const first = Math.max(0, index - 2);
@@ -303,8 +306,8 @@ const issueEntry = (issue, fingerprint) => ({
   interaction: interactionOf(issue.id),
   validation: issue.validation,
   howToValidate: issue.manualReview && !issue.validation ? validationHint(issue.id) : undefined,
-  remediation: remediationOf(issue.id)?.fix,
-  remediationExample: remediationOf(issue.id)?.example,
+  remediation: remediationOf(issue.id, issue)?.fix,
+  remediationExample: remediationOf(issue.id, issue)?.example,
   notes: issue.notes,
   reference: issue.shortenedURL,
   properties: reportProperties(issue.properties)

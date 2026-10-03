@@ -161,8 +161,34 @@ const ALIASES = {
 
 const baseId = (id) => String(id || '').replace(/_(JS|HTML|JSON|GLOBAL)_CHECK$/, '').replace(/_LOCK_CHECK$/, '');
 
-/** { fix, example } for a finding's check id, or undefined when there is nothing to fix (inventories, coverage notes). */
-export function remediationOf(id) {
+// advice that depends on the library the code uses, keyed by check and then by the finding's properties.driver; clientFix is
+// the client report's wording
+const DRIVER_ADVICE = {
+  SQL_INJECTION: {
+    'node-adodb': {
+      fix: 'node-adodb passes the statement text to the Access database engine and does not support bound parameters. Convert identifiers to integers and reject anything else, double single quotes in text values, or move the queries to a driver that supports parameters (such as odbc).',
+      clientFix: 'The node-adodb library used by the application does not support query parameters. Convert each identifier to an integer and reject any other value before it is used, escape single quotes in text values, or move the queries to a database driver that supports parameters. Verify that a non-numeric identifier is rejected.',
+      example: "const id = Number.parseInt(fileID, 10);\nif (!Number.isSafeInteger(id)) throw new Error('Invalid file identifier');\nconst rows = await dbQuery(`SELECT * FROM tblFiles WHERE FileID = ${id};`);",
+    },
+    'better-sqlite3': { example: "db.prepare('SELECT * FROM tblFiles WHERE FileID = ?').get(fileID);" },
+    sqlite3: { example: "db.get('SELECT * FROM tblFiles WHERE FileID = ?', [fileID], callback);" },
+    pg: { example: "await client.query('SELECT * FROM files WHERE file_id = $1', [fileID]);" },
+    mssql: { example: "await pool.request().input('id', sql.Int, fileID).query('SELECT * FROM tblFiles WHERE FileID = @id');" },
+  },
+};
+
+/**
+ * { fix, example } for a finding's check id, or undefined when there is nothing to fix (inventories, coverage notes). With the
+ * finding, advice for the library it uses replaces the general advice where there is some (and adds clientFix).
+ */
+export function remediationOf(id, issue) {
+  const general = generalRemediation(id);
+  const driver = issue?.properties?.driver;
+  const specific = driver && DRIVER_ADVICE[baseId(id)]?.[driver];
+  return specific && general ? { ...general, ...specific } : general;
+}
+
+function generalRemediation(id) {
   const base = baseId(id);
   const entry = REMEDIATION[id] || REMEDIATION[base] || REMEDIATION[ALIASES[id]] || REMEDIATION[ALIASES[base]];
   if (entry) return { fix: entry[0], example: entry[1] };

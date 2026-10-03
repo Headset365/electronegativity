@@ -80,6 +80,33 @@ const COMMENTS = /\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n\s*\/\/[^\n]*)*/g;
 /**
  * Libraries found in a script's text: [{ name, version }], each package version once.
  */
+// The third-party library a file is a copy or chunk of: node_modules/<name>/…, or a bundler chunk named after a known
+// library (tabulator-CmBzg3cD.js, mermaid.core-C91UIso6.js, jquery.module-R5Nq7kwZ.js, vendor/leaflet.min.js). `names` are the
+// package and library names known for the app (its inventory and the libraries detected in its files).
+// third-party components often bundled into Electron renderers, named in chunk file names whether or not the inventory
+// lists them (a bundle has no package.json of its own)
+export const COMMON_LIBRARIES = ['ckeditor5', 'ckeditor4', 'mermaid', 'mathlive', 'tabulator-tables', 'leaflet', 'maplibre-gl', 'jquery', 'jquery-ui',
+  'codemirror', 'monaco-editor', 'katex', 'mathjax', 'excalidraw', 'tldraw', 'pdfjs-dist', 'highlight.js', 'prismjs', 'marked', 'markdown-it', 'dompurify',
+  'lodash', 'moment', 'd3', 'echarts', 'chart.js', 'three', 'fullcalendar', 'tinymce', 'quill', 'prosemirror-view', 'xterm', 'react-dom', 'vue', 'cytoscape',
+  'plantuml-encoder', 'vis-network', 'elkjs', 'dagre', 'abcjs', 'flowchart.js', 'mind-elixir', 'html2canvas', 'jspdf', 'xlsx', 'mammoth', 'turndown'];
+const CHUNK_SUFFIXES = /(?:[.-](?:min|module|core|esm|bundle|umd|prod|production|dist|browser|global))+$/i;
+export function libraryOfFile(file, names) {
+  const value = String(file || '').replace(/\\/g, '/');
+  const modules = /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(value);
+  if (modules) return modules[1];
+  // a hash that names a build, not a word: it has a digit or a capital letter (maplibre-gl keeps its name)
+  const base = value.split('/').pop().replace(/\.[cm]?js$/i, '').replace(/[-.](?=[A-Za-z0-9_-]{8,20}$)(?=[^-.]*[0-9A-Z])[A-Za-z0-9_-]{8,20}$/, '').replace(CHUNK_SUFFIXES, '').toLowerCase();
+  if (base.length < 4 || /^(index|main|app|vendor|chunk|common|runtime|polyfills?)$/.test(base)) return undefined;
+  const squash = s => s.replace(/^@[^/]+\//, '').replace(/[-_.]/g, '');
+  for (const name of names) {
+    const n = String(name).toLowerCase();
+    const short = n.replace(/^@[^/]+\//, '');
+    if (short.length < 4) continue;
+    if (base === short || squash(base) === squash(short) || base.startsWith(`${short}-`) || short.startsWith(`${base}-`)) return name;
+  }
+  return undefined;
+}
+
 export function detectLibraries(text) {
   if (typeof text !== 'string' || text.length === 0) return [];
   const found = new Map();

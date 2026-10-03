@@ -219,7 +219,9 @@ export class ProjectIndex {
     // and following those fans out exponentially (Notesnook's bundle ran out of memory): such names are not tables
     for (const [name, entries] of dispatch) if (entries.length > MAX_DISPATCH) dispatch.delete(name);
     const names = new Map();
-    for (const [name, fns] of local) for (const fn of fns) names.set(functionKey(file, fn), name);
+    for (const [name, entries] of local) for (const { fn } of entries) names.set(functionKey(file, fn), name);
+    // the nodes enclosing the call being resolved: a name resolves to the functions of that name in scope there
+    let scopes = [];
     const resolved = new Map();
     const resolve = (callee, depth = 0) => {
       if (depth === 0 && callee && resolved.has(callee)) return resolved.get(callee);
@@ -241,7 +243,12 @@ export class ProjectIndex {
           .flatMap(p => resolve(p.value, depth + 1));
       }
       if (!callee || callee.type !== 'Identifier') return isFunction(callee) ? [functionKey(file, callee)] : [];
-      if (local.has(callee.name)) return local.get(callee.name).map(fn => functionKey(file, fn));
+      if (local.has(callee.name)) {
+        const entries = local.get(callee.name);
+        const visible = entries.filter(({ scope }) => scope === program || scopes.includes(scope));
+        // a name in a dispatch table defined elsewhere: its scope is not the call's, every candidate stands
+        return (visible.length || depth === 0 ? visible : entries).map(({ fn }) => functionKey(file, fn));
+      }
       const binding = moduleBindings(program).get(callee.name);
       const found = binding && binding.module && this.lookup(file, binding.module, binding.imported === '*' ? 'default' : binding.imported);
       return found && isFunction(found.node) ? [functionKey(found.file, found.node)] : [];
@@ -253,6 +260,7 @@ export class ProjectIndex {
     // one walk: a call passing a function's parameters (or values derived from them) links that function to the callee
     visit(program, (node, ancestors) => {
       if (node.type !== 'CallExpression' && node.type !== 'OptionalCallExpression' && node.type !== 'NewExpression') return true;
+      scopes = ancestors;
       const source = node.type !== 'NewExpression' ? sourceOfCall(node) : undefined;
       if (source) for (const handler of node.arguments) for (const key of resolve(handler)) if (key && !this.seeds.has(key)) this.seeds.set(key, source);
       const callees = resolve(node.callee).filter(Boolean);
@@ -396,12 +404,19 @@ function isConstant(node) {
 }
 
 // Functions declared in a file by name: function f() {}, const f = () => {}, const f = function () {}
+// The named functions of a file, each with the scope that declares it (the enclosing function, or the program): minified
+// bundles reuse short names (function o(c) in one module, another o in the next), and a call reaches only the one in scope
 function localFunctions(program) {
   const functions = new Map();
-  const add = (name, fn) => functions.set(name, [...(functions.get(name) || []), fn]);
-  visit(program, (node) => {
-    if (node.type === 'FunctionDeclaration' && node.id) add(node.id.name, node);
-    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && isFunction(node.init)) add(node.id.name, node.init);
+  const add = (name, fn, ancestors) => {
+    // a function declaration's name is bound in the scope around it, not inside itself
+    let scope = program;
+    for (let i = ancestors.length - 1; i >= 0; i--) if (isFunction(ancestors[i]) && ancestors[i] !== fn) { scope = ancestors[i]; break; }
+    functions.set(name, [...(functions.get(name) || []), { fn, scope }]);
+  };
+  visit(program, (node, ancestors) => {
+    if (node.type === 'FunctionDeclaration' && node.id) add(node.id.name, node, ancestors);
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && isFunction(node.init)) add(node.id.name, node.init, ancestors);
     return true;
   });
   return functions;

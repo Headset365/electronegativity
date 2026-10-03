@@ -187,6 +187,36 @@ Firebase web API keys are informational (public by design); default permission c
 window moving from the app's boot page to its own local server is not reported as navigation away; a shortcut to the
 app itself with fixed arguments, and a `second-instance` handler that only looks for a fixed switch, are informational.
 
+### Reading the client findings
+
+- **Most serious first.** Every finding lists its instances by rating, then file and line. When a few instances carry
+  more risk than the rest, Affected opens with them ("The instances that carry the most risk…") before the full list,
+  and the reproduction steps start with them. A page choosing where windows load and where the token goes has its own
+  finding ("Application Destinations Controlled by Web Content"); a handler that writes a page-named file and opens it
+  is listed under "Unvalidated URLs and Files Passed to the Operating System".
+- **Third-party library code** (a `node_modules` copy, or a bundler chunk named after a library such as
+  `mermaid.core-C91UIso6.js`) is listed after the application's own locations, under its own paragraph. The finding is
+  rated from the application's code. Check whether the app passes untrusted content to the library before keeping those
+  rows.
+- **Code that runs on one operating system only** (`openInMac()`, `if (process.platform === 'darwin')`) is marked
+  "(macOS only)" under Affected and in the step. The tester notes ask whether that build is in scope: remove the row or
+  say it doesn't affect the tested build if not.
+- **SQL**: the statement shows the inserted value as written (`` `… WHERE FileID = ${fileID}` ``). A value read from
+  an earlier query's rows is labelled second-order ("Query built from stored values"). For node-adodb, which has no
+  query parameters, the advice is integer conversion or escaping instead of parameters.
+- **Ratings**: a finding the tool hasn't confirmed at runtime is at most *Possible*: the code or setting is certain, who
+  can reach it isn't. A runtime confirmation (or your own) can raise it. Outdated Software Components is rated from the
+  Electron runtime: end of life is Medium/Possible, High/Possible with Node.js integration or no context isolation;
+  missed Electron security fixes are Medium; third-party advisories alone are Low. The tester notes give the basis.
+- **Wording**: three or more facts about one line are a list. A finding with no file names what it covers ("All
+  application windows"). A loopback HTTP address (`http://127.0.0.1:…`) is described as the app's own local server and
+  rated LOW. An IPC channel no reviewed renderer code sends is "Message handler with no identified caller", not
+  "unused". Install folders other accounts can write to (`--prove`) are one sentence with folders relative to the
+  install folder. Paths in steps use forward slashes, which PowerShell accepts.
+- **Minified bundles**: a call is linked only to the function of that name in scope, so a short name reused in another
+  module of the bundle no longer joins unrelated code (Trilium's prebuilds `readdirSync` was reported as a page-chosen
+  path through such a collision).
+
 ## 4. Useful variations
 
 ```powershell

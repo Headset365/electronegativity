@@ -10,15 +10,18 @@ import { remediationOf } from '../finder/remediation.js';
 import { matchingVariations } from './markdown_variations.js';
 import { executionConfirmed, mergeFindingEvidence, validationResults } from '../finder/validation.js';
 import { OUTDATED_TITLE, outdatedSections } from './markdown_outdated.js';
-import { LEADS, NOTES, runtimeFact, staticFact, referenceTitle } from './markdown_style.js';
+import { LEADS, NOTES, runtimeFact, staticFact, referenceTitle, aclFact } from './markdown_style.js';
 import { CLIENT_LABELS } from './markdown_client_copy.js';
+import { libraryOfFile, COMMON_LIBRARIES } from '../util/libraries.js';
 import { RELEASE_GUIDE_TITLE, RELEASE_GUIDE_FILE, SECRET_CHECKS, secretsNote, releaseChecklist, releaseGuide } from './markdown_release.js';
 
 const definitions = [
   ['Insufficient Renderer Process Isolation', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|PRELOAD|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX)|RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$)/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
   ['Browser Security Controls Disabled', /^(WEB_SECURITY|INSECURE_CONTENT|EXPERIMENTAL_FEATURES|BLINK_FEATURES|WEBGL|WEBSQL|PLUGINS|NAVIGATE_ON_DRAG_DROP|CUSTOM_ARGUMENTS|SECURITY_WARNINGS_DISABLED|SECUREKEYBOARDENTRY|RUNTIME_WEB_SECURITY)/, 'Disabled browser safeguards expand what page content can do.', 'Restore Chromium defaults and enable only capabilities that are essential.', 'CWE-693: Protection Mechanism Failure'],
   ['Privileged Functionality Exposed to Web Content', /^(CONTEXT_BRIDGE_EXPOSURE|RUNTIME_PRELOAD_FOREIGN_ORIGIN|WINDOW_SESSION|RUNTIME_WINDOW_SESSION)/, 'Untrusted pages may reach privileged APIs or share a trusted session.', 'Expose narrow preload APIs and separate sessions by trust level.', 'CWE-749: Exposed Dangerous Method or Function'],
-  ['Insufficient Validation of Inter-Process Messages', /^(IPC_SENDER_VALIDATION|IPC_HANDLER|IPC_RPC_PROCEDURE|IPC_STATE_DESTINATION|IPC_FILE_ACCESS|IPC_CHANNEL_MAP|RUNTIME_MARKER_IPC)/, 'Renderer messages can reach main-process operations without adequate checks.', 'Validate the sender, arguments and allowed operations in every handler.', 'CWE-20: Improper Input Validation'],
+  ['Insufficient Validation of Inter-Process Messages', /^(IPC_SENDER_VALIDATION|IPC_HANDLER|IPC_RPC_PROCEDURE|IPC_FILE_ACCESS|IPC_CHANNEL_MAP|RUNTIME_MARKER_IPC)/, 'Renderer messages can reach main-process operations without adequate checks.', 'Validate the sender, arguments and allowed operations in every handler.', 'CWE-20: Improper Input Validation'],
+  // a page that sets where windows load and where the token goes: its own finding, not one of the many sender checks
+  ['Application Destinations Controlled by Web Content', /^IPC_STATE_DESTINATION/, 'A page can choose the addresses privileged windows load and where credentials are sent.', 'Keep the application’s addresses in the main process and accept only its own HTTPS origins.', 'CWE-15: External Control of System or Configuration Setting'],
   ['Unvalidated URLs and Files Passed to the Operating System', /^(OPEN_EXTERNAL|OPEN_PATH|SHOWITEMINFOLDER|WRITE_SHORTCUT|DOWNLOAD|RUNTIME_(OPEN_EXTERNAL|OPEN_PATH)|RUNTIME_MARKER_(OPEN_EXTERNAL|OPEN_PATH))/, 'Untrusted URLs or file paths may be opened by the operating system.', 'Allowlist URL schemes and hosts, and constrain file paths before opening them.', 'CWE-73: External Control of File Name or Path'],
   ['Command or Code Execution from Variable Input', /^(COMMAND_INJECTION|DANGEROUS_FUNCTIONS|DYNAMIC_MODULE|RELATIVE_EXECUTABLE_PATH|RUNTIME_MARKER_(COMMAND|MODULE))/, 'Untrusted data may reach command or code execution.', 'Avoid command-line construction and pass validated arguments to safe APIs.', 'CWE-78: Improper Neutralization of Special Elements used in an OS Command'],
   ['Insecure Microsoft Word Integration', /^WORD_LAUNCH/, 'Opening documents in Microsoft Word can expose users to unsafe document content or command construction.', 'Validate document paths and preserve Mark-of-the-Web metadata before opening files.', 'CWE-73: External Control of File Name or Path'],
@@ -94,6 +97,8 @@ function groupOf(i) {
     RUNTIME_UPDATE_PROOF: 'Insecure Software Update Mechanism', WINDOWS_INSTALL_PERMISSIONS: 'Application Code Not Protected Against Tampering or Disclosure',
     WINDOWS_PROTOCOL_REGISTRATION: 'Insecure Handling of Deep Links and File Associations' };
   if (proofGroups[id] && definitionOf(proofGroups[id])) return definitionOf(proofGroups[id]);
+  // a handler that writes a file the page names and opens it runs code in one message: reported with the OS hand-offs
+  if (id === 'IPC_HANDLER' && i.properties?.issue === 'write-then-open') return definitionOf('Unvalidated URLs and Files Passed to the Operating System');
   if (['RUNTIME_OPEN_PATH', 'RUNTIME_MARKER_OPEN_PATH'].includes(id) && /\.(?:docx?|rtf)\b/i.test(i.description || '')) return definitionOf('Insecure Microsoft Word Integration');
   // the switch that turns certificate validation off belongs with the certificate findings
   if (id === 'CUSTOM_ARGUMENTS' && /ignore-certificate-errors/i.test(i.description || '')) return definitionOf('Insecure Network Transport and Certificate Validation');
@@ -155,14 +160,57 @@ export function ratingOf(i, title) {
   let l = isConfirmed(i) ? 4 : ({ CERTAIN: 3, FIRM: 2, TENTATIVE: 1 })[nameOf(i.confidence)] ?? 1;
   if (victimAction(i)) l--;
   if (route === 'local') l = Math.min(l, nameOf(i.confidence) === 'CERTAIN' ? 1 : 0);
+  // a certain finding is not a likely attack: until testing shows it exploited, an instance is at most Possible (the code
+  // or setting is certain; who can reach it is not), except what anyone holding the package can read out of it
+  if (!isConfirmed(i) && route !== 'anyone') l = Math.min(l, 2);
   return { consequence: consequenceScale[c], likelihood: likelihoodScale[Math.max(0, l)] };
 }
 
 const rank = (r, scale) => r === 'N/A' ? -1 : scale.indexOf(r);
 const byRating = (a, b) => rank(b.rating.consequence, consequenceScale) - rank(a.rating.consequence, consequenceScale) ||
   rank(b.rating.likelihood, likelihoodScale) - rank(a.rating.likelihood, likelihoodScale);
+// code in a third-party library, and code that runs only on another operating system, after the application's own
+const inLibrary = i => !!i.properties?.library;
+const elsewhere = i => ['darwin', 'linux', 'non-windows'].includes(i.properties?.platform);
+const fileKey = i => String(i.file || '').replace(/\\/g, '/').toLowerCase();
+// the order instances are listed in: most severe first, the application's own code before libraries, then by file and line
+const byInstance = (a, b) => byRating(a, b) || inLibrary(a.issue) - inLibrary(b.issue) || elsewhere(a.issue) - elsewhere(b.issue) ||
+  fileKey(a.issue).localeCompare(fileKey(b.issue)) || (a.issue.location?.line || 0) - (b.issue.location?.line || 0);
 
-export function groupClientFindings(issues) {
+// The rating of the outdated components finding, from the support status of the Electron runtime and published
+// advisories (none of which the tool exploits): an end-of-life runtime no longer receives Chromium and Node.js security
+// fixes, and weak renderer isolation turns a renderer flaw into code execution on the computer. { rating, basis }.
+const WEAK_ISOLATION = /^(NODE_INTEGRATION|CONTEXT_ISOLATION|RUNTIME_NODE_INTEGRATION|RUNTIME_CONTEXT_ISOLATION|HTTP_RESOURCES_WITH_NODE_INTEGRATION)$/;
+export function outdatedRating(groupIssues, allIssues = groupIssues) {
+  const open = groupIssues.filter(i => !i.suppression);
+  const has = (pattern, test = () => true) => open.some(i => pattern.test(normalId(i.id)) && test(i));
+  const endOfLife = has(/^UNSUPPORTED_VERSION$/, i => nameOf(i.severity) === 'HIGH' || /end of life|end-of-life/i.test(i.description || ''));
+  const runtimeFixes = has(/^(AVAILABLE_SECURITY_FIXES|CHROMIUM_ADVISORIES)$/);
+  const advisories = has(/^DEPENDENCY_VULNERABILITIES$/, i => nameOf(i.severity) !== 'LOW');
+  const unsupportedLibrary = has(/^END_OF_LIFE_LIBRARY$/, i => nameOf(i.severity) !== 'LOW');
+  const weak = allIssues.some(i => !i.suppression && WEAK_ISOLATION.test(normalId(i.id)) && !['INFORMATIONAL', 'LOW'].includes(nameOf(i.severity)));
+  const isolation = weak ? ' Renderer isolation is weakened (Node.js integration or no context isolation), so a renderer vulnerability can reach the operating system.' : '';
+  if (endOfLife) return { rating: { consequence: weak ? 'High' : 'Medium', likelihood: 'Possible' }, basis: `The Electron runtime is end of life and no longer receives security fixes.${isolation}` };
+  if (runtimeFixes) return { rating: { consequence: 'Medium', likelihood: weak ? 'Possible' : 'Unlikely' }, basis: `Published security fixes for the Electron runtime are not applied.${isolation}` };
+  if (advisories) return { rating: { consequence: 'Low', likelihood: 'Possible' }, basis: 'Components shipped with the application have published security advisories.' };
+  if (unsupportedLibrary) return { rating: { consequence: 'Low', likelihood: 'Unlikely' }, basis: 'Components shipped with the application are end of life.' };
+  return { rating: { consequence: 'N/A', likelihood: 'N/A' }, basis: 'Only newer releases are available; no published advisory applies.' };
+}
+
+// findings in third-party library code, for reports of scans made before the scan named it (properties.library): the
+// file is a node_modules copy or a bundler chunk named after a component of the inventory
+function withLibraries(issues, names) {
+  if (!names?.length) return issues;
+  return issues.map(i => {
+    if (i.properties?.library || !i.file || /^(runtime|N\/A)$/.test(i.file) || /^(DEPENDENCY_|HARDCODED_SECRET|UNSUPPORTED_VERSION|AVAILABLE_SECURITY|END_OF_LIFE)/.test(i.id)) return i;
+    const library = libraryOfFile(i.file, names);
+    return library ? { ...i, properties: { ...i.properties, library } } : i;
+  });
+}
+const libraryNames = meta => [...new Set([...(meta.dependencies?.rows || []).map(r => r.name), ...COMMON_LIBRARIES])].filter(name => name && name !== 'electron');
+
+export function groupClientFindings(input, names) {
+  const issues = withLibraries(input, names);
   const groups = new Map();
   for (const i of issues.filter(reportable)) {
     const definition = groupOf(i);
@@ -177,14 +225,21 @@ export function groupClientFindings(issues) {
     }
   }
   return [...groups.values()].map(g => {
-    g.items = g.issues.map(i => ({ issue: i, rating: ratingOf(i, g.definition[0]) })).sort(byRating);
+    g.items = g.issues.map(i => ({ issue: i, rating: ratingOf(i, g.definition[0]) })).sort(byInstance);
     // most severe first everywhere the finding lists its instances, so a cut-off list never drops the one that rates it
     g.issues = g.items.map(x => x.issue);
-    // accepted risks are listed but the rating is that of what is still open; a group of accepted risks only keeps theirs
-    const basis = g.items.find(x => !x.issue.suppression) || g.items[0];
+    // accepted risks are listed but the rating is that of what is still open; a group of accepted risks only keeps theirs.
+    // The application's own code rates the finding; library code only where nothing else is affected.
+    const open = g.items.filter(x => !x.issue.suppression);
+    const basis = open.find(x => !inLibrary(x.issue)) || open[0] || g.items[0];
     g.rating = basis.rating;
     g.basis = basis.issue;
     g.accepted = !!basis.issue.suppression;
+    if (g.definition[0] === OUTDATED_TITLE) {
+      const outdated = outdatedRating(g.issues, issues);
+      g.rating = outdated.rating;
+      g.ratingBasis = outdated.basis;
+    }
     return g;
   }).sort((a, b) => a.accepted - b.accepted || byRating(a, b) || a.definition[0].localeCompare(b.definition[0]));
 }
@@ -204,9 +259,11 @@ const linkTarget = target => target.split('/').map(segment => encodeURIComponent
  * packaged app's install folder) and the home and temporary folders, which never appear in the report.
  */
 function context(meta) {
-  const root = meta.root ? path.resolve(meta.root) : undefined;
+  // a scan made on Windows keeps Windows paths when its report is written again elsewhere (--rerender)
+  const P = meta.root && /^[a-z]:[\\/]|^\\\\/i.test(meta.root) ? path.win32 : path;
+  const root = meta.root ? P.resolve(meta.root) : undefined;
   const bases = root ? [root] : [];
-  if (root && /[\\/]resources[\\/]app(\.asar)?$/i.test(root)) bases.push(path.dirname(path.dirname(root)));
+  if (root && /[\\/]resources[\\/]app(\.asar)?$/i.test(root)) bases.push(P.dirname(P.dirname(root)));
   const home = os.homedir();
   const temp = os.tmpdir();
   // a folder as a file URL (encoded or not) and as a path written with either slash
@@ -219,19 +276,22 @@ function context(meta) {
     return unique([url, decoded, folder, folder.replace(/\\/g, '/'), folder.replace(/\//g, '\\')]);
   };
   const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const within = (folder) => new RegExp(forms(folder).map(form => `${escape(form)}(?:[\\\\/]|(?![\\w.-]))`).join('|'), 'g');
-  const baseForms = bases.map(base => ({ pattern: within(base), name: path.basename(base) }));
+  // Windows paths are compared without case: d:\a\app and D:\A\app are the same folder
+  const flags = folder => /^[a-z]:[\\/]/i.test(folder) || /^\\\\/.test(folder) ? 'gi' : 'g';
+  const within = (folder) => new RegExp(forms(folder).map(form => `${escape(form)}(?:[\\\\/]|(?![\\w.-]))`).join('|'), flags(folder));
+  const baseForms = bases.map(base => ({ pattern: within(base), name: P.basename(base) }));
   // a file in the temporary folder: what follows the tool's own folder there (a downloaded copy of a server's script)
-  const tempPattern = new RegExp(forms(temp).map(form => `${escape(form)}[\\\\/](?:electronegativity-[^\\\\/\\s'"]*[\\\\/])?`).join('|'), 'g');
+  const tempPattern = new RegExp(forms(temp).map(form => `${escape(form)}[\\\\/](?:electronegativity-[^\\\\/\\s'"]*[\\\\/])?`).join('|'), flags(temp));
   const scrub = (value) => {
     let out = String(value ?? '');
     for (const { pattern, name } of baseForms) out = out.replace(pattern, (match) => /[\\/]$/.test(match) ? '' : name);
     out = out.replace(tempPattern, '');
-    return home && home.length > 1 ? out.split(home).join('~') : out;
+    if (!home || home.length < 2) return out;
+    return flags(home) === 'gi' ? out.replace(new RegExp(escape(home), 'gi'), '~') : out.split(home).join('~');
   };
   // what the scanned folder is: the archive of an installed app, its unpacked app folder, or the app's source
   const layout = !root ? undefined : /[\\/]resources[\\/]app\.asar$/i.test(root) ? 'archive' : /[\\/]resources[\\/]app$/i.test(root) ? 'folder' : 'source';
-  return { app: meta.app?.name || 'the application', bases, scrub, layout, notesFolder: meta.notesFolder || 'testerNotes', findingsFolder: meta.findingsFolder || 'reports', outputFile: meta.outputFile, dependencies: meta.dependencies,
+  return { app: meta.app?.name || 'the application', bases, scrub, path: P, layout, notesFolder: meta.notesFolder || 'testerNotes', findingsFolder: meta.findingsFolder || 'reports', outputFile: meta.outputFile, dependencies: meta.dependencies,
     reportRoot: meta.reportRoot || (meta.outputFile && path.dirname(path.resolve(meta.outputFile))), outputs: meta.outputs || [] };
 }
 
@@ -243,13 +303,14 @@ function shownFile(file, ctx) {
     } catch { /* not a local file URL */ }
   }
   // a relative path recorded on Windows (build\assets\app.js) reads the same as everywhere else; URLs keep their form
-  if (!path.isAbsolute(value) && !/^[a-z]:[\\/]/i.test(value) && !/^\\\\/.test(value)) return ctx.scrub(/^[a-z][\w+.-]*:\/\//i.test(value) ? value : value.replace(/\\/g, '/'));
+  const P = /^[a-z]:[\\/]|^\\\\/i.test(value) ? path.win32 : ctx.path || path;
+  if (!P.isAbsolute(value) && !/^[a-z]:[\\/]/i.test(value) && !/^\\\\/.test(value)) return ctx.scrub(/^[a-z][\w+.-]*:\/\//i.test(value) ? value : value.replace(/\\/g, '/'));
   for (const base of ctx.bases) {
-    const relative = path.relative(base, value);
-    if (!relative) return path.basename(base);
-    if (!relative.startsWith('..') && !path.isAbsolute(relative)) return relative.split(path.sep).join('/');
+    const relative = P.relative(base, value);
+    if (!relative) return P.basename(base);
+    if (!relative.startsWith('..') && !P.isAbsolute(relative)) return relative.split(P.sep).join('/');
   }
-  return ctx.scrub(value).split(path.sep).join('/');
+  return ctx.scrub(value).split(P.sep).join('/');
 }
 
 // Text from the scanned app (names, descriptions, evidence) is data: its Markdown and HTML syntax is escaped
@@ -278,21 +339,38 @@ function codeBlock(value, lang, indent = '  ') {
   return cut ? `${block}\n\n${indent}(Excerpt: a further ${cut} characters are not shown.)` : block;
 }
 
-const isRuntime = i => /^RUNTIME_|^TRAFFIC_/.test(i.id);
+// (the Windows inventories of a watch session, ACLs and protocol registrations, are runtime observations too)
+const isRuntime = i => /^RUNTIME_|^TRAFFIC_|^WINDOWS_/.test(i.id);
+// code that runs on some operating systems only (properties.platform, set from platform checks around the code)
+const PLATFORMS = { darwin: 'macOS', linux: 'Linux', win32: 'Windows', 'non-windows': 'macOS and Linux', 'non-darwin': 'Windows and Linux' };
+const runsOn = i => PLATFORMS[i.properties?.platform];
 // the file and line of a finding, or undefined for one that has none (a runtime observation, an application-wide setting)
 function place(i, ctx) {
+  // a folder whose permissions were read during testing
+  if (/^WINDOWS_INSTALL_PERMISSIONS/.test(i.id) && typeof i.properties?.path === 'string') return shownFile(i.properties.path, ctx);
   if (!i.file || i.file === 'N/A' || i.file === 'runtime') return undefined;
   return `${shownFile(i.file, ctx)}${i.location?.line ? `:${i.location.line}` : ''}`;
 }
+// what a finding with no file of its own covers
+const SCOPES = {
+  CSP: 'All application windows (no policy in any page or response)', CERTIFICATE_PINNING: 'Connections to the application’s servers',
+  HTTP_RESOURCES_WITH_NODE_INTEGRATION: 'Windows with Node.js integration that load content over HTTP', LIMIT_NAVIGATION: 'All application windows',
+  PERMISSION_REQUEST_HANDLER: 'All application sessions', ASAR_INTEGRITY: 'The application archive (`resources/app.asar`)',
+  PACKAGED_FUSES: 'The application executable', FUSES: 'The application executable', SANDBOX: 'All application windows',
+  CODE_SIGNING: 'The application executable', BINARY_HARDENING: 'The application executable', SOURCE_MAP_SHIPPED: 'The packaged application code',
+  IPC_CHANNEL_MAP: 'The main process', WEBVIEW: 'All application windows', IFRAME_SANDBOX: 'Embedded frames in the application’s pages',
+};
 function location(i, ctx) {
   const where = place(i, ctx);
   if (where) return codeSpan(where);
-  return isRuntime(i) ? `${text(ctx.app, ctx)}, observed during testing` : `${text(ctx.app, ctx)} (application-wide)`;
+  if (isRuntime(i)) return `${text(ctx.app, ctx)}, observed during testing`;
+  const scope = SCOPES[normalId(i.id)] || SCOPES[normalId(i.id).replace(/_(TAG|GLOBAL)$/, '')];
+  return scope ? `${scope} (${text(ctx.app, ctx)})` : `${text(ctx.app, ctx)} as a whole`;
 }
 function details(i, ctx) {
   const p = i.properties || {};
   const pkg = scalar(p.package) || scalar(p.name);
-  return [location(i, ctx), scalar(p.url) && codeSpan(ctx.scrub(p.url)), scalar(p.window) && text(p.window, ctx), scalar(p.channel) && `channel ${codeSpan(p.channel)}`,
+  return [`${location(i, ctx)}${elsewhere(i) ? ` (${runsOn(i)} only)` : ''}`, scalar(p.url) && codeSpan(ctx.scrub(p.url)), scalar(p.window) && text(p.window, ctx), scalar(p.channel) && `channel ${codeSpan(p.channel)}`,
     scalar(p.fuse) && `fuse ${codeSpan(`${p.fuse}=${typeof p.value === 'boolean' ? p.value : scalar(p.value) ?? 'unknown'}`)}`, scalar(p.cookie) && `cookie ${codeSpan(p.cookie)}`, scalar(p.host) && codeSpan(p.host),
     pkg && codeSpan(`${pkg}${scalar(p.version) ? `@${p.version}` : ''}`), Array.isArray(p.advisories) && p.advisories.length && `${p.advisories.length} advisories`].filter(Boolean).join(' — ');
 }
@@ -362,13 +440,15 @@ function acceptedRisk(s, label, ctx) {
 // why the finding has its rating, and what testing did and did not establish: for the tester, not the client
 function proseNotes(g, ctx) {
   const i = g.basis;
-  if (g.definition[0] === OUTDATED_TITLE) return ['Rated Informational: the known vulnerabilities of the listed components were not exploited during the engagement.',
+  if (g.definition[0] === OUTDATED_TITLE) return [`Rating basis: ${g.ratingBasis || 'support status of the listed components'} The known vulnerabilities of the listed components were not exploited during the engagement; raise the rating where one is shown to be exploitable, or lower it where the vulnerable code is not used.`,
     ...g.issues.filter(x => x.suppression).map(s => `Accepted risk — ${s.id} at ${text(place(s, ctx) || 'application-wide', ctx)}. ${s.suppression.reason ? text(s.suppression.reason, ctx) : 'No reason supplied.'}`)];
   const status = isConfirmed(i) ? 'runtime evidence recorded' : isRuntime(i) ? 'observed at runtime; exploitability not established' : 'runtime exploitability not established';
   const notes = [`Rating basis: ${i.id} at ${text(place(i, ctx) || 'no single location', ctx)}; scanner severity ${nameOf(i.severity)}, confidence ${nameOf(i.confidence)}; ${status}.`];
   notes.push('The scenarios are conditional where testing did not establish input control, reachability or the affected trust boundary. Impact is limited to the circumstances supported by the evidence.');
   const open = g.issues.filter(issue => issue.manualReview && !isConfirmed(issue) && !issue.suppression);
   if (open.length) notes.push(`${open.length} instance${open.length === 1 ? '' : 's'} require${open.length === 1 ? 's' : ''} reachability or configuration review; exploitation has not been established for those instances.`);
+  const limited = g.issues.filter(elsewhere);
+  if (limited.length) notes.push(`${limited.length} instance${limited.length === 1 ? ' runs' : 's run'} only on ${unique(limited.map(runsOn)).join(' or ')} (${limited.map(x => text(place(x, ctx) || x.id, ctx)).join(', ')}). Confirm whether that build is in scope; if it is not, remove ${limited.length === 1 ? 'it' : 'them'} or note that ${limited.length === 1 ? 'it does' : 'they do'} not affect the tested build.`);
   if (g.definition[0] === 'Sensitive Data Exposed in Network Traffic') notes.push('Establish ownership of each destination before characterising a transfer as third-party disclosure.');
   if (g.definition[0] === 'Insecure Microsoft Word Integration') notes.push('The Protected View scenario applies only where document provenance is lost in the actual opening workflow.');
   if (g.definition[0] === 'Insufficient Validation of Inter-Process Messages') notes.push('Channel-use conclusions depend on the shipped renderer and representative runtime coverage.');
@@ -418,6 +498,12 @@ function thatList(facts) {
   }
   return `${facts.slice(0, -1).map(f => `that ${f}`).join(', ')}, and that ${facts.at(-1)}`;
 }
+// "This shows that A and that B."; three or more facts as a list under the sentence, rather than one long run of clauses
+const sentenceCase = fact => fact.charAt(0).toUpperCase() + fact.slice(1);
+function shows(lead, facts) {
+  if (facts.length < 3) return `${lead} ${thatList(facts)}.`;
+  return `${lead} the following:\n\n${facts.map(f => `- ${sentenceCase(f)}.`).join('\n')}`;
+}
 // a runtime result recorded against a static finding, as client text: the confirmed and observed ones
 const validatedFacts = i => unique(validationResults(i).filter(r => ['confirmed', 'observed'].includes(r.status) && r.text)
   .map(r => runtimeFact({ id: 'RUNTIME_VALIDATION', description: r.text })));
@@ -434,13 +520,24 @@ const INSPECT = {
 // a fact sentence with text taken from the app: its Markdown and HTML syntax escaped, except in the code spans the
 // sentence puts around names
 const safeFact = fact => String(fact).split(/(`[^`]*`)/).map((part, n) => n % 2 ? part : part.replace(/[\\*[\]<>_]/g, '\\$&')).join('');
+// the example a finding shows whatever its checks: the settings that together isolate a renderer
+const GROUP_EXAMPLES = {
+  'Insufficient Renderer Process Isolation': `new BrowserWindow({
+  webPreferences: {
+    nodeIntegration: false,      // no Node.js in the page
+    contextIsolation: true,      // the preload runs in its own JavaScript world
+    sandbox: true,               // the renderer process is sandboxed
+    preload: path.join(__dirname, 'preload.js'),   // exposes only narrow functions through contextBridge
+  },
+});`,
+};
 // one example per kind of code: the same settings object shown twice is shown once
 const exampleKey = example => String(example).replace(/\s+/g, ' ').split(/[({]/)[0].trim();
 
 // the outdated components finding: its own sections, pointing at the components workbook
 function renderOutdated(g, ctx) {
   const [title, , , , cwe] = g.definition;
-  const sections = outdatedSections({ app: text(ctx.app, ctx), dependencies: ctx.dependencies });
+  const sections = outdatedSections({ app: text(ctx.app, ctx), dependencies: ctx.dependencies, rating: g.rating });
   const notes = g.issues.filter(x => x.suppression).map(s => acceptedRisk(s, 'outdated component', ctx));
   const lines = [`---\n${frontMatter(title, g.rating, notes)}\n---`, `# ${title}`,
     '## Issue Description', ...sections.description,
@@ -523,8 +620,8 @@ function reproductionSteps(g, ctx, parts) {
   // where the files the steps open are
   const inApp = staticOnes.some(i => place(i, ctx) && !/^[a-z][\w+.-]*:\/\//i.test(i.file) && !/\.(exe|dll|node)$/i.test(i.file));
   const orientation = !inApp ? undefined : {
-    archive: `Extract the application archive ${codeSpan('resources\\app.asar')} from the installation folder of ${app}, for example with ${codeSpan('npx @electron/asar extract "resources\\app.asar" app')}. The file paths below are relative to the extracted folder.`,
-    folder: `Open the application folder ${codeSpan('resources\\app')} in the installation folder of ${app}. The file paths below are relative to it.`,
+    archive: `Extract the application archive ${codeSpan('resources/app.asar')} from the installation folder of ${app}, for example with ${codeSpan('npx @electron/asar extract "resources/app.asar" app')}. The file paths below are relative to the extracted folder.`,
+    folder: `Open the application folder ${codeSpan('resources/app')} in the installation folder of ${app}. The file paths below are relative to it.`,
     source: `Obtain the source code of ${app}. The file paths below are relative to its root folder.`,
   }[ctx.layout];
   if (orientation) steps.push(orientation);
@@ -544,8 +641,17 @@ function reproductionSteps(g, ctx, parts) {
     const found = unique(issues.map(i => safeFact(ctx.scrub(staticFact(i, normalId)))).filter(Boolean));
     const during = unique(issues.flatMap(validatedFacts)).map(fact => `During testing, ${text(fact, ctx, 1000)}.`).join(' ');
     const accepted = issues.every(i => i.suppression) ? 'This instance has been accepted as a risk.' : '';
-    return { found, extra: [during, accepted].filter(Boolean).join(' ') };
+    const limited = issues.find(elsewhere);
+    const platform = limited ? `This code runs only on ${runsOn(limited)}.` : '';
+    return { found, extra: [platform, during, accepted].filter(Boolean).join(' ') };
   };
+  // the most severe first, and among equally rated places those where more checks agree (a handler that returns a
+  // credential before one that only lacks a sender check)
+  const order = new Map(shown.map((i, n) => [i, n]));
+  const firstOf = c => Math.min(...c.members.flatMap(m => m.issues.map(i => order.get(i) ?? Infinity)));
+  const ratingOfCluster = c => g.items.find(x => c.members.some(m => m.issues.includes(x.issue)));
+  const breadth = c => new Set(c.members.flatMap(m => m.issues.map(i => normalId(i.id)))).size;
+  clusters.sort((a, b) => (ratingOfCluster(a) && ratingOfCluster(b) ? byRating(ratingOfCluster(a), ratingOfCluster(b)) : 0) || breadth(b) - breadth(a) || firstOf(a) - firstOf(b));
   // code shown in an earlier step is not shown again
   const shownCode = new Set();
   for (const cluster of clusters) {
@@ -557,33 +663,44 @@ function reproductionSteps(g, ctx, parts) {
     if (members.length > 1) {
       const code = numberedCode(members.map(m => m.issues[0]), ctx);
       shownCode.add(code);
+      // one item per line of code, so each line's facts read on their own
       const each = members.map(m => {
         const { found, extra } = findings(m.issues);
-        return `${found.length ? `Line ${m.line} shows ${thatList(found)}.` : ''}${extra ? ` ${extra}` : ''}`.trim();
-      }).filter(Boolean).join(' ');
+        const said = found.length ? shows(`Line ${m.line} shows`, found) : '';
+        return `${said}${extra ? `${said.includes('\n') ? '\n\n' : ' '}${extra}` : ''}`.trim();
+      }).filter(Boolean).map(item => `- ${item.split('\n').map((line, k) => !k || !line ? line : `  ${line}`).join('\n')}`).join('\n');
       facts.push(`Open ${codeSpan(shownFile(first.file, ctx))} and review ${lineList(members.map(m => m.line))}:\n\n${codeBlock(code, language(first.file), '')}\n\n${each}${pictures}`);
       continue;
     }
     const { where, issues } = members[0];
     const { found, extra } = findings(issues);
-    const shows = found.length ? `This shows ${thatList(found)}.` : '';
+    const showsText = found.length ? shows('This shows', found) : '';
     const file = where && shownFile(first.file, ctx);
     const inspect = INSPECT[normalId(first.id)];
     const code = where ? numberedCode([first], ctx) : undefined;
     const lineRef = first.context?.excerpt && first.location?.column != null ? `line ${first.location?.line || 1} (column ${first.location.column + 1})` : `line ${first.location?.line || 1}`;
     let step;
-    if (!where) step = found.length ? `Review the configuration of ${app}, which shows ${thatList(found)}.` : `Review the configuration of ${app}.`;
-    else if (inspect && !code) step = `${inspect(file)} ${shows}`;
-    else if (code && shownCode.has(code)) step = `Open ${codeSpan(file)} and review ${lineRef}, which holds the same code as above. ${shows}`;
+    if (!where) step = found.length ? shows(`Review the configuration of ${app}, which shows`, found) : `Review the configuration of ${app}.`;
+    else if (inspect && !code) step = `${inspect(file)} ${showsText}`;
+    else if (code && shownCode.has(code)) step = `Open ${codeSpan(file)} and review ${lineRef}, which holds the same code as above. ${showsText}`;
     else if (code) {
       shownCode.add(code);
-      step = `Open ${codeSpan(file)} and review ${lineRef}:\n\n${codeBlock(code, language(first.file), '')}\n\n${shows}`;
+      step = `Open ${codeSpan(file)} and review ${lineRef}:\n\n${codeBlock(code, language(first.file), '')}\n\n${showsText}`;
     }
-    else step = `Open ${codeSpan(file)}${first.location?.line > 1 ? ` and review line ${first.location.line}` : ''}. ${shows}`;
-    facts.push(`${`${step.trim()}${extra ? ` ${extra}` : ''}`.trim()}${pictures}`);
+    else step = `Open ${codeSpan(file)}${first.location?.line > 1 ? ` and review line ${first.location.line}` : ''}. ${showsText}`;
+    // (after a list of facts, what testing saw is a paragraph of its own)
+    const after = extra ? (/\n- [^\n]*$/.test(step.trim()) ? `\n\n${extra}` : ` ${extra}`) : '';
+    facts.push(`${`${step.trim()}${after}`.trim()}${pictures}`);
   }
   const runtime = [...shown.filter(isRuntime), ...supporting];
   const seen = new Set();
+  // the install folders other accounts can write to, as one statement
+  const acl = runtime.filter(i => /^WINDOWS_INSTALL_PERMISSIONS/.test(i.id));
+  const aclText = acl.length ? aclFact(acl, folder => codeSpan(shownFile(folder, ctx))) : undefined;
+  if (aclText) {
+    facts.push(`During testing, ${aclText}.`);
+    for (const i of acl) seen.add(runtimeFact(i));
+  }
   for (const i of runtime) {
     const fact = runtimeFact(i);
     if (!fact || seen.has(fact)) continue;
@@ -625,17 +742,43 @@ function renderGroup(g, ctx) {
   const affected = new Map();
   for (const i of g.issues) {
     const where = rowOf(i);
-    const entry = affected.get(where) || { labels: [], accepted: true };
+    const entry = affected.get(where) || { labels: [], accepted: true, library: true, libraries: [] };
     entry.labels.push(...variations.filter(v => v.issues.includes(i)).map(labelOf));
     entry.accepted = entry.accepted && !!i.suppression;
+    entry.library = entry.library && inLibrary(i);
+    if (inLibrary(i)) entry.libraries.push(i.properties.library);
     affected.set(where, entry);
   }
   // one scenario on the location's line; several listed under it
-  const places = [...affected].map(([where, entry]) => {
+  const row = (where, entry) => {
     const labels = unique(entry.labels);
     const accepted = entry.accepted ? ' (accepted risk)' : '';
     return labels.length > 1 ? `- ${where}${accepted}\n${labels.map(label => `  - ${label}`).join('\n')}` : `- ${where} — ${labels[0]}${accepted}`;
-  });
+  };
+  const rows = [...affected];
+  const own = rows.filter(([, entry]) => !entry.library).map(([where, entry]) => row(where, entry));
+  const libraryRows = rows.filter(([, entry]) => entry.library);
+  const libraries = unique(libraryRows.flatMap(([, entry]) => entry.libraries));
+  const thirdParty = libraryRows.map(([where, entry]) => row(where, entry));
+  // the few instances that rate the finding, ahead of a long list of lesser ones
+  const openOwn = g.items.filter(x => !x.issue.suppression && !inLibrary(x.issue));
+  const top = openOwn.filter(x => !byRating(x, openOwn[0]));
+  // each named by its own line (not its file's row) with the scenarios it supports
+  const keyInstances = (own.length >= 3 || openOwn.length > 5) && top.length < openOwn.length && top.length <= 3
+    ? unique(top.map(x => row(details(x.issue, ctx), { labels: variations.filter(v => v.issues.includes(x.issue)).map(labelOf) }))) : [];
+  const listed = [...own, ...thirdParty];
+  const cut = places => places.slice(0, Math.max(0, MAX_LOCATIONS - (places === thirdParty ? Math.min(own.length, MAX_LOCATIONS) : 0)));
+  const shownOwn = cut(own);
+  const shownThirdParty = cut(thirdParty);
+  const hidden = listed.length - shownOwn.length - shownThirdParty.length;
+  const affectedSection = [
+    ...(keyInstances.length ? [`The ${keyInstances.length === 1 ? 'instance that carries' : 'instances that carry'} the most risk in ${app} ${keyInstances.length === 1 ? 'is' : 'are'}:`, ...keyInstances,
+      'Every affected location is listed below:'] : own.length ? [`The following locations in ${app} are affected:`] : []),
+    ...shownOwn,
+    ...(thirdParty.length ? [`${own.length ? 'The following locations are' : `The affected locations in ${app} are`} within bundled third-party components (${libraries.map(name => codeSpan(name)).join(', ')}). They are listed separately because the risk depends on whether ${app} passes untrusted content to them; the versions of these components are covered under ${OUTDATED_TITLE}.`,
+      ...shownThirdParty] : []),
+    ...(hidden > 0 ? [`- A further ${hidden} locations with the same issue, listed in the tester notes.`] : []),
+  ];
 
   // the limits of testing, once; what testing confirmed or what the application blocked qualifies it
   const confirmed = parts.shown.some(isConfirmed) || parts.supporting.some(isConfirmed);
@@ -649,9 +792,19 @@ function renderGroup(g, ctx) {
   const { steps, more } = reproductionSteps(g, ctx, parts);
   const preconditions = notes('preconditions');
 
-  const recommendations = unique([...notes('recommendation'), ...(variations.length ? variations.map(v => v.recommendation) : [recommendation])]);
-  const examples = [...new Map(unique(unique(g.issues.map(i => i.id)).map(id => remediationOf(id)?.example))
-    .map(example => [exampleKey(example), example])).values()].slice(0, 2);
+  // advice for the library the code uses (a database driver without parameters) follows the general advice
+  // (when every instance has it, it replaces the general advice it contradicts: "pass the value as a query parameter")
+  const specific = unique(g.issues.map(i => remediationOf(i.id, i)?.clientFix));
+  const replaces = specific.length && g.issues.every(i => remediationOf(i.id, i)?.clientFix);
+  const recommendations = unique([...notes('recommendation'), ...(replaces ? [] : variations.length ? variations.map(v => v.recommendation) : [recommendation]), ...specific]);
+  // one example per kind of code, the most complete of those that share one (webPreferences with every setting, not just
+  // the sandbox); a finding with its own example shows that
+  const byKind = new Map();
+  for (const example of unique(g.issues.map(i => remediationOf(i.id, i)?.example))) {
+    const key = exampleKey(example);
+    if (!byKind.has(key) || example.length > byKind.get(key).length) byKind.set(key, example);
+  }
+  const examples = GROUP_EXAMPLES[title] ? [GROUP_EXAMPLES[title]] : [...byKind.values()].slice(0, 2);
 
   // references: the CWE, the guidance of each check, then Electron's security checklist. Each is a list item: its title,
   // then the address on its own line.
@@ -674,8 +827,7 @@ function renderGroup(g, ctx) {
     '## Issue Description', lead,
     ...notes('about'),
     ...variations.map(v => `- **${labelOf(v)}.** ${v.description}`),
-    '## Affected', `The following locations in ${app} are affected:`,
-    ...places.slice(0, MAX_LOCATIONS), ...(places.length > MAX_LOCATIONS ? [`- A further ${places.length - MAX_LOCATIONS} locations with the same issue.`] : []),
+    '## Affected', ...affectedSection,
     '## Implication',
     ...variations.map(v => `- **${labelOf(v)}.** ${v.implication}`),
     ...notes('impact'), ...notes('reachability'),
@@ -774,7 +926,7 @@ function coverageDocument(issues, ctx) {
  */
 export function renderClientFindings(issues, meta = {}) {
   const all = [...issues, ...(meta.suppressed || [])];
-  return groupClientFindings(all).map(g => {
+  return groupClientFindings(all, libraryNames(meta)).map(g => {
     const file = findingFileName(g.definition[0]);
     const ctx = context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile });
     return { title: g.definition[0], file, content: `${australian(renderGroup(g, ctx))}\n` };
@@ -787,7 +939,7 @@ export function renderClientFindings(issues, meta = {}) {
  */
 export function renderTesterNotes(issues, meta = {}) {
   const all = [...issues, ...(meta.suppressed || [])];
-  const notes = groupClientFindings(all).map(g => {
+  const notes = groupClientFindings(all, libraryNames(meta)).map(g => {
     const file = testerNotesFileName(g.definition[0]);
     const ctx = context({ ...meta, outputFile: meta.dir ? path.join(meta.dir, file) : meta.outputFile });
     return { title: g.definition[0], file, content: `${australian(testerNotesDocument(g, ctx, findingFileName(g.definition[0])))}\n` };
@@ -928,6 +1080,6 @@ export function combineRuns(runs) {
  */
 export function renderClientMarkdown(issues, meta = {}) {
   const ctx = context(meta);
-  const groups = groupClientFindings([...issues, ...(meta.suppressed || [])]);
+  const groups = groupClientFindings([...issues, ...(meta.suppressed || [])], libraryNames(meta));
   return groups.length ? `${groups.map(g => australian(renderGroup(g, ctx))).join('\n\n')}\n` : `No reportable findings were identified in ${text(ctx.app, ctx)}.\n`;
 }

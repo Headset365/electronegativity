@@ -4,7 +4,7 @@ import { ELECTRON_ATOMIC_UPGRADE_CHECKS } from './checks/AtomicChecks/ElectronAt
 import { isDisabledByInlineComment } from "../util/exceptions.js";
 import { getSample, getContext } from "../util/file.js";
 import { gte, compare, coerce } from 'semver';
-import { setAnalysisContext } from './checks/analysis.js';
+import { setAnalysisContext, platformGuard } from './checks/analysis.js';
 import { Parser } from '../parser/parser.js';
 import { diagnostics } from '../util/diagnostics.js';
 
@@ -146,11 +146,14 @@ export class Finder {
               if (failed.has(check)) continue;
               const matches = this.runCheck(check, file, failed, () => check.match(astNode, rootData.astParser, rootData.Scope, defaults, electronVersion, context));
               if (matches) {
+                // code that runs on one operating system only (if (process.platform === 'darwin'), openInMac)
+                const platform = matches.length ? platformGuard(ancestors, astNode) : undefined;
                 for(const m of matches) {
                   const firstLineSample = getSample(fileLines, 0);
                   const matchedLineSample = getSample(fileLines, m.line - 1);
                   const visibility = isDisabledByInlineComment(firstLineSample, matchedLineSample, check, sourceTypes.JAVASCRIPT);
                   const issue = { file, sample: matchedLineSample, context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: visibility, constructorName: check.constructor.name };
+                  if (platform && !issue.properties?.platform) issue.properties = { ...issue.properties, platform };
                   issues.push(issue);
                 }
               }

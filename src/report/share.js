@@ -146,7 +146,7 @@ export function buildShare(scan) {
       file: place(issue.file),
       line: issue.location && issue.location.line ? issue.location.line : undefined,
       description: withheld(issue) ? 'Details withheld: this run used --show-secrets, so the finding\'s text holds secret values. Run without it to share them.' : clean(issue.description),
-      remediation: remediationOf(issue.id)?.fix,
+      remediation: remediationOf(issue.id, issue)?.fix,
       properties: properties(issue.properties),
       // (never with --show-secrets: the samples of that run can hold full secret values)
       code: scan.code && !scan.reveal && issue.sample ? maskCode(issue.sample, clean) : undefined,

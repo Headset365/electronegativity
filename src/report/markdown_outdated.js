@@ -90,7 +90,7 @@ const list = (components) => components.length > MAX_COMPONENTS
 /**
  * The sections of the finding, as Markdown lines. `app` is already escaped for Markdown.
  */
-export function outdatedSections({ app, dependencies, sheet = COMPONENTS_SHEET }) {
+export function outdatedSections({ app, dependencies, sheet = COMPONENTS_SHEET, rating }) {
   // names and versions come from package metadata: escaped for Markdown (a version is not a numbered list)
   const text = (value) => String(value).replace(/\s+/g, ' ').replace(/[\\`*_[\]<>]/g, '\\$&');
   const attached = `the attached spreadsheet (\`${sheet}\`)`;
@@ -110,7 +110,9 @@ export function outdatedSections({ app, dependencies, sheet = COMPONENTS_SHEET }
         ...kinds.map(kind => `- **${kind.label}** (${text(list(kind.components))}): ${kind.impact}`),
       ] : []),
       '*Note:* An application that uses a library or framework with a known security issue is not necessarily vulnerable to that issue. It may not use the vulnerable code, or an adversary may not be able to control how it is invoked.',
-      '*Note:* This issue was rated as Informational because the known vulnerabilities could not be exploited during the engagement. However, it could be indicative of weaknesses within the patch management process.',
+      !rating || rating.consequence === 'N/A'
+        ? '*Note:* This issue was not assigned a risk rating because no published vulnerability applies to the identified versions and none was exploited during the engagement. However, it could be indicative of weaknesses within the patch management process.'
+        : `*Note:* The rating reflects ${electron && (electron.support?.status === 'unsupported' || electron.support?.discontinued) ? 'the end-of-life status of the Electron runtime, which no longer receives security fixes, and ' : ''}the published vulnerabilities of the identified versions. The vulnerabilities were not exploited during the engagement. The issue could also be indicative of weaknesses within the patch management process.`,
     ],
     evidence: [`Refer to the Support status column and the advisory links for each identified component in ${attached}.`],
     recommendations: [

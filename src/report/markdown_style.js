@@ -28,6 +28,7 @@ export const TITLES = {
   'Sensitive Data Exposed in Network Traffic': 'Sensitive Data Exposed in Network Traffic',
   'Local Services Accessible Without Adequate Access Control': 'Local Services Accessible Without Adequate Access Control',
   'SQL Injection in Local Database Queries': 'SQL Injection in Local Database Queries',
+  'Application Destinations Controlled by Web Content': 'Application Destinations Controlled by Web Content',
   'Known Malicious Package': 'Known Malicious Software Package',
   'Other Security Observations': 'Additional Security Observations',
 };
@@ -52,6 +53,7 @@ export const LEADS = {
   [T['Application Code Not Protected Against Inspection or Tampering']]: 'Testing identified that the code of {app} is not protected against inspection or modification after it is installed.',
   [T['Executable Signing and Exploit Mitigations (hardening)']]: 'Testing identified that distributed files of {app} lack a publisher signature or operating system exploit mitigations.',
   [T['Insecure Update Mechanism']]: 'Testing identified weaknesses in how {app} obtains and verifies software updates.',
+  [T['Application Destinations Controlled by Web Content']]: 'Testing identified that {app} lets content in an application window choose the addresses its privileged windows load and the servers that receive the user’s credentials.',
   [T['SQL Injection in Local Database Queries']]: 'Testing identified that {app} builds database queries by inserting values into the statement text instead of passing them as parameters.',
   [T['Local Services Accessible Without Adequate Access Control']]: 'Testing identified that {app} runs a local network service whose access controls are weaker than its data requires: authentication is skipped in the desktop build, or other web origins are allowed to read its responses.',
   [T['Development and Debugging Features in Production']]: 'Testing identified that the production build of {app} retains development or debugging features.',
@@ -83,7 +85,8 @@ export const NOTES = {
   [T['Application Code Not Protected Against Inspection or Tampering']]: 'These weaknesses matter to someone who can obtain or modify the installed application. They do not provide remote access on their own.',
   [T['Executable Signing and Exploit Mitigations (hardening)']]: 'This is a hardening observation. It does not indicate that the distributed files have been modified.',
   [T['Insecure Update Mechanism']]: 'Exploitation requires an attacker to be able to intercept or substitute the update traffic.',
-  [T['SQL Injection in Local Database Queries']]: 'Exploitation requires the attacker to influence a value used in a query, for example by running script in an application window that can send the message that triggers it.',
+  [T['SQL Injection in Local Database Queries']]: 'Exploitation requires the attacker to influence a value used in a query, for example by running script in an application window that can send the message that triggers it. The impact depends on what the database holds beyond the records the interface already shows the user.',
+  [T['Application Destinations Controlled by Web Content']]: 'Exploitation requires an attacker to run script in an application window that can send the message, for example through a cross-site scripting flaw, or to have their own content loaded in such a window.',
   [T['Local Services Accessible Without Adequate Access Control']]: 'Exploitation requires the attacker to reach the service: through a web page the user opens, a browser extension, another program on the same computer or, where the port is bound to every interface, the local network.',
   [T['Development and Debugging Features in Production']]: 'These features are generally available only to someone already using the application on the device.',
   [T['Hard-coded Secrets in the Application Package']]: 'The impact depends on whether the value is a live credential and on the access it grants, which should be confirmed with its owner.',
@@ -116,7 +119,10 @@ const shell = (api) => (i) => source(i) ? `the value passed to ${code(api)} come
 const STATIC = {
   NODE_INTEGRATION: () => 'Node.js integration is enabled for the window',
   NODE_INTEGRATION_ATTACH_EVENT: () => 'Node.js integration is enabled for an embedded web view',
-  HTTP_RESOURCES_WITH_NODE_INTEGRATION: () => 'Node.js integration is enabled while resources are loaded over unencrypted HTTP',
+  HTTP_RESOURCES_WITH_NODE_INTEGRATION: (i) => { const urls = (i.properties?.urls || []).slice(0, 3).map(code).join(', ');
+    return i.properties?.loopbackOnly
+      ? `Node.js integration is enabled in windows that load the application’s own local server over HTTP${urls ? ` (${urls})` : ''}; the content does not cross the network, but any other program on the computer that can bind the same port could serve it instead`
+      : `Node.js integration is enabled while resources are loaded over unencrypted HTTP${urls ? ` (${urls})` : ''}`; },
   CONTEXT_ISOLATION: () => 'context isolation is disabled for the window',
   SANDBOX: () => 'the renderer sandbox is not enabled for the window',
   PRELOAD: () => 'a preload script runs in a window without context isolation, so page script shares its environment',
@@ -137,17 +143,25 @@ const STATIC = {
   CONTEXT_BRIDGE_EXPOSURE: (i) => { const what = /exposes (\S+)/.exec(detailOf(i.description)); return what ? `the preload script exposes ${code(what[1])} to page script through the context bridge` : 'the preload script exposes privileged Electron or Node.js functionality to page script through the context bridge'; },
   WINDOW_SESSION: (i) => { const d = detailOf(i.description); return d ? `windows that display different content share a session (${d.replace(/\s*\([^)]*\)/, '')})` : 'windows that display different content share a session'; },
   IPC_SENDER_VALIDATION: (i) => `the handler${channel(i)} does not validate the sender of the message before acting on it`,
-  IPC_HANDLER: (i) => { const op = /uses (\w+) with arguments/.exec(i.description || ''); const what = { processes: 'to start a process', shell: 'to Electron’s `shell` module', files: 'to file system operations', fs: 'to file system operations', network: 'to network requests' }[op && op[1]] || 'to a sensitive operation'; return `the handler${channel(i)} passes values received from the user interface ${what} without validating them`; },
+  IPC_HANDLER: (i) => { const kind = i.properties?.issue;
+    if (kind === 'credential') return `the handler${channel(i)} returns a credential${i.properties?.credential ? ` (${code(i.properties.credential)})` : ''} to the page that sends the message`;
+    if (kind === 'window-target') return `the handler${channel(i)} acts on a window chosen by the page through its identifier, so one window can control another`;
+    if (kind === 'write-then-open') return `the handler${channel(i)} writes a file at a path built from the values the page sends, then opens it with its default program`;
+    const op = /uses (\w+) with arguments/.exec(i.description || ''); const what = { processes: 'to start a process', shell: 'to Electron’s `shell` module', files: 'to file system operations', fs: 'to file system operations', network: 'to network requests' }[op && op[1]] || 'to a sensitive operation'; return `the handler${channel(i)} passes values received from the user interface ${what} without validating them`; },
   IPC_RPC_PROCEDURE: (i) => { const p = i.properties || {}; const what = (p.capabilities || []).join(', ') || 'performs a privileged operation';
     return `the ${code(p.procedure || 'listed')} procedure, which any page that reaches the inter-process channel can call, ${what}${p.takesInput ? ' using input supplied by the page' : ''}`; },
   AUTH_MODE_BYPASS: (i) => { const routes = (i.properties?.routes || []).slice(0, 4); return `authentication of the local service is skipped in one mode of the application${routes.length ? `, for routes such as ${routes.map(code).join(', ')}` : ''}`; },
   NODE_TLS_REJECT_UNAUTHORIZED_SCRIPT: (i) => `the launcher script ${code(i.properties?.script || 'shipped with the application')} disables certificate validation for the application’s Node.js connections`,
   CUSTOM_ARGUMENTS_SCRIPT: (i) => `the launcher script ${code(i.properties?.script || 'shipped with the application')} ${String(i.properties?.setting || 'weakens a security setting').replace(/^starts the app/, 'starts the application').replace(/^runs the executable/, 'runs the executable')}`,
-  SQL_INJECTION: (i) => `a database query is built by inserting values into its text (${code(i.properties?.statement || 'statement')})${i.properties?.source ? `, with values from ${i.properties.source}` : ''}`,
+  SQL_INJECTION: (i) => { const p = i.properties || {}; const values = (p.values || []).slice(0, 3).map(code).join(', ');
+    if (p.secondOrder) return `a database query is built by inserting ${values || 'values'} into its text (${code(p.statement || 'statement')}); ${(p.values || []).length > 1 ? 'these values were' : 'the value was'} read by an earlier query whose rows were chosen by ${p.chosenBy || 'the caller'} (second-order)`;
+    return `a database query is built by inserting ${values || 'values'} into its text (${code(p.statement || 'statement')})${p.source ? `, with values from ${p.source}` : ''}`; },
   RELATIVE_EXECUTABLE_PATH: (i) => `a program or script is started from ${code(i.properties?.path || 'a relative path')}, a path resolved against the folder the application was started from`,
-  IPC_STATE_DESTINATION: (i) => `the ${code(i.properties?.channel || 'listed')} message lets the page set the address application windows load${i.properties?.credentialed?.length ? ' and the server that receives the user’s access token' : ''}`,
+  IPC_STATE_DESTINATION: (i) => { const p = i.properties || {}; const files = list => list.slice(0, 3).map(code).join(', ');
+    const uses = [p.loads?.length && `windows load that address in ${files(p.loads)}`, p.credentialed?.length && `requests carrying the user’s access token are sent to it from ${files(p.credentialed)}`].filter(Boolean);
+    return `the ${code(p.channel || 'listed')} message lets the page set the address application windows load${p.credentialed?.length ? ' and the server that receives the user’s access token' : ''}${p.setter ? ` (through ${code(p.setter)})` : ''}${uses.length ? `; ${uses.join(', and ')}` : ''}`; },
   IPC_FILE_ACCESS: () => 'a file path chosen by the user interface, a navigation or a deep link reaches the file system without validation',
-  IPC_CHANNEL_MAP: (i) => `the main process handles the ${code(i.properties?.channel || 'listed')} channel`,
+  IPC_CHANNEL_MAP: (i) => `no reviewed user interface code sends the ${code(i.properties?.channel || 'listed')} channel that the main process handles`,
   OPEN_EXTERNAL: shell('shell.openExternal()'),
   OPEN_PATH: shell('shell.openPath()'),
   SHOWITEMINFOLDER: shell('shell.showItemInFolder()'),
@@ -207,7 +221,8 @@ const STATIC = {
   CERTIFICATE_VERIFY_PROC: (i) => /every certificate is accepted/.test(i.description || '') ? 'the certificate verification handler accepts every certificate, which disables certificate validation' : 'a certificate verification handler overrides certificate validation',
   CERTIFICATE_ERROR_EVENT: (i) => /every invalid certificate is accepted/.test(i.description || '') ? 'the `certificate-error` handler accepts every invalid certificate' : 'the `certificate-error` handler can accept invalid certificates',
   NODE_TLS_REJECT_UNAUTHORIZED: (i) => { const script = /npm script "([^"]+)"/.exec(i.description || ''); return script ? `certificate validation for Node.js connections is disabled in the ${code(script[1])} npm script. This applies only when the application is started from source with that script, typically during development, and not to the packaged application` : 'certificate validation is disabled for Node.js connections'; },
-  HTTP_RESOURCES: (i) => { const d = detailOf(i.description); return d && /https?:/i.test(d) ? `a resource is loaded over unencrypted HTTP (${d})` : 'content is loaded over unencrypted HTTP'; },
+  HTTP_RESOURCES: (i) => { if (i.properties?.loopback) return `the application loads its own local server over HTTP (${code(i.properties.url)}); the traffic does not leave the computer, but another program that takes the port first could serve its own content`;
+    const d = detailOf(i.description); return d && /https?:/i.test(d) ? `a resource is loaded over unencrypted HTTP (${d})` : 'content is loaded over unencrypted HTTP'; },
   CERTIFICATE_PINNING: () => 'no certificate pinning is implemented for the application’s connections',
   MALICIOUS_DEPENDENCY: (i) => i.properties?.package ? `the dependencies include ${code(`${i.properties.package}${i.properties.version ? `@${i.properties.version}` : ''}`)}, a version identified as malicious` : 'the dependencies include a package version identified as malicious',
 };
@@ -215,7 +230,21 @@ const STATIC = {
 // runtime and traffic observations: their own description, without the caveats and instructions to the tester (those go
 // to the tester notes)
 const CAVEATS = /\s*(?:[.;:]\s*|\s)(?:This (?:establishes|confirms|does not)|Script execution (?:and|remains)|Whether |Path traversal|The handler['’]s|[Cc]heck (?:that|the|what|which|whether)|[Vv]erify |[Rr]eview (?:which|the|whether)|Delivery to|Identity with|Command injection|Cross-account|Exploitability|only https?\(s\)|URLs end up in|Authentication and origin enforcement|the storage provider issues)[\s\S]*$/;
+// well-known Windows groups an access control entry can name
+const GROUPS = { 'S-1-1-0': 'Everyone', 'S-1-5-11': 'Authenticated Users', 'S-1-5-32-545': 'Users', 'S-1-5-4': 'INTERACTIVE', 'S-1-5-32-546': 'Guests', 'S-1-2-0': 'LOCAL' };
+const groupName = e => GROUPS[e?.sid] || GROUPS[e?.identity] || String(e?.identity || e?.sid || 'a broad group').replace(/^BUILTIN\\/i, '');
+// the access control list of install folders: which of them other accounts can write to
+export function aclFact(issues, shown = folder => folder) {
+  const writable = issues.filter(i => (i.properties?.broadWrite || []).length);
+  if (!writable.length) return undefined;
+  const paths = writable.map(i => i.properties.path).filter(Boolean).map(shown);
+  const groups = [...new Set(writable.flatMap(i => i.properties.broadWrite.map(groupName)))].map(name => name.replace(/[\\`*_[\]<>]/g, ''));
+  const list = items => items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+  return `the access control ${paths.length === 1 ? 'list' : 'lists'} of ${list(paths)} ${paths.length === 1 ? 'grants' : 'grant'} write access to the ${list(groups)} ${groups.length === 1 ? 'group' : 'groups'}, which other accounts on the computer belong to; deny entries and inherited permissions were not assessed`;
+}
+
 export function runtimeFact(i) {
+  if (/^WINDOWS_INSTALL_PERMISSIONS/.test(i.id) && i.properties?.path) return aclFact([i]);
   let text = String(i.description || '').replace(/^(?:Observed|Seen) at runtime:\s*/i, '').replace(CAVEATS, '').replace(/\s+/g, ' ').trim().replace(/[.;:]$/, '');
   text = text.replace(/\b(\d+) of (\d+) (.+?) were\b/, (m, a, b, what) => `${a} of ${b} ${what} ${a === '1' ? 'was' : 'were'}`)
     .replace(/\b(?!https?\()(\w+)\((s|es)\)/g, '$1$2');
@@ -232,6 +261,21 @@ export function staticFact(i, normalId) {
   // a check with no sentence of its own: its finding detail, or its description
   return lower(detailOf(i.description) || String(i.description || '').replace(/\.$/, ''));
 }
+
+// the names of the weaknesses the checks link to, as MITRE titles them
+const CWE_TITLES = {
+  15: 'External Control of System or Configuration Setting', 20: 'Improper Input Validation', 73: 'External Control of File Name or Path',
+  78: 'Improper Neutralization of Special Elements used in an OS Command', 79: 'Improper Neutralization of Input During Web Page Generation',
+  89: 'Improper Neutralization of Special Elements used in an SQL Command', 200: 'Exposure of Sensitive Information to an Unauthorized Actor',
+  201: 'Insertion of Sensitive Information Into Sent Data', 248: 'Uncaught Exception', 295: 'Improper Certificate Validation',
+  306: 'Missing Authentication for Critical Function', 312: 'Cleartext Storage of Sensitive Information', 319: 'Cleartext Transmission of Sensitive Information',
+  359: 'Exposure of Private Personal Information to an Unauthorized Actor', 427: 'Uncontrolled Search Path Element', 489: 'Active Debug Code',
+  494: 'Download of Code Without Integrity Check', 506: 'Embedded Malicious Code', 522: 'Insufficiently Protected Credentials',
+  524: 'Use of Cache Containing Sensitive Information', 532: 'Insertion of Sensitive Information into Log File',
+  598: 'Use of GET Request Method With Sensitive Query Strings', 601: 'URL Redirection to Untrusted Site', 639: 'Authorization Bypass Through User-Controlled Key',
+  653: 'Improper Isolation or Compartmentalization', 693: 'Protection Mechanism Failure', 732: 'Incorrect Permission Assignment for Critical Resource',
+  749: 'Exposed Dangerous Method or Function', 798: 'Use of Hard-coded Credentials', 862: 'Missing Authorization', 1104: 'Use of Unmaintained Third Party Components',
+};
 
 // a reference's title, from its address
 export function referenceTitle(url) {
@@ -256,7 +300,10 @@ export function referenceTitle(url) {
     const event = /^#event-(.+)$/.exec(parsed.hash);
     return `Electron ${/\/api\//.test(parsed.pathname) ? 'API ' : ''}documentation: ${sentence(words(page))}${event ? ` (‘${event[1]}’ event)` : ''}`;
   }
-  if (parsed.hostname === 'cwe.mitre.org') return `CWE-${(parsed.pathname.match(/(\d+)\.html$/) || [])[1] || ''}`.replace(/-$/, '');
+  if (parsed.hostname === 'cwe.mitre.org') {
+    const number = (parsed.pathname.match(/(\d+)\.html$/) || [])[1];
+    return number ? `CWE-${number}${CWE_TITLES[number] ? `: ${CWE_TITLES[number]}` : ''}` : 'CWE';
+  }
   if (parsed.hostname === 'cheatsheetseries.owasp.org') return `OWASP ${words(parsed.pathname.split('/').pop().replace(/\.html$/, '').replace(/_Cheat_Sheet$/, ''))} Cheat Sheet`;
   if (parsed.hostname === 'owasp.org') return `OWASP: ${sentence(words(parsed.pathname.split('/').filter(Boolean).pop() || ''))}`;
   if (parsed.hostname === 'developer.mozilla.org') return `MDN Web Docs: ${words(parsed.pathname.split('/').filter(Boolean).pop() || '')}`;

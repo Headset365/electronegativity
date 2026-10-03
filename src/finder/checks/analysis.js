@@ -836,6 +836,78 @@ export function programOf(ancestors) {
 
 export { isCall, isMember, keyName, visit };
 
+// The operating system a piece of code is limited to: 'darwin', 'linux', 'win32', 'non-windows' or 'non-darwin'; undefined
+// when it runs everywhere. Read from the enclosing branches (process.platform === 'darwin', os.platform() !== 'win32',
+// isMac), early returns (if (process.platform !== 'darwin') return;) and the function's name (openInMac, linuxHelper).
+const PLATFORM_NAMES = { darwin: 'darwin', mac: 'darwin', macos: 'darwin', osx: 'darwin', linux: 'linux', win32: 'win32', windows: 'win32', win: 'win32' };
+const PLATFORM_FLAG = /^(?:is|on)?(Mac|MacOS|OSX|Darwin|Linux|Windows|Win|Win32)$/i;
+// openInMac, runOnLinux, forWindows, macOpen, darwinHelper (not getMacAddress or closeAllWindows)
+const NAMED_PLATFORM = /(?:In|On|For|Only)(Mac|MacOS|OSX|Darwin|Linux|Windows|Win32)(?=[A-Z_$0-9]|$)|^(mac|macos|osx|darwin|linux|win32)(?=[A-Z_$0-9]|$)/;
+function isPlatformRead(node) {
+  if (!node) return false;
+  if (isMember(node)) return memberName(node) === 'platform' && (node.object.type === 'Identifier' || isMember(node.object));
+  if (isCall(node)) return memberName(node.callee) === 'platform' || (node.callee.type === 'Identifier' && node.callee.name === 'platform');
+  return false;
+}
+// the platform a test selects, and whether it selects it (===) or every other one (!==)
+function platformTest(test) {
+  if (!test) return undefined;
+  if (test.type === 'UnaryExpression' && test.operator === '!') {
+    const inner = platformTest(test.argument);
+    return inner && { platform: inner.platform, equal: !inner.equal };
+  }
+  if (test.type === 'Identifier' || isMember(test)) {
+    const name = test.type === 'Identifier' ? test.name : memberName(test);
+    const flag = PLATFORM_FLAG.exec(name || '');
+    return flag && /^is|^on/i.test(name) ? { platform: PLATFORM_NAMES[flag[1].toLowerCase()], equal: true } : undefined;
+  }
+  if (test.type === 'BinaryExpression' && /^[!=]==?$/.test(test.operator)) {
+    const [read, other] = isPlatformRead(test.left) ? [test.left, test.right] : isPlatformRead(test.right) ? [test.right, test.left] : [];
+    const value = read && literalValue(other);
+    return typeof value === 'string' && PLATFORM_NAMES[value] ? { platform: PLATFORM_NAMES[value], equal: test.operator.startsWith('=') } : undefined;
+  }
+  return undefined;
+}
+const otherThan = platform => (platform === 'win32' ? 'non-windows' : platform === 'darwin' ? 'non-darwin' : undefined);
+const leavesBlock = (node) => !!node && (['ReturnStatement', 'ThrowStatement'].includes(node.type) || (node.type === 'BlockStatement' && node.body.length === 1 && leavesBlock(node.body[0])));
+
+export function platformGuard(ancestors, node) {
+  let child = node;
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const parent = ancestors[i];
+    if (parent.type === 'IfStatement' || parent.type === 'ConditionalExpression') {
+      const test = platformTest(parent.test);
+      if (test && child !== parent.test) {
+        const inThen = child === parent.consequent;
+        if (inThen === test.equal) return test.platform;
+        const other = otherThan(test.platform);
+        if (other) return other;
+      }
+    }
+    if (parent.type === 'BlockStatement' || parent.type === 'Program') {
+      // if (process.platform !== 'darwin') return;  before this statement
+      for (const statement of parent.body) {
+        if (statement === child) break;
+        if (statement.type !== 'IfStatement' || !leavesBlock(statement.consequent)) continue;
+        const test = platformTest(statement.test);
+        if (!test) continue;
+        if (!test.equal) return test.platform;
+        const other = otherThan(test.platform);
+        if (other) return other;
+      }
+    }
+    if (isFunction(parent)) {
+      const declarator = ancestors[i - 1];
+      const name = parent.id?.name || (declarator && declarator.type === 'VariableDeclarator' && declarator.id.type === 'Identifier' ? declarator.id.name : undefined)
+        || (declarator && (declarator.type === 'ObjectProperty' || declarator.type === 'Property') ? keyName(declarator.key) : undefined);
+      const named = name && NAMED_PLATFORM.exec(name);
+      if (named) return PLATFORM_NAMES[(named[1] || named[2]).toLowerCase()];
+    }
+    child = parent;
+  }
+  return undefined;
+}
+
 const TYPE_WRAPPERS = ['TSAsExpression', 'TSSatisfiesExpression', 'TSNonNullExpression', 'TSTypeAssertion', 'TypeCastExpression', 'ParenthesizedExpression'];
 const unwrapType = (node) => {
   while (node && TYPE_WRAPPERS.includes(node.type)) node = node.expression;

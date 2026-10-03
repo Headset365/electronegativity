@@ -102,7 +102,7 @@ describe('Client report outputs', () => {
       .should.deep.equal({ consequence: 'N/A', likelihood: 'N/A' });
     ratingOf(issue('FUSES_GLOBAL_CHECK', severity.HIGH, confidence.CERTAIN), 'Insecure Electron Fuse Configuration')
       .should.deep.equal({ consequence: 'Medium', likelihood: 'Unlikely' });
-    // outdated components are Informational: their published vulnerabilities were not exploited
+    // each outdated component on its own is not rated: the finding is rated from the runtime's support status (outdatedRating)
     for (const id of ['DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', 'END_OF_LIFE_LIBRARY_GLOBAL_CHECK', 'UNSUPPORTED_VERSION_GLOBAL_CHECK', 'AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK'])
       ratingOf(issue(id, severity.HIGH, confidence.CERTAIN), 'Outdated Software Components').should.deep.equal({ consequence: 'N/A', likelihood: 'N/A' });
     ratingOf(issue('RUNTIME_ACTIVE_SCRIPT', severity.MEDIUM, confidence.FIRM, { properties: { execution: 'observed' } }),
@@ -168,7 +168,7 @@ describe('Client report outputs', () => {
       issue('CSP_GLOBAL_CHECK', severity.MEDIUM, confidence.CERTAIN, { file: 'N/A', sample: '' }),
       issue('IFRAME_SANDBOX_HTML_CHECK', severity.MEDIUM, confidence.FIRM, { file: '/client/app/index.html', sample: '', manualReview: true }),
     ], { app: { name: 'Client App' } });
-    markdown.should.include('- Client App (application-wide) — ');
+    markdown.should.include('- All application windows (no policy in any page or response) (Client App) — ');
     markdown.should.include('Review the configuration of Client App, which shows that');
     markdown.should.match(/```html\n\s*<iframe/);
     markdown.should.include('- Electron security checklist\n\n  https://');
@@ -225,7 +225,7 @@ describe('Client report outputs', () => {
   });
 
   it('defines several complete variants for every named group and falls back for new checks', () => {
-    Object.keys(VARIATIONS).length.should.equal(27);
+    Object.keys(VARIATIONS).length.should.equal(28);
     for (const entries of Object.values(VARIATIONS)) {
       entries.length.should.be.at.least(2);
       for (const entry of entries) {

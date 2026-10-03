@@ -35,7 +35,10 @@ export default class HTTPResourcesJavascriptCheck {
     }
 
     const url = astNode.arguments[0].type === "TemplateLiteral" ? astNode.arguments[0].quasis[0].value.cooked.trim() : astNode.arguments[0].value.trim();
-    const what = method === 'loadURL' ? '' : ` (${method}(): ${url} is fetched over unencrypted HTTP${method === 'setSpellCheckerDictionaryDownloadURL' ? ', so someone on the network can replace the dictionaries Chromium loads' : ''})`;
-    return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: `${this.description}${what}`, shortenedURL: this.shortenedURL, severity: severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false, properties: { api: method, url } }];
+    // the app's own local server: the traffic stays on the computer, though another program could take the port first
+    const loopback = /^http:\/\/(?:127(?:\.\d{1,3}){3}|localhost|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(url);
+    const what = loopback ? ` (${method}(): ${url} is the application's own local server; the traffic does not leave the computer)`
+      : method === 'loadURL' ? '' : ` (${method}(): ${url} is fetched over unencrypted HTTP${method === 'setSpellCheckerDictionaryDownloadURL' ? ', so someone on the network can replace the dictionaries Chromium loads' : ''})`;
+    return [{ line: astNode.loc.start.line, column: astNode.loc.start.column, id: this.id, description: `${this.description}${what}`, shortenedURL: this.shortenedURL, severity: loopback ? severity.LOW : severity.MEDIUM, confidence: confidence.CERTAIN, manualReview: false, properties: { api: method, url, ...(loopback ? { loopback: true } : {}) } }];
   }
 }

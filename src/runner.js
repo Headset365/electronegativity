@@ -22,7 +22,7 @@ import { annotateShipment } from './util/shipment.js';
 import { validationHint } from './finder/consequences.js';
 import { startDiagnostics, stopDiagnostics, diagnostics, writeDiagnostics } from './util/diagnostics.js';
 import pkg from '../package.json' with { type: 'json' };
-import { detectLibraries } from './util/libraries.js';
+import { detectLibraries, libraryOfFile, COMMON_LIBRARIES } from './util/libraries.js';
 import { analyzeCaptures } from './traffic/ingest.js';
 import { reconcileTraffic } from './traffic/reconcile.js';
 import { reviewDataAtRest, appNames } from './storage/index.js';
@@ -316,6 +316,15 @@ async function scan(options, forCli) {
 
   for (const issue of issues) if (recovered.origins.has(issue.file)) issue.properties = { ...issue.properties, sourceMap: recovered.origins.get(issue.file) };
   for (const issue of issues) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
+  // findings in third-party library code (a node_modules copy, a bundler chunk named after a library) are reported apart
+  // from the application's own code
+  const libraryNames = [...new Set([...inventory.flatMap(i => (i.properties?.packages || []).map(p => p.name)), ...detectedLibraries.map(l => l.name),
+    ...(loader.vendoredLibraries || []).map(l => l.name), ...COMMON_LIBRARIES].filter(name => name && name !== 'electron'))];
+  for (const issue of issues) {
+    if (!issue.file || /^(runtime|N\/A)$/.test(issue.file) || issue.properties?.library || /^(DEPENDENCY_|HARDCODED_SECRET)/.test(issue.id)) continue;
+    const library = libraryOfFile(issue.file, libraryNames);
+    if (library) issue.properties = { ...issue.properties, library };
+  }
 
   // Security analysis is independent of the formats used to serialize its results.
   let dependencies;

@@ -173,7 +173,7 @@ describe('Client findings in house style', () => {
     ipc.content.should.match(/^- `main\.js:12` — channel `run`\n {2}- Message sender not validated\n {2}- Message arguments not validated$/m);
     ipc.content.should.include('- Obtain the source code of Client. The file paths below are relative to its root folder.');
     const unpacked = renderClientFindings([issue('NODE_INTEGRATION_JS_CHECK', { file: '/opt/Client/resources/app/main.js' })], { root: '/opt/Client/resources/app', app: { name: 'Client' } })[0].content;
-    unpacked.should.include('- Open the application folder `resources\\app` in the installation folder of Client.');
+    unpacked.should.include('- Open the application folder `resources/app` in the installation folder of Client.');
     // facts without a common subject keep their own
     const isolation = renderClientFindings([issue('NODE_INTEGRATION_JS_CHECK'), issue('CONTEXT_ISOLATION_JS_CHECK')], META)[0].content;
     isolation.should.include('that Node.js integration is enabled for the window, and that context isolation is disabled for the window');
@@ -213,7 +213,7 @@ describe('Client findings in house style', () => {
 
   it('starts the reproduction of a packaged app by extracting its archive, and shows validated runtime results', () => {
     const isolation = findings.find(f => f.title === 'Insufficient Renderer Process Isolation').content.split('## Reproduction and Evidence')[1];
-    isolation.should.match(/as follows:\n\n- Extract the application archive `resources\\app\.asar`/);
+    isolation.should.match(/as follows:\n\n- Extract the application archive `resources\/app\.asar`/);
     isolation.should.include('During testing, a page ran with Node.js integration');
     isolation.should.include('![read.png](../shots/read.png)');
     const xss = findings.find(f => f.title === 'Cross-Site Scripting in Content Rendering').content.split('## Reproduction and Evidence')[1];
