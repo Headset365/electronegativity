@@ -35,7 +35,7 @@ export function parseHeaders(list = []) {
  * session log `watchLog`, and analyzes it. Returns { runtime, watchDiagnostics, watchLog, staticInput }.
  * @throws when the app can't be started or the log can't be read
  */
-export async function observeSession({ watch, watchLog, args = [], debugUrl, debugLaunch = false, debugTarget, debugDuration = 0, marker, active = false, campaign, autoCampaign = false, prove = false, proofProfile, ipcProfile, logout = false, capture = true, traffic = true, scope = [], reveal = false, canaries = [], searchDirs = [], userData,
+export async function observeSession({ watch, watchLog, args = [], debugUrl, debugLaunch = false, debugTarget, debugDuration = 0, marker, active = false, campaign, autoCampaign = false, prove = false, emptyWorkingFolder = false, proofProfile, ipcProfile, logout = false, capture = true, traffic = true, scope = [], reveal = false, canaries = [], searchDirs = [], userData,
   assistant, staticIssues = [], confirm, screenshots, remoteHosts = [], headerNames = [] }) {
   let log = watchLog;
   let packagedApp;
@@ -132,7 +132,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
       const debugOptions = { ...terminal, target: debugTarget, duration: debugDuration, marker, active, campaign: !!campaign || autoCampaign,
         traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile, ...remoteOptions };
       log = debugUrl ? await watchDebug(debugUrl, debugOptions) : debugLaunch ? await watchDebugApp(located.kind === 'project' ? located.folder : located.executable,
-        { ...debugOptions, args, onNote: note => { injection = note; } }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { ...terminal, args, marker, active, campaign: !!campaign || autoCampaign, prove, proofConfig: proofFile, preserveLog: true, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
+        { ...debugOptions, args, onNote: note => { injection = note; } }) : await watchApp(located.kind === 'project' ? located.folder : located.executable, { ...terminal, args, marker, active, campaign: !!campaign || autoCampaign, prove, emptyWorkingFolder, proofConfig: proofFile, preserveLog: true, capture, traffic, scope, reveal, screenshots, log: logFile, commands: commandsFile,
         ...remoteOptions, onNote: (note) => { injection = { ...injection, ...note }; } });
     } finally {
       logoutController?.stop();

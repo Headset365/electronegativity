@@ -36,8 +36,12 @@ mutation calls are excluded. Named external handler effects are not comprehensiv
 resolved. Review any additional routes in a proof profile. Redirects are not followed;
 HTTP 200 is an observed response, not a confirmed authentication bypass.
 
-On Windows, `--prove` starts the app in an empty temporary working folder and
-records relative child command candidates. No executable is planted. App-owned
+On Windows, `--prove --empty-working-folder` starts the app in an empty temporary
+working folder and records relative child command candidates. It is a separate opt-in:
+an app that relies on its working folder (DivorceMate's `./resources/adodb.js`) loses
+those features for the whole session, which reduces what the other tests can reach, so
+run it as its own short session. Without it, relative child commands are still recorded
+against the app's normal working folder. No executable is planted. App-owned
 process images observed by the Windows inventory provide actual resolution when
 available; short-lived children or access restrictions can leave only a calculated
 candidate. Folders containing files written by the app are retained instead of
@@ -50,10 +54,10 @@ Every static finding carries reachability metadata in report.json and HTML:
 
 | Label | Rating treatment |
 | --- | --- |
-| Called | Reachable through entry-point references, registered callbacks or a packaged IPC sender; keep rating. |
-| Exposed but not called | Preload capability with no established packaged caller; keep rating because remote UI or injected code may call it. Remove it if unused. |
+| Called | Reachable through entry-point references, registered callbacks, a packaged IPC sender, or a renderer call through a preload API (`window.api.save()` → the channels `save` sends; `api.invoke('x')` → `x`); keep rating. |
+| Exposed (caller not resolved) | Preload capability with no resolved packaged caller: renderer code loaded from a server, or a call the analysis could not follow, may still use it, and any script in the window can. Keep rating; the tester notes say which instances to confirm in a watch session. |
 | Development-only | Proven Electron production-state guard excludes the statement; informational. An unknown variable named isDev is insufficient. |
-| Unreferenced | Closed static graph has no reachable import, registration or caller; informational with removal advice. |
+| Unreferenced | Closed static graph has no reachable import, registration or caller; or, whatever the rest of the package does, nothing in the function's own module refers to it (directly or through functions that are themselves referred to) and the module doesn't export it or make it global (classic scripts, HTML handlers, `eval`, string timers and computed `require` keep it open). Informational with removal advice. |
 | Unresolved | Missing entry, dynamic imports/evaluation, classic renderer globals/HTML events, remote scripts, recovered parse errors, framework asset loading, exports, ambiguous bindings or analysis limits; keep rating. |
 | Exercised | Runtime evidence overlays the static status with its scope; a channel dispatch is not proof that every statement in its handler ran. |
 

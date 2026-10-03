@@ -467,6 +467,8 @@ function proseNotes(g, ctx) {
   notes.push('The scenarios are conditional where testing did not establish input control, reachability or the affected trust boundary. Impact is limited to the circumstances supported by the evidence.');
   const open = g.issues.filter(issue => issue.manualReview && !isConfirmed(issue) && !issue.suppression);
   if (open.length) notes.push(`${open.length} instance${open.length === 1 ? '' : 's'} require${open.length === 1 ? 's' : ''} reachability or configuration review; exploitation has not been established for those instances.`);
+  const exposed = g.issues.filter(x => x.reachability?.staticStatus === 'exposed');
+  if (exposed.length) notes.push(`${exposed.length} instance${exposed.length === 1 ? ' is' : 's are'} exposed through the preload with no resolved packaged caller (${exposed.slice(0, 5).map(x => text(place(x, ctx) || x.id, ctx)).join(', ')}${exposed.length > 5 ? ', …' : ''}). Renderer code loaded from a server, or a call the analysis could not follow, may still use ${exposed.length === 1 ? 'it' : 'them'}; any script in the window can. Confirm in a watch session before describing ${exposed.length === 1 ? 'it' : 'them'} as unused.`);
   const limited = g.issues.filter(elsewhere);
   if (limited.length) notes.push(`${limited.length} instance${limited.length === 1 ? ' runs' : 's run'} only on ${unique(limited.map(runsOn)).join(' or ')} (${limited.map(x => text(place(x, ctx) || x.id, ctx)).join(', ')}). Confirm whether that build is in scope; if it is not, remove ${limited.length === 1 ? 'it' : 'them'} or note that ${limited.length === 1 ? 'it does' : 'they do'} not affect the tested build.`);
   if (g.definition[0] === 'Sensitive Data Exposed in Network Traffic') notes.push('Establish ownership of each destination before characterising a transfer as third-party disclosure.');
@@ -861,7 +863,6 @@ function renderGroup(g, ctx) {
     '## Implication',
     ...variations.map(v => `- **${labelOf(v)}.** ${v.implication}`),
     ...notes('impact'), ...notes('reachability'),
-    ...unique(g.issues.filter(i => i.reachability?.staticStatus === 'exposed').map(i => `- ${text(i.reachability.reason, ctx)}`)),
     `*Note:* ${note}`,
     '## Reproduction and Evidence',
     ...(preconditions.length ? [`The following preconditions apply: ${preconditions.join(' ')}`] : []),

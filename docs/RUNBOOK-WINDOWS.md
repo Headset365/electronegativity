@@ -216,6 +216,12 @@ app itself with fixed arguments, and a `second-instance` handler that only looks
   rated LOW. An IPC channel no reviewed renderer code sends is "Message handler with no identified caller", not
   "unused". Install folders other accounts can write to (`--prove`) are one sentence with folders relative to the
   install folder. Paths in steps use forward slashes, which PowerShell accepts.
+- **Reachability** (tester notes and HTML): "Exposed (caller not resolved)" means the preload exposes the capability
+  and no packaged caller was found; it keeps its rating, and the tester notes list the instances to confirm in a watch
+  session (renderer code loaded from a server is not in the package). Calls through a preload API
+  (`window.api.save()`, `api.invoke('get-settings')`) count as callers. "Unreferenced" also covers a function nothing in
+  its own module refers to, even when the rest of the package can't be closed; such findings are informational and
+  listed under Additional Security Observations.
 - **Minified bundles**: a call is linked only to the function of that name in scope, so a short name reused in another
   module of the bundle no longer joins unrelated code (Trilium's prebuilds `readdirSync` was reported as a page-chosen
   path through such a collision).
@@ -275,6 +281,15 @@ Start with those, without a profile:
 
 ```powershell
 electronegativity --app "C:\Program Files\MyApp" --prove --sessions 1
+```
+
+To see which relative program paths (`spawn('./bin/tool.exe')`, `ADODB.PATH='./resources/adodb.js'`) the app resolves
+from a folder it doesn't control, add `--empty-working-folder` in a separate short session: the app starts from an
+empty temporary folder (nothing is planted in it). Keep it out of your main session, as features that rely on the
+working folder stop working while it is set.
+
+```powershell
+electronegativity --app "C:\Program Files\MyApp" --prove --empty-working-folder --sessions 1
 ```
 
 A profile (`proof.json`) adds the tests that need to know something about this app. Make one only after that first run,

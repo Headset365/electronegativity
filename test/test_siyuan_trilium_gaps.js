@@ -118,6 +118,21 @@ describe('Gaps from the SiYuan and Trilium reviews', () => {
       assert.ok(Date.now() - started < 20000);
       assert.ok(issues.some(issue => issue.id === 'OPEN_EXTERNAL_JS_CHECK'));
     });
+
+    it('follows a large table of named handlers from many call sites without fanning out', async function () {
+      this.timeout(60000);
+      // two hundred named handlers that call each other through the table, selected by a computed key at three hundred
+      // sites: past the dispatch limits, only the direct targets are kept, and each table is resolved once per key
+      const handlers = Array.from({ length: 200 }, (_, i) => `function h${i}(a) { return t[a.k](a); }`).join('\n');
+      const table = `const t = { ${Array.from({ length: 200 }, (_, i) => `k${i}: h${i}`).join(', ')} };`;
+      const sites = Array.from({ length: 300 }, (_, i) => `ipcMain.on('c${i}', (e, a) => t[a.k](a));`).join('\n');
+      const app = write(path.join(root, 'table'), { 'package.json': JSON.stringify({ name: 'table', main: 'main.js' }),
+        'main.js': `const { shell, ipcMain } = require('electron');\n${handlers}\n${table}\n${sites}\nfunction open(url) { shell.openExternal(url); }\nipcMain.on('open', (e, url) => open(url));` });
+      const started = Date.now();
+      const { issues } = await run({ input: app, offline: true, customScan: ['openexternaljscheck', 'ipcsendervalidationjscheck'] });
+      assert.ok(Date.now() - started < 30000, `scan took ${Date.now() - started} ms`);
+      assert.ok(issues.some(issue => issue.id === 'OPEN_EXTERNAL_JS_CHECK'));
+    });
   });
 
   describe('runtime', () => {

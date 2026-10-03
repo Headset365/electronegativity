@@ -93,15 +93,40 @@ describe('Conservative static reachability and runtime overlays', () => {
   it('retains an unused preload capability and remote-UI note, while recording packaged direct senders', () => {
     const preload = 'const {contextBridge,ipcRenderer}=require("electron"); contextBridge.exposeInMainWorld("api",{save:()=>ipcRenderer.invoke("save-file")});';
     const exposed = ipcGraph(preload); assert.equal(exposed.reachability.staticStatus, 'exposed'); assert.equal(exposed.severity, severity.HIGH);
-    assert.match(exposed.reachability.reason, /remote UI or injected script/);
+    assert.match(exposed.reachability.reason, /renderer code loaded from a server/);
+    assert.equal(exposed.reachability.label, 'Exposed (caller not resolved)');
     const called = ipcGraph(preload, 'const {ipcRenderer}=require("electron"); ipcRenderer.invoke("save-file");');
     assert.equal(called.reachability.staticStatus, 'called');
     const generic = ipcGraph('const {contextBridge,ipcRenderer}=require("electron"); contextBridge.exposeInMainWorld("api",{invoke:channel=>ipcRenderer.invoke(channel)});');
     assert.equal(generic.reachability.staticStatus, 'exposed');
   });
+  it('counts a channel the renderer reaches through a preload API as called', () => {
+    const preload = 'const {contextBridge,ipcRenderer}=require("electron"); contextBridge.exposeInMainWorld("api",{save:(d)=>ipcRenderer.invoke("save-file",d),invoke:(ch,...a)=>ipcRenderer.invoke(ch,...a)});';
+    assert.equal(ipcGraph(preload, 'document.querySelector("button").onclick = () => window.api.save({});').reachability.staticStatus, 'called');
+    assert.equal(ipcGraph(preload, 'window.api.invoke("save-file", {});').reachability.staticStatus, 'called');
+    // a renderer call to another channel, or to the method from code nothing runs, leaves the capability exposed
+    assert.equal(ipcGraph(preload, 'window.api.invoke("other", {});').reachability.staticStatus, 'exposed');
+  });
+  it('finds a function nothing in its own module refers to, even when the rest of the package is open', async () => {
+    const issues = await scan(`function unused(){${unsafe}}\nfunction used(){${unsafe}}\nused();\nconst plugin = require(process.env.PLUGIN || './x');`, {
+      'ui.js': `function create(){${unsafe}}`, 'index.html': '<script src="ui.js"></script>',
+      'lib.js': `const {BrowserWindow}=require('electron');\nfunction a(){${unsafe}}\nfunction b(){a();}\nexports.c = function(){${unsafe}};\nconst handler = function onOpen(){${unsafe}};\nconst init = function init2(){${unsafe}};\nexports.run = () => init();\nrequire('electron').ipcMain.on('x', function onX(){${unsafe}});` });
+    const at = (file, line) => issues.find(i => i.file.endsWith(file) && i.location.line === line)?.reachability.staticStatus;
+    // main.js loads code by a computed name: its own functions get no conclusion
+    assert.equal(at('main.js', 2), 'unresolved');
+    // a classic renderer script: its top-level functions are globals other scripts may call
+    assert.equal(at('ui.js', 1), 'unresolved');
+    // lib.js: a, called only from b, which nothing calls; the unused handler variable; the exported and registered ones stay
+    assert.equal(at('lib.js', 2), 'unreferenced');
+    assert.equal(at('lib.js', 4), 'unresolved');
+    assert.equal(at('lib.js', 5), 'unreferenced');
+    // a function expression named differently from its variable is called by the variable's name
+    assert.equal(at('lib.js', 6), 'unresolved');
+    assert.equal(at('lib.js', 8), 'unresolved');
+  });
   it('never promotes all RPC procedures because the multiplexed channel was observed', () => {
     const issues = ['saveFile', 'deleteFile'].map(procedure => ({ id: 'IPC_RPC_PROCEDURE_JS_CHECK', properties: { procedure }, severity: severity.MEDIUM,
-      reachability: { staticStatus: 'exposed', label: 'Exposed but not called', exercised: false, originalSeverity: 'MEDIUM' } }));
+      reachability: { staticStatus: 'exposed', label: 'Exposed (caller not resolved)', exercised: false, originalSeverity: 'MEDIUM' } }));
     applyRuntimeReachability(issues, { usedChannelNames: ['electron-trpc'], usedProcedures: ['files.saveFile'] });
     assert.equal(issues[0].reachability.exercised, true); assert.equal(issues[1].reachability.exercised, false);
   });

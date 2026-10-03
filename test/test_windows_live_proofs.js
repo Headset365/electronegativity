@@ -41,7 +41,7 @@ describe('Native Windows proof regression fixtures', function () {
       ipc: { handlers: [{ channel: 'read-canary', reviewed: true, contract: 'file-read', args: ['$CANARY_PATH'] }] } }));
       const previous = { hardened: process.env.ENG_PROOF_HARDENED, data: process.env.ENG_PROOF_USER_DATA };
       process.env.ENG_PROOF_HARDENED = hardened ? '1' : '0'; process.env.ENG_PROOF_USER_DATA = path.join(root, 'profile');
-      try { await watchApp(executable, { log, proofConfig: proofFile, prove: true, marker: 'ENG_HARMLESS_MARKER', capture: false, traffic: false, stdio: 'ignore' }); }
+      try { await watchApp(executable, { log, proofConfig: proofFile, prove: true, emptyWorkingFolder: true, marker: 'ENG_HARMLESS_MARKER', capture: false, traffic: false, stdio: 'ignore' }); }
       finally {
         for (const [name, value] of [['ENG_PROOF_HARDENED', previous.hardened], ['ENG_PROOF_USER_DATA', previous.data]]) {
           if (value === undefined) delete process.env[name]; else process.env[name] = value;

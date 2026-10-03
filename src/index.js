@@ -63,6 +63,7 @@ async function main() {
     .option('--active-tests', 'Opt in to a benign HTML execution probe in watch mode; logs a nonce if the renderer executes it')
     .option('--prove', 'Opt in to bounded native-watch handler, self-signed TLS and Windows RunAsNode proofs')
     .option('--proof-profile <file>', 'With --prove: exact origins, update feeds and reviewed link/service routes')
+    .option('--empty-working-folder', 'With --prove on Windows: start the app from an empty temporary folder, to see which relative program paths it resolves there (apps that rely on their working folder may lose features in that session)')
     .option('--ipc-profile <file>', 'Separate opt-in: reviewed read-only IPC contracts and tool-owned file canaries')
     .option('--logout-check', 'Capture live before/after logout snapshots using interactive BEFORE and AFTER checkpoints')
     .option('--campaign <file>', 'Run a bounded, profile-driven benign payload campaign without per-case prompts')
@@ -140,6 +141,7 @@ async function main() {
   const proofProfile = options.proofProfile ? loadProfile(options.proofProfile) : undefined;
   const ipcProfile = options.ipcProfile ? loadProfile(options.ipcProfile, true) : undefined;
   if (options.proofProfile && !options.prove) throw new Error('--proof-profile requires --prove');
+  if (options.emptyWorkingFolder && !options.prove) throw new Error('--empty-working-folder requires --prove');
   if ((options.prove || ipcProfile || options.logoutCheck) && ((!options.watch && !options.app) || options.watchLog || options.debugUrl || options.debugLaunch))
     throw new Error('Proof and logout options require --watch or --app in native watch mode');
   if (options.logoutCheck && !interactiveTerminal()) throw new Error('--logout-check requires an interactive terminal');
@@ -307,7 +309,7 @@ async function main() {
       try {
         if (!options.watchLog) tuiEvent('session-start', { number: 1 });
         session = await observeSession({ watch: options.debugUrl ? options.input : options.watch, watchLog: options.watchLog, args: watchArgs, ...debug, marker: options.watchMarker || ((options.activeTests || campaign || options.autoCampaign) ? generateMarker() : undefined), active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, capture, traffic, scope, screenshots,
-          prove: !!options.prove, proofProfile, ipcProfile, logout: !!options.logoutCheck,
+          prove: !!options.prove, emptyWorkingFolder: !!options.emptyWorkingFolder, proofProfile, ipcProfile, logout: !!options.logoutCheck,
           reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, confirm: interactiveConfirm(),
           remoteHosts: remote.hosts, headerNames: remoteHeaders.names });
       } catch (error) {
@@ -545,7 +547,7 @@ async function guided(options, common, { reportFolder, watchArgs, headers, remot
       tuiEvent('session-start', { number: n });
       session = await observeSession({ watch: options.debugUrl ? located.folder : located.kind === 'project' ? located.folder : located.executable, args: watchArgs, ...debug, marker, active: !!(options.activeTests || campaign || options.autoCampaign), campaign, autoCampaign: !!options.autoCampaign, capture, traffic, scope,
         screenshots: screenshots && (path.isAbsolute(screenshots) ? screenshots : path.join(outDir, screenshots)),
-        prove: !!options.prove, proofProfile: options.proofProfile ? loadProfile(options.proofProfile) : undefined,
+        prove: !!options.prove, emptyWorkingFolder: !!options.emptyWorkingFolder, proofProfile: options.proofProfile ? loadProfile(options.proofProfile) : undefined,
         ipcProfile: options.ipcProfile ? loadProfile(options.ipcProfile, true) : undefined, logout: !!options.logoutCheck,
         reveal: common.reveal, canaries: common.canaries, searchDirs: common.searchDirs, userData: common.userData, assistant, confirm: interactiveConfirm(),
         remoteHosts: remote.hosts, headerNames });

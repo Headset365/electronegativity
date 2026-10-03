@@ -77,7 +77,7 @@ export function resolveApp(target, extraArgs = []) {
  * (--inspect-brk, on a local port), the hook is loaded through it before any of the app's code runs, and the app is
  * resumed. That needs the EnableNodeCliInspectArguments fuse, on unless the build switched it off.
  */
-export function watchApp(target, { args = [], marker, active = false, campaign = false, capture = true, traffic = true, scope = [], reveal = false, screenshots, commands, proofConfig, prove = false, preserveLog = false, remoteHosts = [], headerNames = [], headersFile, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onOutput, onReady = () => {}, onNote = () => {} } = {}) {
+export function watchApp(target, { args = [], marker, active = false, campaign = false, capture = true, traffic = true, scope = [], reveal = false, screenshots, commands, proofConfig, prove = false, emptyWorkingFolder = false, preserveLog = false, remoteHosts = [], headerNames = [], headersFile, log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-watch-')), 'session.jsonl'), stdio = 'inherit', onOutput, onReady = () => {}, onNote = () => {} } = {}) {
   const { command, args: commandArgs, packaged, staticInput } = resolveApp(target, args);
   if (!preserveLog) fs.writeFileSync(log, '');
   const quotedHook = HOOK.includes(' ') ? `"${HOOK}"` : HOOK;
@@ -110,7 +110,9 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
   }
   return (async () => {
     let port;
-    const proofCwd = prove && process.platform === 'win32' ? fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-cwd-')) : undefined;
+    // a separate opt-in (--empty-working-folder): an app that relies on its working folder loses features when started
+    // from an empty one, which would cut the coverage of every other test in the session
+    const proofCwd = prove && emptyWorkingFolder && process.platform === 'win32' ? fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-cwd-')) : undefined;
     if (proofCwd) record('proof', { test: 'working-directory', outcome: 'observed', scope: 'empty-working-directory', path: proofCwd, emptyAtLaunch: true, plantedFiles: false });
     try {
       if (packaged) {
