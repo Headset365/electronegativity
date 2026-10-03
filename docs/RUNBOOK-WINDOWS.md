@@ -203,7 +203,9 @@ app itself with fixed arguments, and a `second-instance` handler that only looks
   say it doesn't affect the tested build if not.
 - **SQL**: the statement shows the inserted value as written (`` `… WHERE FileID = ${fileID}` ``). A value read from
   an earlier query's rows is labelled second-order ("Query built from stored values"). For node-adodb, which has no
-  query parameters, the advice is integer conversion or escaping instead of parameters.
+  query parameters, the advice is integer conversion or escaping instead of parameters. Table and column names
+  (`` `UPDATE ${table} SET x = ? WHERE ${key} = ?` ``), the statement's own `?`/`@name` placeholders (including lists
+  built with `ids.map(() => '?').join()`) and queries carried in page markup are not reported.
 - **Ratings**: a finding the tool hasn't confirmed at runtime is at most *Possible*: the code or setting is certain, who
   can reach it isn't. A runtime confirmation (or your own) can raise it. Outdated Software Components is rated from the
   Electron runtime: end of life is Medium/Possible, High/Possible with Node.js integration or no context isolation;

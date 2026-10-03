@@ -70,6 +70,8 @@ electron_1.ipcMain.handle('touch', (e, table, key, id) => {
   run(\`UPDATE \${table} SET dateModified = ? WHERE \${key} = ?\`, [Date.now(), id]);
   run(\`SELECT * FROM notes JOIN \${table} ON \${table}.blobId = notes.blobId\`);
   run(\`SELECT * FROM notes WHERE title LIKE '%\${id}%'\`);
+  const marks = key.map(() => '?').join(','); run(\`SELECT * FROM notes WHERE noteId IN (\${marks})\`, key);
+  const names = Object.keys(table).map(c => \`@\${c}\`).join(', '); run(\`INSERT INTO notes (a) VALUES (\${names})\`, table);
 });` }, ['sqlinjectionjscheck']);
       const found = issues.filter(i => i.id === 'SQL_INJECTION_JS_CHECK');
       assert.equal(found.length, 1);

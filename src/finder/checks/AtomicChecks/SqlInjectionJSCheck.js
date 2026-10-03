@@ -70,12 +70,51 @@ const VALUE = '\u0001';
 const VALUE_BEFORE = /(?:[=<>]|\blike|\bin\s*\(|\bvalues\s*\(|,|\blimit|\boffset|\bthen|\belse|\bbetween|\band)\s*'?%?$/i;
 // a name the statement compares or selects (WHERE ${column} = ?, SELECT ${column} FROM, JOIN ${table} ON): not a value
 const NAME_AFTER = /^\s*(?:=|<|>|!|\bin\b|\blike\b|\bis\b|\bfrom\b|\bon\b|\bset\b|\bwhere\b|\bas\b|\.)/i;
-function inValuePosition(text) {
-  for (let at = text.indexOf(VALUE); at !== -1; at = text.indexOf(VALUE, at + 1)) {
+function inValuePosition(text, skipped = []) {
+  for (let at = text.indexOf(VALUE), n = 0; at !== -1; at = text.indexOf(VALUE, at + 1), n++) {
+    if (skipped[n]) continue;
     const before = text.slice(Math.max(0, at - 40), at);
     const after = text.slice(at + 1, at + 20);
     if (/'%?$/.test(before)) return true;
     if (VALUE_BEFORE.test(before) && !NAME_AFTER.test(after)) return true;
+  }
+  return false;
+}
+
+// ids.map(() => '?').join(','), keys.map(k => `@${k}`).join(', '), Array(n).fill('?').join(), '?'.repeat(n): placeholders
+const PLACEHOLDER = /^(?:\?|[@:$]\w*)$/;
+function isPlaceholderList(init) {
+  let n = init;
+  while (n && ['TSAsExpression', 'ParenthesizedExpression'].includes(n.type)) n = n.expression;
+  if (!isCall(n) || !n.callee.property) return false;
+  const method = n.callee.property.name;
+  if (method === 'repeat') return n.callee.object && typeof n.callee.object.value === 'string' && /^\?,?\s*$/.test(n.callee.object.value);
+  if (method !== 'join') return false;
+  const source = n.callee.object;
+  if (!isCall(source) || !source.callee.property) return false;
+  if (source.callee.property.name === 'fill') return source.arguments[0] && source.arguments[0].value === '?';
+  if (source.callee.property.name !== 'map' || !isFunction(source.arguments[0])) return false;
+  const body = source.arguments[0].body;
+  const returned = body && body.type === 'BlockStatement' ? (body.body.find(st => st.type === 'ReturnStatement') || {}).argument : body;
+  if (!returned) return false;
+  if (typeof returned.value === 'string') return PLACEHOLDER.test(returned.value);
+  if (returned.type === 'TemplateLiteral') return PLACEHOLDER.test(returned.quasis.map(q => q.value.cooked).join('').trim() || '') ||
+    (returned.quasis.length === 2 && /^[@:$]$/.test(returned.quasis[0].value.cooked) && !returned.quasis[1].value.cooked);
+  return false;
+}
+function placeholderList(value, ancestors) {
+  if (isPlaceholderList(value)) return true;
+  if (value.type !== 'Identifier') return false;
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const fn = ancestors[i];
+    if (!isFunction(fn) && fn.type !== 'Program') continue;
+    let found;
+    visit(fn.body || fn, (n) => {
+      if (found !== undefined) return false;
+      if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.id.name === value.name && n.init) found = isPlaceholderList(n.init);
+      return true;
+    });
+    if (found !== undefined) return found;
   }
   return false;
 }
@@ -171,10 +210,15 @@ export default class SqlInjectionJSCheck {
       const tag = parent.tag.type === 'Identifier' ? parent.tag.name : parent.tag.type === 'MemberExpression' && parent.tag.property ? `${parent.tag.object.name || ''}.${parent.tag.property.name}` : '';
       if (SAFE_TAGS.test(tag)) return null;
     }
-    const { text, shown, dynamic } = pieces(astNode, scope);
+    const { text, shown, dynamic: all } = pieces(astNode, scope);
+    // markup that carries a query as data (<div data-content="select …">) is a page, not a statement the code runs
+    if (/^\s*</.test(text)) return null;
+    // a list of placeholders built from the values' count or names (ids.map(() => '?').join(), keys.map(k => `@${k}`)) is
+    // the statement's own parameters
+    const dynamic = all.filter(value => !placeholderList(value, context.ancestors));
     if (!dynamic.length || !SQL.test(text)) return null;
     // values in a statement's text, never its keywords: a table or column name chosen in code is the common, safe case
-    if (!inValuePosition(text)) return null;
+    if (!inValuePosition(text, all.map(value => !dynamic.includes(value)))) return null;
 
     // the value may be a parameter of an outer function: new Promise(async resolve => query(`… ${id}`)) inside a handler
     let source;
