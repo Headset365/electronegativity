@@ -16,7 +16,7 @@ import { libraryOfFile, COMMON_LIBRARIES } from '../util/libraries.js';
 import { RELEASE_GUIDE_TITLE, RELEASE_GUIDE_FILE, SECRET_CHECKS, secretsNote, releaseChecklist, releaseGuide } from './markdown_release.js';
 
 const definitions = [
-  ['Insufficient Renderer Process Isolation', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|PRELOAD|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX)|RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$)/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
+  ['Insufficient Renderer Process Isolation', /^(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX|REMOTE_MODULE|AFFINITY|PRELOAD|FILE_PROTOCOL|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_(NODE_INTEGRATION|CONTEXT_ISOLATION|SANDBOX)|RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$)/, 'Untrusted content may gain access to privileged application capabilities.', 'Isolate renderers, disable Node integration and keep the sandbox enabled.', 'CWE-653: Improper Isolation or Compartmentalization'],
   ['Browser Security Controls Disabled', /^(WEB_SECURITY|INSECURE_CONTENT|EXPERIMENTAL_FEATURES|BLINK_FEATURES|WEBGL|WEBSQL|PLUGINS|NAVIGATE_ON_DRAG_DROP|CUSTOM_ARGUMENTS|SECURITY_WARNINGS_DISABLED|SECUREKEYBOARDENTRY|RUNTIME_WEB_SECURITY)/, 'Disabled browser safeguards expand what page content can do.', 'Restore Chromium defaults and enable only capabilities that are essential.', 'CWE-693: Protection Mechanism Failure'],
   ['Privileged Functionality Exposed to Web Content', /^(CONTEXT_BRIDGE_EXPOSURE|RUNTIME_PRELOAD_FOREIGN_ORIGIN|WINDOW_SESSION|RUNTIME_WINDOW_SESSION)/, 'Untrusted pages may reach privileged APIs or share a trusted session.', 'Expose narrow preload APIs and separate sessions by trust level.', 'CWE-749: Exposed Dangerous Method or Function'],
   ['Insufficient Validation of Inter-Process Messages', /^(IPC_SENDER_VALIDATION|IPC_HANDLER|IPC_RPC_PROCEDURE|IPC_FILE_ACCESS|IPC_CHANNEL_MAP|RUNTIME_MARKER_IPC)/, 'Renderer messages can reach main-process operations without adequate checks.', 'Validate the sender, arguments and allowed operations in every handler.', 'CWE-20: Improper Input Validation'],
@@ -25,7 +25,7 @@ const definitions = [
   ['Unvalidated URLs and Files Passed to the Operating System', /^(OPEN_EXTERNAL|OPEN_PATH|SHOWITEMINFOLDER|WRITE_SHORTCUT|DOWNLOAD|RUNTIME_(OPEN_EXTERNAL|OPEN_PATH)|RUNTIME_MARKER_(OPEN_EXTERNAL|OPEN_PATH))/, 'Untrusted URLs or file paths may be opened by the operating system.', 'Allowlist URL schemes and hosts, and constrain file paths before opening them.', 'CWE-73: External Control of File Name or Path'],
   ['Command or Code Execution from Variable Input', /^(COMMAND_INJECTION|DANGEROUS_FUNCTIONS|DYNAMIC_MODULE|RELATIVE_EXECUTABLE_PATH|RUNTIME_MARKER_(COMMAND|MODULE))/, 'Untrusted data may reach command or code execution.', 'Avoid command-line construction and pass validated arguments to safe APIs.', 'CWE-78: Improper Neutralization of Special Elements used in an OS Command'],
   ['Insecure Microsoft Word Integration', /^WORD_LAUNCH/, 'Opening documents in Microsoft Word can expose users to unsafe document content or command construction.', 'Validate document paths and preserve Mark-of-the-Web metadata before opening files.', 'CWE-73: External Control of File Name or Path'],
-  ['Insecure Handling of Deep Links and File Associations', /^(FILE_HANDLER|PROTOCOL_HANDLER|PROTOCOL_PRIVILEGES|INSTALLER_FILE_HANDLER|FILE_PROTOCOL)/, 'External links and files can enter privileged application flows.', 'Parse deep links and file associations as untrusted input and allow only known actions.', 'CWE-20: Improper Input Validation'],
+  ['Insecure Handling of Deep Links and File Associations', /^(FILE_HANDLER|PROTOCOL_HANDLER|PROTOCOL_PRIVILEGES|INSTALLER_FILE_HANDLER)/, 'External links and files can enter privileged application flows.', 'Parse deep links and file associations as untrusted input and allow only known actions.', 'CWE-20: Improper Input Validation'],
   ['Insufficient Navigation and New Window Restrictions', /^(LIMIT_NAVIGATION|UNTRUSTED_LOAD_URL|WINDOW_OPEN_HANDLER|NAVIGATION_REDIRECT|AUXCLICK|ALLOWPOPUPS|WEBVIEW|IFRAME_SANDBOX|RUNTIME_(NAVIGATION|NEW_WINDOW|REDIRECT|WEBVIEW|IFRAME)|RUNTIME_MARKER_(NAVIGATION|NEW_WINDOW))/, 'Untrusted navigation or new windows may retain application privileges.', 'Deny navigation and new windows by default, then allowlist intended destinations.', 'CWE-601: URL Redirection to Untrusted Site'],
   ['Permissive Browser Permission Handling', /^(PERMISSION_REQUEST_HANDLER|RUNTIME_PERMISSION|RUNTIME_PERMISSION_CHECK)/, 'Pages may obtain capabilities without an explicit application decision.', 'Install request and check handlers that deny permissions by default.', 'CWE-862: Missing Authorization'],
   ['Cross-Site Scripting in Content Rendering', /^(XSS_SINK|HTML_TEMPLATE|RICH_TEXT_EDITOR|SANITIZER_CONFIG|ANGULAR|RUNTIME_DOM_INJECTION|RUNTIME_MARKER|RUNTIME_HTML_ENDPOINT|RUNTIME_(ACTIVE_SCRIPT|CAMPAIGN_SCRIPT)|TRAFFIC_WS_HTML_MESSAGE|TRAFFIC_REFLECTED_INPUT)/, 'Untrusted content may be rendered as executable markup.', 'Render text as text; sanitise allowed HTML before insertion into the page.', 'CWE-79: Improper Neutralization of Input During Web Page Generation'],
@@ -523,7 +523,7 @@ function thatList(facts) {
 // "This shows that A and that B."; three or more facts as a list under the sentence, rather than one long run of clauses
 const sentenceCase = fact => fact.charAt(0).toUpperCase() + fact.slice(1);
 function shows(lead, facts) {
-  if (facts.length < 3) return `${lead} ${thatList(facts)}.`;
+  if (facts.length === 1 || (facts.length === 2 && facts.join(' ').length < 240)) return `${lead} ${thatList(facts)}.`;
   return `${lead} the following:\n\n${facts.map(f => `- ${sentenceCase(f)}.`).join('\n')}`;
 }
 // a runtime result recorded against a static finding, as client text: the confirmed and observed ones
@@ -571,6 +571,8 @@ function renderOutdated(g, ctx) {
   return joinBlocks(lines);
 }
 
+// facts that read the same at every place they occur: named together in one step when there are several
+const SUMMARISED = new Set(['IPC_SENDER_VALIDATION']);
 // how many reproduction steps a finding shows; the rest are named under Affected
 const MAX_STEPS = 10;
 // a file with this many locations is one row under Affected, naming up to MAX_LINES_LISTED of its lines
@@ -648,9 +650,14 @@ function reproductionSteps(g, ctx, parts) {
   }[ctx.layout];
   if (orientation) steps.push(orientation);
   const facts = [];
+  // places where the only fact is a missing sender check: many handlers, the same sentence each time. With several of
+  // them, they are named in one step after the others instead of a block of code each
+  const senderOnly = [...locations].filter(([where, issues]) => where && issues.every(i => SUMMARISED.has(normalId(i.id))));
+  const summarised = senderOnly.length >= 4 ? new Set(senderOnly.map(([where]) => where)) : new Set();
   // nearby locations in one file are one step with one block of code, in the order of the most severe
   const clusters = [];
   for (const [where, issues] of locations) {
+    if (summarised.has(where)) continue;
     const first = issues[0];
     const line = first.location?.line || 0;
     const near = where && line && hasContext(first) && !first.context.excerpt &&
@@ -714,6 +721,15 @@ function reproductionSteps(g, ctx, parts) {
     const after = extra ? (/\n- [^\n]*$/.test(step.trim()) ? `\n\n${extra}` : ` ${extra}`) : '';
     facts.push(`${`${step.trim()}${after}`.trim()}${pictures}`);
   }
+  let summary;
+  if (summarised.size) {
+    const named = senderOnly.map(([where, issues]) => {
+      const channel = issues.map(i => i.properties?.channel).find(Boolean);
+      return `${channel ? `${codeSpan(channel)} (${codeSpan(where)})` : codeSpan(where)}`;
+    });
+    const listed = named.slice(0, 20);
+    summary = `The handlers for the following channels also act on messages without checking which page sent them: ${listed.join(', ')}${named.length > listed.length ? `, and ${named.length - listed.length} more, listed in the tester notes` : ''}.`;
+  }
   const runtime = [...shown.filter(isRuntime), ...supporting];
   const seen = new Set();
   // the install folders other accounts can write to, as one statement
@@ -730,8 +746,9 @@ function reproductionSteps(g, ctx, parts) {
     const images = screenshotsOf(i).map(file => image(file, ctx));
     facts.push(`During testing, ${text(fact, ctx, 1000)}.${images.length ? `\n\n${images.join('\n\n')}` : ''}`);
   }
-  const room = MAX_STEPS - (orientation ? 1 : 0);
-  steps.push(...facts.slice(0, room));
+  // (the summary of the places with only a missing sender check is always shown, after the steps with code)
+  const room = MAX_STEPS - (orientation ? 1 : 0) - (summary ? 1 : 0);
+  steps.push(...facts.slice(0, room), ...(summary ? [summary] : []));
   return { steps, more: facts.length > room };
 }
 
@@ -774,8 +791,18 @@ function renderGroup(g, ctx) {
   const affected = new Map();
   for (const i of g.issues) {
     const where = rowOf(i);
-    const entry = affected.get(where) || { labels: [], accepted: true, library: true, libraries: [] };
-    entry.labels.push(...variations.filter(v => v.issues.includes(i)).map(labelOf));
+    const entry = affected.get(where) || { labels: [], accepted: true, library: true, libraries: [], lines: new Set(), labelLines: new Map() };
+    const labels = variations.filter(v => v.issues.includes(i)).map(labelOf);
+    entry.labels.push(...labels);
+    // which lines of a file's row each scenario is on: a row of five handlers where one takes arguments says so
+    const line = i.location?.line;
+    if (line) {
+      entry.lines.add(line);
+      for (const label of labels) {
+        if (!entry.labelLines.has(label)) entry.labelLines.set(label, new Set());
+        entry.labelLines.get(label).add(line);
+      }
+    }
     entry.accepted = entry.accepted && !!i.suppression;
     entry.library = entry.library && inLibrary(i);
     if (inLibrary(i)) entry.libraries.push(i.properties.library);
@@ -785,7 +812,13 @@ function renderGroup(g, ctx) {
   const row = (where, entry) => {
     const labels = unique(entry.labels);
     const accepted = entry.accepted ? ' (accepted risk)' : '';
-    return labels.length > 1 ? `- ${where}${accepted}\n${labels.map(label => `  - ${label}`).join('\n')}` : `- ${where} — ${labels[0]}${accepted}`;
+    // in a row for several lines, a scenario on only some of them names them
+    const on = label => {
+      const lines = [...(entry.labelLines?.get(label) || [])].sort((a, b) => a - b);
+      if (!(entry.lines?.size > 1 && lines.length && lines.length < entry.lines.size)) return '';
+      return lines.length > 8 ? ` (lines ${lines.slice(0, 8).join(', ')} and others)` : ` (${lineList(lines)})`;
+    };
+    return labels.length > 1 ? `- ${where}${accepted}\n${labels.map(label => `  - ${label}${on(label)}`).join('\n')}` : `- ${where} — ${labels[0]}${on(labels[0])}${accepted}`;
   };
   const rows = [...affected];
   const own = rows.filter(([, entry]) => !entry.library).map(([where, entry]) => row(where, entry));

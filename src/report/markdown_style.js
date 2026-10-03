@@ -108,6 +108,12 @@ function detailOf(description) {
   return colon > 0 ? text.slice(colon + 2).replace(/\.$/, '').trim() : '';
 }
 const code = (value) => `\`${String(value).replace(/`/g, '')}\``;
+// a window that only shows the application's own local page: said with the setting, as it is why the rating is lower
+const localWindow = (i) => { const p = i.properties || {}; if (!p.localOnly) return '';
+  const pages = (p.loads || []).slice(0, 3).map(code).join(', ');
+  return `; the window ${p.hidden ? 'is hidden and ' : ''}only loads the application’s own local ${(p.loads || []).length === 1 ? 'page' : 'pages'}${pages ? ` (${pages})` : ''}, so the setting matters only if that content loads remote scripts or displays untrusted data`; };
+// " (`a.com`, `b.com` and their subdomains)" from an allowlist finding's hosts
+const hostList = (i) => { const hosts = (i.properties?.hosts || []).slice(0, 5); return hosts.length ? ` (${hosts.map(code).join(', ')}${(i.properties.hosts || []).length > 5 ? ', …' : ''}${i.properties.subdomains ? ' and their subdomains' : ''})` : ''; };
 const channel = (i) => i.properties?.channel ? ` for the ${code(i.properties.channel)} channel` : '';
 const source = (i) => {
   const from = /(?:the value|data) comes? from (.+?)(?: and is not validated)?$/.exec(detailOf(i.description)) || /receives data from (.+)$/.exec(detailOf(i.description));
@@ -117,14 +123,14 @@ const shell = (api) => (i) => source(i) ? `the value passed to ${code(api)} come
 
 // the evidence sentence for a static check: what the code or configuration shows ("This shows that …")
 const STATIC = {
-  NODE_INTEGRATION: () => 'Node.js integration is enabled for the window',
+  NODE_INTEGRATION: (i) => `Node.js integration is enabled for the window${localWindow(i)}`,
   NODE_INTEGRATION_ATTACH_EVENT: () => 'Node.js integration is enabled for an embedded web view',
   HTTP_RESOURCES_WITH_NODE_INTEGRATION: (i) => { const urls = (i.properties?.urls || []).slice(0, 3).map(code).join(', ');
     return i.properties?.loopbackOnly
       ? `Node.js integration is enabled in windows that load the application’s own local server over HTTP${urls ? ` (${urls})` : ''}; the content does not cross the network, but any other program on the computer that can bind the same port could serve it instead`
       : `Node.js integration is enabled while resources are loaded over unencrypted HTTP${urls ? ` (${urls})` : ''}`; },
-  CONTEXT_ISOLATION: () => 'context isolation is disabled for the window',
-  SANDBOX: () => 'the renderer sandbox is not enabled for the window',
+  CONTEXT_ISOLATION: (i) => `context isolation is disabled for the window${localWindow(i)}`,
+  SANDBOX: (i) => `the renderer sandbox is not enabled for the window${localWindow(i)}`,
   PRELOAD: () => 'a preload script runs in a window without context isolation, so page script shares its environment',
   REMOTE_MODULE: () => 'the remote module is enabled',
   AFFINITY: () => 'process affinity is set for the window',
@@ -177,11 +183,20 @@ const STATIC = {
   PROTOCOL_PRIVILEGES: () => 'a custom protocol is registered with elevated privileges',
   FILE_PROTOCOL: () => 'local content is loaded over `file:` URLs, which have additional privileges in Electron',
   UNTRUSTED_LOAD_URL: () => 'an application window loads a URL taken from external input',
-  LIMIT_NAVIGATION: (i) => i.properties?.hostOnly ? 'the navigation allowlist compares host names only, so an allowed host is also accepted over unencrypted `http:`, where its page loads with the window’s privileges'
-    : /never calls event\.preventDefault/.test(i.description || '') ? 'the `will-navigate` handler never blocks a navigation, so windows can navigate to any destination'
-      : /Missing will-navigate/i.test(i.description || '') ? 'no `will-navigate` handler restricts where windows can navigate' : 'navigation is not restricted to the application’s own pages',
+  LIMIT_NAVIGATION: (i) => i.properties?.hostOnly ? `the \`will-navigate\` handler blocks navigation to hosts outside its allowlist${hostList(i)}, but compares host names only, so an allowed host is also accepted over unencrypted \`http:\`, where its page loads with the window’s privileges${i.properties.subdomains ? ', and any subdomain of an allowed host is trusted' : ''}`
+    : i.properties?.subdomains ? `the \`will-navigate\` allowlist${hostList(i)} trusts every subdomain of the allowed hosts`
+      : /allows some URLs/.test(i.description || '') ? `the \`will-navigate\` handler allows navigation only to URLs that pass its allowlist${hostList(i)}, which should be reviewed`
+        : /never calls event\.preventDefault/.test(i.description || '') ? 'the `will-navigate` handler never blocks a navigation, so windows can navigate to any destination'
+          : /Missing will-navigate/i.test(i.description || '') ? 'no `will-navigate` handler restricts where windows can navigate' : 'navigation is not restricted to the application’s own pages',
   NAVIGATION_REDIRECT: () => 'server redirects are not restricted, as no handler blocks redirects to other destinations',
-  WINDOW_OPEN_HANDLER: (i) => /every URL is allowed/.test(i.description || '') ? 'the `setWindowOpenHandler()` handler allows every URL to open a new window' : 'new windows are allowed without restriction',
+  WINDOW_OPEN_HANDLER: (i) => { const p = i.properties || {};
+    if (/every URL is allowed/.test(i.description || '')) return 'the `setWindowOpenHandler()` handler allows every URL to open a new window';
+    if (p.relaxed?.length) return `new windows are created with weakened settings (${p.relaxed.map(code).join(', ')})`;
+    if (p.allowlisted && p.hostOnly) return `the \`setWindowOpenHandler()\` handler allows new windows only for URLs on its allowlist${hostList(i)}, but compares host names only, so an allowed host is also accepted over \`http:\`${p.subdomains ? ', and any subdomain of an allowed host is trusted' : ''}`;
+    if (p.allowlisted && p.subdomains) return `the \`setWindowOpenHandler()\` allowlist${hostList(i)} trusts every subdomain of the allowed hosts`;
+    if (p.allowlisted) return 'the `setWindowOpenHandler()` handler allows new windows only for URLs that pass its allowlist, which should be reviewed';
+    if (/doesn't inspect the URL/.test(i.description || '')) return 'the `setWindowOpenHandler()` handler allows new windows under a condition that does not inspect the URL';
+    return 'new windows are allowed without restriction'; },
   AUXCLICK: () => 'middle-clicking a link can open it in a new window',
   ALLOWPOPUPS: () => 'a `<webview>` tag allows popups',
   WEBVIEW_TAG: () => 'the `<webview>` tag is enabled',

@@ -216,6 +216,14 @@ app itself with fixed arguments, and a `second-instance` handler that only looks
   rated LOW. An IPC channel no reviewed renderer code sends is "Message handler with no identified caller", not
   "unused". Install folders other accounts can write to (`--prove`) are one sentence with folders relative to the
   install folder. Paths in steps use forward slashes, which PowerShell accepts.
+- **Allowlisted navigation and new windows** are described as allowlisted: the finding says which hosts the allowlist
+  names and what it misses (any scheme on an allowed host, every subdomain, server redirects), for `will-navigate` and
+  `setWindowOpenHandler` alike, instead of "not restricted".
+- **A hidden window that only loads the app's own local page** (a settings migration, a print helper) has its
+  isolation settings rated LOW, a visible local-only window one step lower than usual, and the finding says so. Local
+  pages loaded over `file:` are listed under renderer isolation, not deep links.
+- **Long IPC findings**: handlers whose only problem is a missing sender check are named together in one step, and a
+  row for several lines of one file says which lines each problem is on (`Message arguments not validated (line 105)`).
 - **Reachability** (tester notes and HTML): "Exposed (caller not resolved)" means the preload exposes the capability
   and no packaged caller was found; it keeps its rating, and the tester notes list the instances to confirm in a watch
   session (renderer code loaded from a server is not in the package). Calls through a preload API

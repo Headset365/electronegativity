@@ -246,6 +246,68 @@ w.loadURL('http://127.0.0.1:37840/');` }, ['httpresourcesjavascriptcheck', 'node
     });
   });
 
+  describe('DivorceMate report review', () => {
+    it('rates a hidden window that only loads the application’s own page low, and says why', async () => {
+      const issues = await scan({ 'out/legacy.js': `const electron_1 = require("electron");
+async function readLegacy() {
+  const oldWin = new electron_1.BrowserWindow({ show: false, webPreferences: { contextIsolation: false } });
+  await oldWin.loadFile('src/legacy/settings.html');
+  const value = await oldWin.webContents.executeJavaScript('localStorage.getItem("x")');
+  oldWin.close();
+  return value;
+}
+const main = new electron_1.BrowserWindow({ webPreferences: { contextIsolation: false } });
+main.loadURL('https://app.example.com');
+module.exports = { readLegacy, main };` }, ['contextisolationjscheck', 'fileprotocoljscheck']);
+      const isolation = issues.filter(i => i.id === 'CONTEXT_ISOLATION_JS_CHECK').sort((a, b) => a.location.line - b.location.line);
+      assert.deepEqual(isolation.map(i => i.severity.name), ['LOW', 'HIGH']);
+      assert.deepEqual(isolation[0].properties.loads, ['src/legacy/settings.html']);
+      const content = renderClientFindings(issues, { root, app: { name: 'Client' } });
+      const report = content.find(f => f.title === 'Insufficient Renderer Process Isolation').content;
+      assert.match(report, /the window is hidden and only loads the application’s own local page \(`src\/legacy\/settings\.html`\)/);
+      // a local page over file: is an isolation matter, not a deep link one
+      assert.ok(!content.some(f => f.title === 'Insecure Handling of Deep Links and File Associations'));
+      assert.match(report, /Local pages loaded over file: URLs/);
+    });
+
+    it('describes an allowlisted navigation and new-window handler as allowlisted, with what the allowlist misses', async () => {
+      const issues = await scan({ 'out/window.js': `const electron_1 = require("electron");\nconst node_url_1 = require("node:url");
+const hosts = ['app.example.com'];
+function isAllowedUrl(target) { const host = new node_url_1.URL(target).hostname; return hosts.some(a => host === a || host.endsWith(\`.\${a}\`)); }
+function windowCommonConfig(win) {
+  win.webContents.setWindowOpenHandler(({ url }) => isAllowedUrl(url) ? { action: 'allow' } : { action: 'deny' });
+  win.webContents.on('will-navigate', (event, url) => { if (!isAllowedUrl(url)) event.preventDefault(); });
+}
+module.exports = { windowCommonConfig };` }, ['limitnavigationjscheck', 'windowopenhandlerjscheck', 'limitnavigationglobalcheck']);
+      const report = renderClientFindings(issues, { root, app: { name: 'Client' } }).find(f => f.title === 'Insufficient Navigation and New Window Restrictions').content;
+      assert.doesNotMatch(report, /navigation is not restricted to the application’s own pages|new windows are allowed without restriction|New windows not restricted\b/);
+      assert.match(report, /Navigation allowlist accepts http: or any subdomain/);
+      assert.match(report, /New windows allowed through a broad allowlist/);
+      assert.match(report, /allows new windows only for URLs on its allowlist \(`app\.example\.com` and their subdomains\), but compares host names only/);
+    });
+
+    it('names the files a page-chosen destination reaches by their path in the application', async () => {
+      const issues = await scan({
+        'out/auth.js': `let endpoints = { ui: '' };\nfunction setLoginModel(model) { endpoints = model.endpoints; }\nfunction getEndpoints() { return { ...endpoints }; }\nexports.setLoginModel = setLoginModel; exports.getEndpoints = getEndpoints;`,
+        'out/login/index.js': `const electron_1 = require("electron");\nconst auth_1 = require("../auth");\nelectron_1.ipcMain.handle('login-success', (event, model) => { (0, auth_1.setLoginModel)(model); });`,
+        'out/main/main.window.js': `const electron_1 = require("electron");\nconst auth_1 = require("../auth");\nfunction create() { const w = new electron_1.BrowserWindow({}); w.loadURL((0, auth_1.getEndpoints)().ui); }\nexports.create = create;` },
+      ['ipcstatedestinationjscheck']);
+      assert.deepEqual(issues.find(i => i.id === 'IPC_STATE_DESTINATION_JS_CHECK').properties.loads, ['out/main/main.window.js']);
+    });
+
+    it('names the lines a scenario is on in a row for several, and lists handlers with only a missing sender check in one step', () => {
+      const sender = (line, channel) => issue('IPC_SENDER_VALIDATION_JS_CHECK', { location: { line, column: 0 }, properties: { channel },
+        context: { start: line - 1, lines: ['', `ipcMain.on('${channel}', h);`, ''] } });
+      const issues = [10, 20, 30, 40, 50].map((line, n) => sender(line, `c${n}`));
+      issues.push(issue('IPC_HANDLER_JS_CHECK', { location: { line: 30, column: 0 }, properties: { channel: 'c2', issue: 'unvalidated' } }));
+      const report = finding(issues, 'Insufficient Validation of Inter-Process Messages');
+      assert.match(report, /- Message arguments not validated \(line 30\)/);
+      assert.match(report, /also act on messages without checking which page sent them: `c0` \(`out\/main\.js:10`\), `c1` \(`out\/main\.js:20`\), `c3`/);
+      const evidence = report.slice(report.indexOf('## Reproduction and Evidence'), report.indexOf('## Recommendations'));
+      assert.equal((evidence.match(/```javascript/g) || []).length, 1);
+    });
+  });
+
   describe('minified bundles', () => {
     it('shows an excerpt of a long line but fingerprints the whole line, as baselines made before excerpts did', async () => {
       const line = `${'var a=1;'.repeat(80)}document.body.innerHTML = location.hash;${'var b=2;'.repeat(80)}`;

@@ -2,6 +2,7 @@ import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, resolveIdentifier, findProperty, literalValue, visit, finding } from '../helpers.js';
 import { isConditional, hasUrlValidation, handlerFunction } from '../analysis.js';
+import { urlHelpers, allowlistFacts } from './LimitNavigationJSCheck.js';
 
 // webPreferences that must not be relaxed for windows opened by web content
 const INSECURE_OVERRIDES = { nodeIntegration: true, nodeIntegrationInSubFrames: true, sandbox: false, contextIsolation: false, webSecurity: false, allowRunningInsecureContent: true, webviewTag: true };
@@ -52,13 +53,18 @@ export default class WindowOpenHandlerJSCheck {
       } else if (!isConditional(node, ancestors, handler)) {
         issues.push(finding(this, node, { severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false,
           description: `${this.description} (every URL is allowed to open a new window)` }));
-      } else if (hasUrlValidation(handler) || handlerChecksUrl(handler)) {
+      } else if (hasUrlValidation(handler) || handlerChecksUrl(handler) || urlHelpers(handler, scope).length) {
         // Electron inherits selected security preferences, not the parent's
         // preload automatically. Observe natural child options to establish it.
         const preload = prefs && findProperty(resolveIdentifier(prefs[1], scope), 'preload');
-        issues.push(finding(this, node, { severity: preload ? severity.MEDIUM : severity.LOW, confidence: confidence.FIRM, manualReview: true,
-          properties: { childPreloadConfigured: !!preload, inheritsPreload: false, preloadObservation: 'static-handler-options' },
-          description: `${this.description} (allowed after checking the URL; review the allowlist${preload ? '. Child window options include a preload setting; observe the effective options before claiming it was received or executed' : '. Preload inheritance is not assumed; inspect any naturally created child window'})` }));
+        // the allowlist, read as the navigation check reads it: host names only (any scheme passes), every subdomain
+        const facts = allowlistFacts([handler, ...urlHelpers(handler, scope).map(h => h.node)], context.ancestors.find(n => n.type === 'Program'));
+        const hosts = facts.hosts.length ? ` (${facts.hosts.slice(0, 5).join(', ')}${facts.hosts.length > 5 ? ', …' : ''}${facts.subdomains ? ', and every subdomain of each' : ''})` : '';
+        const weak = facts.hostOnly ? `; the allowlist compares host names only${hosts}, so any scheme on an allowed host passes${facts.subdomains ? ', and any subdomain is trusted' : ''}`
+          : facts.subdomains ? `; the allowlist trusts every subdomain of the allowed hosts${hosts}` : '';
+        issues.push(finding(this, node, { severity: preload || facts.hostOnly ? severity.MEDIUM : severity.LOW, confidence: confidence.FIRM, manualReview: true,
+          properties: { allowlisted: true, hostOnly: facts.hostOnly, subdomains: facts.subdomains, hosts: facts.hosts, childPreloadConfigured: !!preload, inheritsPreload: false, preloadObservation: 'static-handler-options' },
+          description: `${this.description} (allowed after checking the URL${weak || '; review the allowlist'}${preload ? '. Child window options include a preload setting; observe the effective options before claiming it was received or executed' : '. Preload inheritance is not assumed; inspect any naturally created child window'})` }));
       } else {
         issues.push(finding(this, node, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
           description: `${this.description} (allowed under a condition that doesn't inspect the URL)` }));

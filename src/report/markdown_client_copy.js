@@ -132,9 +132,29 @@ export const CLIENT_COPY = {
     'An attacker able to choose the URL could load their own page inside the application window, where it would inherit the window’s preload script, session and permissions.',
     'Parse every URL before loading it in a window and allow only known application origins and paths. Open other links in the system browser after validating their scheme. Verify that a link to an unapproved origin is not loaded in the window.'
   ],
+  'Navigation allowlist too broad': [
+    'The application restricts where its windows can navigate with an allowlist of host names, but the allowlist does not check the scheme, or trusts every subdomain of the allowed hosts.',
+    'A link to an allowed host over unencrypted `http:` would load in an application window, where someone on the network could replace the page and gain the window’s privileges; a subdomain that is taken over or hosts user content would be trusted in the same way.',
+    'Compare the full origin (scheme, host and port) against the allowlist, accept only `https:`, and list the exact hosts the application needs rather than every subdomain. Verify that `http:` on an allowed host and an unlisted subdomain are blocked.'
+  ],
+  'Server redirects not restricted': [
+    'The navigation allowlist is applied when a page starts a navigation, but no handler checks where a server redirect leads.',
+    'An allowed address that redirects elsewhere, for example an open redirect on one of the application’s own sites, could bring an external page into an application window with its privileges.',
+    'Apply the same allowlist in a `will-redirect` handler (or a `webRequest` handler) and block redirects to other destinations. Verify that a redirect from an allowed address to an external origin is blocked.'
+  ],
+  'New-window allowlist to review': [
+    'New windows are allowed only for URLs that pass the application’s allowlist check; the allowlist is broader than it needs to be or needs review.',
+    'Where the allowlist does not check the scheme or trusts every subdomain, a page could open a new application window for content the application does not control.',
+    'Allow new windows only for exact `https:` origins the application needs, and open other links in the system browser after validating them. Verify that `http:` on an allowed host and an unlisted subdomain do not open an application window.'
+  ],
+  'Local pages over file: URLs': [
+    'An application window loads local content over `file:` URLs, which in Electron have additional privileges, such as reading other local files.',
+    'If a page loaded this way displayed untrusted content or loaded remote scripts, that content could read local files through the `file:` origin.',
+    'Serve local pages through a custom protocol (`protocol.handle`) that serves only the application’s own files, and turn off the GrantFileProtocolExtraPrivileges fuse. Verify that the pages still load and that other local files cannot be read.'
+  ],
   'Top-level navigation or redirect': [
-    'Application windows are not prevented from navigating, or following a server redirect, to destinations outside the application.',
-    'A link or redirect could load an external page in an application window, where it would inherit the window’s preload script, session and other privileges.',
+    'Application windows are not prevented from navigating to destinations outside the application.',
+    'A link could load an external page in an application window, where it would inherit the window’s preload script, session and other privileges.',
     'Block navigation to unapproved destinations in `will-navigate` and `will-redirect` handlers, allowing only the application’s own origins. Verify that links and redirects to an external origin are blocked.'
   ],
   'Popup or middle-click': [
@@ -453,7 +473,11 @@ export const CLIENT_LABELS = {
   'External handler input': 'Unvalidated deep link or file association input',
   'Privileged custom scheme or file URL': 'Excessive custom protocol or file URL privileges',
   'Untrusted URL loaded in an app window': 'Untrusted URL loaded in an application window',
-  'Top-level navigation or redirect': 'Navigation and redirects not restricted',
+  'Top-level navigation or redirect': 'Navigation not restricted',
+  'Navigation allowlist too broad': 'Navigation allowlist accepts http: or any subdomain',
+  'Server redirects not restricted': 'Server redirects not checked against the allowlist',
+  'New-window allowlist to review': 'New windows allowed through a broad allowlist',
+  'Local pages over file: URLs': 'Local pages loaded over file: URLs',
   'Popup or middle-click': 'New windows not restricted',
   'Embedded content': 'Embedded content not restricted',
   'Page-chosen destination': 'Page decides the address application windows load',

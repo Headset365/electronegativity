@@ -88,7 +88,10 @@ windowCommonConfig(main);` }, ['limitnavigationjscheck', 'windowopenhandlerjsche
     assert.equal(navigation.properties.subdomains, true);
     assert.deepEqual(navigation.properties.hosts, ['app.example.com', 'partner.example.net']);
     const open = issues.find(issue => issue.id === 'WINDOW_OPEN_HANDLER_JS_CHECK');
-    assert.equal(open.severity.name, 'LOW');
+    // the same allowlist, read the same way: host names only, so any scheme on an allowed host opens a window
+    assert.equal(open.severity.name, 'MEDIUM');
+    assert.equal(open.properties.hostOnly, true);
+    assert.deepEqual(open.properties.hosts, ['app.example.com', 'partner.example.net']);
     assert.equal(open.properties.inheritsPreload, false);
     assert.equal(open.properties.childPreloadConfigured, false);
   });

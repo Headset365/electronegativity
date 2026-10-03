@@ -1,5 +1,6 @@
 import { CHECKS } from './checks/AtomicChecks/index.js';
 import { sourceTypes } from '../parser/types.js';
+import { severity } from "./attributes.js";
 import { ELECTRON_ATOMIC_UPGRADE_CHECKS } from './checks/AtomicChecks/ElectronAtomicUpgradeChecks.js';
 import { isDisabledByInlineComment } from "../util/exceptions.js";
 import { getSample, getContext } from "../util/file.js";
@@ -7,11 +8,26 @@ import { getSample, getContext } from "../util/file.js";
 // The whole line a finding was matched on, for its baseline fingerprint: the sample shown in reports is an excerpt of a
 // long (minified) line, and fingerprints made before excerpts existed hashed the whole line. Not enumerable, so it never
 // reaches a report.
+// window settings whose risk depends on what the window shows
+const WINDOW_SETTINGS = new Set(['CONTEXT_ISOLATION_JS_CHECK', 'NODE_INTEGRATION_JS_CHECK', 'SANDBOX_JS_CHECK']);
+// a hidden window that only loads the application's own local page (a settings migration, a print helper) is rated LOW,
+// a visible one one step lower than its setting alone; the local page still needs a look for remote scripts
+function lowerForLocalWindow(issue, { hidden, loads }) {
+  const order = ['INFORMATIONAL', 'LOW', 'MEDIUM', 'HIGH'];
+  const current = order.indexOf(issue.severity?.name);
+  if (current < 1) return;
+  const lowered = hidden ? 1 : Math.max(1, current - 1);
+  if (lowered >= current) return;
+  issue.severity = severity[order[lowered]];
+  issue.properties = { ...issue.properties, localOnly: true, hidden, loads };
+  issue.description = `${issue.description}; the window${hidden ? ' is hidden and' : ''} only loads the application's own local ${loads.length === 1 ? 'page' : 'pages'} (${loads.join(', ')}), so the setting matters if that page loads remote content or runs untrusted data`;
+}
+
 function keepFingerprintLine(issue, line) {
   if (line !== issue.sample) Object.defineProperty(issue, 'fingerprintSample', { value: line, enumerable: false, configurable: true, writable: true });
 }
 import { gte, compare, coerce } from 'semver';
-import { setAnalysisContext, platformGuard } from './checks/analysis.js';
+import { setAnalysisContext, platformGuard, localWindowContent } from './checks/analysis.js';
 import { Parser } from '../parser/parser.js';
 import { diagnostics } from '../util/diagnostics.js';
 
@@ -156,6 +172,8 @@ export class Finder {
               if (matches) {
                 // code that runs on one operating system only (if (process.platform === 'darwin'), openInMac)
                 const platform = matches.length ? platformGuard(ancestors, astNode) : undefined;
+                // a window that only ever shows the application's own local files: its settings matter less
+                const local = matches.length && astNode.type === 'NewExpression' && matches.some(m => WINDOW_SETTINGS.has(m.id)) ? localWindowContent(astNode, ancestors) : undefined;
                 for(const m of matches) {
                   const firstLineSample = getSample(fileLines, 0);
                   const matchedLineSample = getSample(fileLines, m.line - 1);
@@ -163,6 +181,7 @@ export class Finder {
                   const issue = { file, sample: getSample(fileLines, m.line - 1, m.column), context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: visibility, constructorName: check.constructor.name };
                   keepFingerprintLine(issue, matchedLineSample);
                   if (platform && !issue.properties?.platform) issue.properties = { ...issue.properties, platform };
+                  if (local && WINDOW_SETTINGS.has(issue.id)) lowerForLocalWindow(issue, local);
                   this.reachability?.anchor(issue, file, astNode);
                   issues.push(issue);
                 }

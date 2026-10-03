@@ -74,8 +74,9 @@ export default class LimitNavigationJSCheck {
       });
       if (actions.length > 0 && actions.every(a => a === 'deny'))
         return report('setWindowOpenHandler', severity.INFORMATIONAL, confidence.CERTAIN, 'every new window is denied', false);
-      // allowed windows are rated by WINDOW_OPEN_HANDLER_JS_CHECK
-      return report('setWindowOpenHandler', severity.LOW, confidence.FIRM, 'some new windows are allowed; see WINDOW_OPEN_HANDLER_JS_CHECK');
+      // allowed windows are rated by WINDOW_OPEN_HANDLER_JS_CHECK: this one only records that the limit exists (a
+      // client finding saying "new windows are allowed" next to that check's account of the allowlist would contradict it)
+      return report('setWindowOpenHandler', severity.INFORMATIONAL, confidence.FIRM, 'some new windows are allowed; rated by WINDOW_OPEN_HANDLER_JS_CHECK', false);
     }
     return null;
   }
@@ -103,7 +104,7 @@ function delegatesEvent(fn, scope, ancestors, depth = 0) {
 }
 
 // Functions a handler hands the URL to for the decision: isAllowedUrl(url), checkUrl(details.url)
-function urlHelpers(fn, scope) {
+export function urlHelpers(fn, scope) {
   const params = new Set(paramNames(fn));
   const helpers = [];
   for (const { call } of callsIn(fn, (call) => call.callee.type === 'Identifier')) {
@@ -122,7 +123,7 @@ function identifierNames(node) {
 
 // What an allowlist checks: host names without the scheme, every subdomain (host.endsWith('.' + allowed)), and the
 // hosts it names (string literals that look like domains, in the functions or in arrays they read)
-function allowlistFacts(fns, program) {
+export function allowlistFacts(fns, program) {
   const facts = { hostOnly: false, subdomains: false, hosts: [] };
   let host = false;
   let scheme = false;

@@ -836,6 +836,46 @@ export function programOf(ancestors) {
 
 export { isCall, isMember, keyName, visit };
 
+// What a window created here shows, when that is knowable: const w = new BrowserWindow({ show: false, … }) followed only by
+// w.loadFile('src/x.html') (or a file: URL) in the same function, with the window never handed elsewhere. Returns
+// { hidden, loads } for a window that only ever shows the application's own local files, undefined otherwise.
+export function localWindowContent(newNode, ancestors) {
+  const parent = ancestors[ancestors.length - 1];
+  const name = parent?.type === 'VariableDeclarator' && parent.id.type === 'Identifier' ? parent.id.name
+    : parent?.type === 'AssignmentExpression' && parent.left.type === 'Identifier' ? parent.left.name : undefined;
+  if (!name) return undefined;
+  const options = newNode.arguments?.[0];
+  const show = options?.type === 'ObjectExpression' && options.properties.find(p => p.key && (p.key.name || p.key.value) === 'show');
+  const hidden = !!show && literalValue(show.value) === false;
+  let fn;
+  for (let i = ancestors.length - 1; i >= 0 && !fn; i--) if (isFunction(ancestors[i]) || ancestors[i].type === 'Program') fn = ancestors[i];
+  if (!fn) return undefined;
+  const loads = [];
+  let unknown = false;
+  const isWindow = n => n && n.type === 'Identifier' && n.name === name;
+  visit(fn.body || fn, (n, path) => {
+    if (unknown) return false;
+    if (isCall(n) && isMember(n.callee)) {
+      const method = memberName(n.callee);
+      const object = n.callee.object;
+      const onWindow = isWindow(object) || (isMember(object) && memberName(object) === 'webContents' && isWindow(object.object));
+      if (onWindow && ['loadFile', 'loadURL'].includes(method)) {
+        const target = literalValue(n.arguments[0]);
+        if (typeof target === 'string' && (method === 'loadFile' ? !/^[a-z][\w+.-]*:/i.test(target) : /^file:/i.test(target))) loads.push(target);
+        else unknown = true;
+      }
+    }
+    // the window handed to other code (an argument, a return value, a property) may be given other content there
+    if (isWindow(n)) {
+      const up = path[path.length - 1];
+      if (up && ((isCall(up) && up.arguments.includes(n)) || up.type === 'ReturnStatement' || (up.type === 'AssignmentExpression' && up.right === n) ||
+        up.type === 'ArrayExpression' || (up.type === 'ObjectProperty' || up.type === 'Property') && up.value === n)) unknown = true;
+    }
+    return true;
+  });
+  return !unknown && loads.length ? { hidden, loads } : undefined;
+}
+
 // The operating system a piece of code is limited to: 'darwin', 'linux', 'win32', 'non-windows' or 'non-darwin'; undefined
 // when it runs everywhere. Read from the enclosing branches (process.platform === 'darwin', os.platform() !== 'win32',
 // isMac), early returns (if (process.platform !== 'darwin') return;) and the function's name (openInMac, linuxHelper).

@@ -21,6 +21,8 @@ const target = i => [props(i).value, props(i).url, /^RUNTIME_/.test(i.id) ? i.fi
 const validatedUrl = i => /validated first|every caller sets to a constant/i.test(describe(i));
 const PUBLIC_SECRET = /google api key|publishable|public key/i;
 const confidenceOf = i => i.confidence?.name || i.confidence;
+// an allowlist that ignores the scheme or trusts every subdomain
+const broadAllowlist = i => !!(props(i).hostOnly || props(i).subdomains);
 export const VARIATIONS = {
   'Insufficient Renderer Process Isolation': [
     ['Node access in a renderer', /^(NODE_INTEGRATION|HTTP_RESOURCES_WITH_NODE_INTEGRATION|RUNTIME_NODE_INTEGRATION)/,
@@ -29,6 +31,8 @@ export const VARIATIONS = {
       'Compare the packaged webPreferences with runtime window settings and the origin loaded in each window.'],
     ['Additional privilege sharing', /^(REMOTE_MODULE|AFFINITY)/,
       'Trace remote imports or affinity values to the windows that consume them.'],
+    ['Local pages over file: URLs', /^FILE_PROTOCOL/,
+      'List the files each window loads over file:, and check whether any of them loads remote content or displays data from outside the application.'],
     ['Injected script reached Node or Electron APIs', /^RUNTIME_CAMPAIGN_(NODE|ELECTRON|FS_READ)$/,
       'Match the campaign case, saved field and viewed page to the recorded signal, and check the window’s effective settings.'],
   ],
@@ -99,16 +103,22 @@ export const VARIATIONS = {
   'Insecure Handling of Deep Links and File Associations': [
     ['External handler input', /^(FILE_HANDLER|PROTOCOL_HANDLER|INSTALLER_FILE_HANDLER)/,
       'Inspect the registered command and follow a benign crafted link or file through the parser.'],
-    ['Privileged custom scheme or file URL', /^(PROTOCOL_PRIVILEGES|FILE_PROTOCOL)/,
+    ['Privileged custom scheme or file URL', /^PROTOCOL_PRIVILEGES/,
       'Check scheme privileges, resource resolution and the final URL loaded by each window.'],
   ],
   'Insufficient Navigation and New Window Restrictions': [
     ['Untrusted URL loaded in an app window', /^UNTRUSTED_LOAD_URL/,
       'Trace the URL passed to loadURL to its input, and load a benign crafted destination in an authorised test.'],
-    ['Top-level navigation or redirect', /^(LIMIT_NAVIGATION|NAVIGATION_REDIRECT|RUNTIME_NAVIGATION|RUNTIME_REDIRECT|RUNTIME_MARKER_NAVIGATION)/,
-      'Exercise a benign external link and redirect while recording the final URL and window settings.'],
+    ['Top-level navigation or redirect', /^(LIMIT_NAVIGATION|RUNTIME_NAVIGATION|RUNTIME_MARKER_NAVIGATION)/,
+      'Exercise a benign external link while recording the final URL and window settings.', i => !broadAllowlist(i)],
+    ['Navigation allowlist too broad', /^LIMIT_NAVIGATION/,
+      'Open http:// on an allowed host, and an unused subdomain of one, from an application window in an authorised test (--prove does this), and record whether the window loads them.', broadAllowlist],
+    ['Server redirects not restricted', /^(NAVIGATION_REDIRECT|RUNTIME_REDIRECT)/,
+      'Follow a benign link to an allowed address that redirects elsewhere, and record the final URL the window shows.'],
     ['Popup or middle-click', /^(WINDOW_OPEN_HANDLER|AUXCLICK|ALLOWPOPUPS|RUNTIME_NEW_WINDOW|RUNTIME_MARKER_NEW_WINDOW)/,
-      'Test a benign popup and middle-click in the affected renderer and inspect its options.'],
+      'Test a benign popup and middle-click in the affected renderer and inspect its options.', i => !props(i).allowlisted],
+    ['New-window allowlist to review', /^WINDOW_OPEN_HANDLER/,
+      'Open a window for http:// on an allowed host, and for an unused subdomain, from an application page in an authorised test, and record whether it opens and with which settings.', i => !!props(i).allowlisted],
     ['Embedded content', /^(WEBVIEW|IFRAME_SANDBOX|RUNTIME_WEBVIEW|RUNTIME_IFRAME)/,
       'Inspect webview attachment and iframe sandbox attributes for the actual loaded source.'],
   ],

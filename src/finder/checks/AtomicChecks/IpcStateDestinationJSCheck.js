@@ -13,6 +13,18 @@ import { ipcListener } from '../ipc_context.js';
 
 const HTTP_CALLS = /^(get|post|put|patch|delete|request|fetch|head)$/;
 const parsedPrograms = new WeakMap();
+const roots = new WeakMap();
+
+// a file as the report shows it: relative to the application's folder (the one holding its package.json), with /
+function appPath(index, file) {
+  if (!roots.has(index)) {
+    const manifests = [...(index.files || [])].filter(f => /(?:^|[\\/])package\.json$/.test(f)).sort((a, b) => a.length - b.length);
+    roots.set(index, manifests.length ? manifests[0].replace(/[\\/]?package\.json$/, '') : '');
+  }
+  const root = roots.get(index);
+  const relative = root && file.startsWith(root) ? file.slice(root.length).replace(/^[\\/]/, '') : file;
+  return relative.split(/[\\/]/).join('/');
+}
 
 const calleeName = (callee) => callee.type === 'Identifier' ? callee.name : isMember(callee) ? memberName(callee) : undefined;
 const callsTo = (node, names) => {
@@ -74,7 +86,7 @@ function destinations(index, names) {
   for (const file of [...files].slice(0, 40)) {
     const program = programOfFile(index, file);
     if (!program) continue;
-    const short = file.split(/[\\/]/).slice(-2).join('/');
+    const short = appPath(index, file);
     const sendsToken = /Authorization|Bearer/.test(index.text(file));
     visit(program, (node) => {
       if (isCall(node) && calleeName(node.callee) === 'loadURL' && node.arguments[0] && callsTo(node.arguments[0], set)) {
