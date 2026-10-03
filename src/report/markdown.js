@@ -571,6 +571,17 @@ function renderOutdated(g, ctx) {
   return joinBlocks(lines);
 }
 
+// the note on what exploitation needs, where an instance of the finding needs less than its usual note says: a handler
+// that writes a file the page names and opens it needs script in a window, not a user's click
+function noteFor(title, issues) {
+  const usual = NOTES[title] || 'The impact depends on whether an attacker can reach the affected functionality.';
+  if (title !== 'Unvalidated URLs and Files Passed to the Operating System') return usual;
+  const written = issues.filter(i => i.properties?.issue === 'write-then-open');
+  if (!written.length) return usual;
+  const handlerNote = 'For a file written from a message and then opened, exploitation requires an attacker to run script in an application window that can send the message, for example through a cross-site scripting flaw; no further action by the user is needed.';
+  return written.length === issues.length ? handlerNote : `${handlerNote} The other instances require an attacker to control the URL or path passed to the operating system, for example through a link in content shown by the application, and in most cases a user to click it.`;
+}
+
 // facts that read the same at every place they occur: named together in one step when there are several
 const SUMMARISED = new Set(['IPC_SENDER_VALIDATION']);
 // how many reproduction steps a finding shows; the rest are named under Affected
@@ -849,7 +860,7 @@ function renderGroup(g, ctx) {
   const confirmed = parts.shown.some(isConfirmed) || parts.supporting.some(isConfirmed);
   const blockedFacts = unique(blocked.map(runtimeFact));
   const note = [confirmed ? 'This issue was confirmed during testing, as described under Reproduction and Evidence.' : '',
-    NOTES[title] || 'The impact depends on whether an attacker can reach the affected functionality.',
+    noteFor(title, g.issues),
     blockedFacts.length ? `During testing, ${blockedFacts.length === 1 ? text(blockedFacts[0], ctx) : `the application blocked some attempts: ${blockedFacts.map(fact => text(fact, ctx)).join('; ')}`}.` : '',
     g.rating.consequence === 'N/A' && !/hardening observation/.test(NOTES[title] || '') ? 'This is a hardening observation and does not, by itself, constitute an exploitable vulnerability.' : '',
   ].filter(Boolean).join(' ');

@@ -176,6 +176,8 @@ module.exports = { byPath };` }, ['commandinjectionjscheck']);
       assert.match(destination, /Page decides where the access token is sent/);
       assert.match(destination, /windows load that address in `out\/main\.window\.js`, and requests carrying the user’s access token are sent to it from `out\/api\.js`/);
       assert.match(finding(issues, 'Unvalidated URLs and Files Passed to the Operating System'), /File written from page input and opened by the operating system/);
+      const urls = finding([...issues, issue('OPEN_EXTERNAL_JS_CHECK', { location: { line: 50, column: 0 } })], 'Unvalidated URLs and Files Passed to the Operating System');
+      assert.match(urls, /no further action by the user is needed\. The other instances require an attacker to control the URL or path/);
     });
   });
 

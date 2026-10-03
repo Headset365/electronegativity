@@ -18,7 +18,7 @@ const KINDS = [
   { label: 'Cross-Site Scripting', cwes: [79, 80, 83, 87],
     words: /cross[- ]site scripting|\bxss\b/i,
     impact: 'attacker-controlled content could run script in an application window, which can lead to theft of data or session tokens, actions performed as the user or, where that window can reach Node.js or privileged IPC, code execution on the user’s computer.' },
-  { label: 'Other injection', cwes: [74, 89, 91, 93, 113, 643],
+  { label: 'Query, header and protocol injection', cwes: [74, 89, 91, 93, 113, 643],
     words: /header injection|sql injection|injection/i,
     impact: 'attacker-influenced input could be interpreted as part of a query, header or other protocol data, allowing requests or stored data to be manipulated.' },
   { label: 'Prototype pollution', cwes: [915, 1321],
@@ -71,7 +71,8 @@ export function vulnerabilityKinds(dependencies) {
   if (electron && chromium && chromium.checked) for (const advisory of chromium.top || []) add(advisory, `${electron.name} ${electron.version}`);
   // most severe first, but every component with a recognised vulnerability is named before a kind is repeated for one
   // already named (an old Electron's many high-severity kinds would otherwise crowd out a library's Cross-Site Scripting)
-  const ranked = [...found.values()].sort((a, b) => b.severity - a.severity || b.components.length - a.components.length || a.order - b.order);
+  // (at the same severity, the kinds that do the most harm first: code execution before header injection)
+  const ranked = [...found.values()].sort((a, b) => b.severity - a.severity || a.order - b.order || b.components.length - a.components.length);
   const chosen = [];
   const named = new Set();
   for (const kind of ranked) {
