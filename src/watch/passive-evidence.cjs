@@ -127,7 +127,9 @@ function createPassiveEvidence({ write, marker = '', logFile, cwd = () => proces
     } catch { return undefined; }
     if (typeof file !== 'string' || file.includes('\0')) return undefined;
     const resolved = path.resolve(cwd(), file);
-    if (logFile && resolved.startsWith(path.dirname(path.resolve(logFile)) + path.sep)) return undefined;
+    // Reports may sit beside the app's isolated profile. Exclude the log itself,
+    // not its entire parent tree (which can contain real app writes).
+    if (logFile && (process.platform === 'win32' ? resolved.toLowerCase() === path.resolve(logFile).toLowerCase() : resolved === path.resolve(logFile))) return undefined;
     return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
   };
   function fileWrite(file, method) {

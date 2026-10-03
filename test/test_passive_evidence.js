@@ -109,6 +109,15 @@ describe('Passive evidence and bounded uplift proofs', () => {
     const result = analyzeWatchLog([{ kind: 'process', ...candidate, pid: 21 }, { kind: 'windows-process-image', pid: 21, image: 'C:\\App\\helper.exe' }]);
     assert.equal(result.issues.find(i => i.id === 'RUNTIME_RELATIVE_EXECUTABLE_PATH').properties.resolution, 'windows-process-image');
   });
+  it('observes app writes beside the watch log while excluding the log itself', () => {
+    const rows = [], logFile = path.join(os.tmpdir(), 'eng-output', 'session.jsonl');
+    const passive = createPassiveEvidence({ logFile, write: (kind, data) => rows.push({ kind, ...data }) });
+    const fake = { writeFileSync() {} }; passive.instrumentFiles(fake);
+    const file = path.join(path.dirname(logFile), 'profile', 'saved.txt');
+    passive.runIpc('save-file', [], '', () => { fake.writeFileSync(logFile, 'log'); fake.writeFileSync(file, 'app data'); passive.openFile(file, 'openPath'); });
+    assert.equal(rows.filter(r => r.kind === 'file-write').length, 1);
+    assert.equal(rows.at(-1).kind, 'write-then-open'); assert.equal(rows.at(-1).sameIpcCall, true);
+  });
   it('links HTML template lines and SQL calls precisely, without ambiguous RPC leaf matches', () => {
     const html = finding('HTML_TEMPLATE_JS_CHECK', {}), sql = finding('SQL_INJECTION_JS_CHECK', {});
     const sink = finding('RUNTIME_MARKER_SINK', { sink: 'innerHTML', frames: [{ url: html.file, line: 5 }] });

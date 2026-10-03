@@ -61,6 +61,26 @@ describe('Conservative static reachability and runtime overlays', () => {
     const result = await run({ input: root, offline: true, dependencies: false, customScan: ['NodeIntegrationJSCheck'] });
     assert.ok(result.issues.filter(i => i.id === 'NODE_INTEGRATION_JS_CHECK').every(i => i.severity === severity.HIGH));
   });
+  for (const html of ['<script src="ui.js"></script>', '<script src="ui.js" type="module"></script><button onclick="create()">Open</button>'])
+    it(`retains ratings for browser globals or HTML event callers (${html})`, async () => {
+      const issues = await scan('', { 'ui.js': `function create(){${unsafe}}`, 'index.html': html });
+      assert.equal(issues[0].severity, severity.HIGH); assert.equal(issues[0].reachability.staticStatus, 'unresolved');
+    });
+  it('can downgrade a private unused function in an explicit module renderer', async () => {
+    const issues = await scan('', { 'ui.js': `function create(){${unsafe}}`, 'index.html': '<script src="ui.js" type="module"></script>' });
+    assert.equal(issues[0].severity, severity.INFORMATIONAL); assert.equal(issues[0].reachability.staticStatus, 'unreferenced');
+  });
+  for (const source of ['remote', 'partial-parse']) it(`retains an uncalled function when the source graph is incomplete (${source})`, () => {
+    const code = `function unused(){${unsafe}}`, files = new Map([['package.json', '{"main":"main.js"}'], ['main.js', code]]);
+    const loader = { list_files: [...files.keys()], load_buffer: file => Buffer.from(files.get(file)) };
+    const parser = new Parser(false, true), index = new ProjectIndex(loader, parser);
+    const reach = new ReachabilityIndex(index, { remoteFiles: new Set(source === 'remote' ? ['main.js'] : []) });
+    const [, ast] = parser.parse('main.js', code); if (source === 'partial-parse') ast.errors = [Error('recovered syntax error')];
+    reach.collect('main.js', ast, code);
+    const issue = { id: 'NODE_INTEGRATION_JS_CHECK', severity: severity.HIGH };
+    reach.anchor(issue, 'main.js', (ast.program || ast).body[0].body.body[0].expression); reach.annotate([issue]);
+    assert.equal(issue.severity, severity.HIGH); assert.equal(issue.reachability.staticStatus, 'unresolved');
+  });
   function ipcGraph(preload, renderer = '') {
     const files = new Map([['package.json', '{"main":"main.js"}'], ['main.js', 'require("./preload");'], ['preload.js', preload], ['ui.js', renderer], ['index.html', '<script src="ui.js"></script>']]);
     const loader = { list_files: [...files.keys()], load_buffer: file => Buffer.from(files.get(file)) };

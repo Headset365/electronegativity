@@ -67,7 +67,7 @@ describe('Native Windows proof regression fixtures', function () {
       assert.equal(command.workingDirectory, rows.find(r => r.kind === 'start').workingDirectory, 'record the effective cwd even when Electron changes it after launch');
       assert.equal(command.exists, false);
       assert.ok(rows.some(r => r.kind === 'ipc' && r.procedure === 'files.saveFile' && r.inputMarker));
-      assert.ok(rows.some(r => r.kind === 'write-then-open' && r.procedure === 'files.saveFile' && r.sameIpcCall));
+      assert.ok(rows.some(r => r.kind === 'write-then-open' && r.procedure === 'files.saveFile' && r.sameIpcCall), JSON.stringify(rows.filter(r => ['file-write', 'write-then-open', 'shell', 'hook-error'].includes(r.kind))));
       const children = rows.filter(r => r.kind === 'child-window'); assert.equal(children.length, 2);
       assert.equal(children.filter(r => r.preload === 'preload.cjs').length, 1, 'only explicitly configured child receives the preload setting');
       assert.ok(tests.some(r => r.test === 'navigation' && r.variant === 'allowed-host-http'));

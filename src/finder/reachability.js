@@ -53,6 +53,7 @@ export class ReachabilityIndex {
     const info = { file, program: programKey(file), functions: new Map(), names: new Map(), imports: [], sends: [], calls: new Set(),
       loaded: [], preload: false, bridge: false, exports: false, open: false, bindings: new Map(), nodeOwners: new WeakMap(), dev: new WeakSet() };
     this.files.set(file, info); this.nodes.set(info.program, { file });
+    if (ast.errors?.length || this.remoteFiles.has(file)) info.open = true;
     if (String(content).length > 3000000 || /\.html?$/i.test(file)) { info.open = true; return; }
     try {
       info.bindings = moduleBindings(program);
@@ -159,8 +160,16 @@ export class ReachabilityIndex {
     // could not be resolved. This deliberately favors retaining a rating.
     for (const file of this.index.files) if (/\.html?$/i.test(file)) try {
       const text = this.index.loader.load_buffer(file).toString();
-      for (const match of text.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) {
-        const target = this.index.resolvePath(path.join(path.dirname(file), match[1])); if (target && this.files.has(target)) roots.add(programKey(target));
+      // Classic scripts expose globals to HTML events and other renderer code.
+      // Only explicit module scripts permit a closed private-function graph.
+      if (/\bon[a-z]+\s*=|\bjavascript\s*:/i.test(text)) openGraph = true;
+      for (const match of text.matchAll(/<script\b([^>]*)>/gi)) {
+        const attributes = match[1], source = attributes.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+        const type = attributes.match(/\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+        if ((type?.[1] ?? type?.[2] ?? type?.[3] ?? '').toLowerCase() !== 'module') openGraph = true;
+        if (source) {
+          const target = this.index.resolvePath(path.join(path.dirname(file), source[1])); if (target && this.files.has(target)) roots.add(programKey(target));
+        }
       }
     } catch { openGraph = true; }
     const reached = new Set(roots), queue = [...roots];

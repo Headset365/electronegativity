@@ -54,7 +54,7 @@ Every static finding carries reachability metadata in report.json and HTML:
 | Exposed but not called | Preload capability with no established packaged caller; keep rating because remote UI or injected code may call it. Remove it if unused. |
 | Development-only | Proven Electron production-state guard excludes the statement; informational. An unknown variable named isDev is insufficient. |
 | Unreferenced | Closed static graph has no reachable import, registration or caller; informational with removal advice. |
-| Unresolved | Missing entry, dynamic imports/evaluation, framework asset loading, exports, ambiguous bindings or analysis limits; keep rating. |
+| Unresolved | Missing entry, dynamic imports/evaluation, classic renderer globals/HTML events, remote scripts, recovered parse errors, framework asset loading, exports, ambiguous bindings or analysis limits; keep rating. |
 | Exercised | Runtime evidence overlays the static status with its scope; a channel dispatch is not proof that every statement in its handler ran. |
 
 Static status and session exercise are separate fields. Runtime use contradicting
