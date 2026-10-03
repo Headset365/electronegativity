@@ -144,6 +144,19 @@ describe('Passive evidence and bounded uplift proofs', () => {
       assert.ok(rows.filter(r => r.test === 'window-open').every(r => r.childCreated === false && r.preloadObservation === 'handler-options-only' && r.preload === 'preload.cjs'));
     } finally { contents.emit('destroyed'); for (const [obj, name, original] of [...proofs.originals].reverse()) obj[name] = original; syncBuiltinESMExports(); }
   });
+  it('attaches route probes and temporal correlations without claiming the static statement executed', () => {
+    for (const outcome of ['observed', 'timeout']) {
+      const auth = finding('AUTH_MODE_BYPASS_JS_CHECK', {});
+      auth.severity = severity.INFORMATIONAL; auth.reachability = { staticStatus: 'unreferenced', exercised: false, originalSeverity: 'HIGH' };
+      const probe = finding('RUNTIME_PROOF', { test: 'auth-route', outcome, staticFile: auth.file, staticLine: auth.location.line });
+      reconcileRuntime([auth, probe], {});
+      assert.equal(auth.validation.scope, 'unauthenticated-route-probe'); assert.equal(auth.reachability.exercised, false); assert.equal(auth.severity, severity.INFORMATIONAL);
+    }
+    const state = finding('IPC_STATE_DESTINATION_JS_CHECK', { channel: 'login-success' });
+    state.reachability = { staticStatus: 'unresolved', exercised: false, originalSeverity: 'HIGH' };
+    reconcileRuntime([state, finding('RUNTIME_IPC_STATE_DESTINATION', { channel: 'login-success' })], {});
+    assert.equal(state.validation.scope, 'temporal-correlation'); assert.equal(state.reachability.exercised, false);
+  });
   it('requests only declared read-only local routes, sends no credentials and never confirms bypass from 200 or follows redirects', async () => {
     const requests = []; const server = http.createServer((req, res) => {
       requests.push(req); if (req.url === '/api/status') { res.writeHead(302, { Location: 'https://must-not-follow.example/' }); } else res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('public SPA');

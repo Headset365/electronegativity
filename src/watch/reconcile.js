@@ -134,11 +134,11 @@ function sameScript(file, url) {
  */
 function linkMarkerEvidence(issues) {
   const of = (id) => issues.filter(i => i.id === id);
-  const mark = (issue, text, source) => recordValidation(issue, { status: 'observed', scope: 'data-flow', text,
+  const mark = (issue, text, source, scope = 'data-flow') => recordValidation(issue, { status: 'observed', scope, text,
     evidence: [`${source.id} at ${place(source)}: ${source.description}`] });
-  const attach = (issue, source, text) => {
-    mark(issue, text, source);
-    issue.reachability = { ...issue.reachability, exercised: true, exercisedScope: source.id === 'RUNTIME_IPC_STATE_DESTINATION' ? 'temporal-correlation' : 'data-flow' };
+  const attach = (issue, source, text, { scope = 'data-flow', exercised = true } = {}) => {
+    mark(issue, text, source, scope);
+    if (exercised) issue.reachability = { ...issue.reachability, exercised: true, exercisedScope: scope };
     source.properties.staticFindings = [...new Set([...(source.properties.staticFindings || []), `${issue.id} at ${place(issue)}`])];
   };
   const rpcMatches = procedure => {
@@ -159,13 +159,13 @@ function linkMarkerEvidence(issues) {
   for (const source of of('RUNTIME_MARKER_IPC').filter(i => i.properties?.procedure && i.properties?.inputMarker))
     for (const issue of rpcMatches(source.properties.procedure)) attach(issue, source, `Observed marker input in electron-trpc procedure '${source.properties.procedure}'. The operation's authorization and exploitability remain untested.`);
   for (const source of of('RUNTIME_IPC_STATE_DESTINATION')) for (const issue of of('IPC_STATE_DESTINATION_JS_CHECK').filter(i => i.properties?.channel === source.properties?.channel))
-    attach(issue, source, source.description);
+    attach(issue, source, source.description, { scope: 'temporal-correlation', exercised: false });
   for (const source of of('RUNTIME_WRITE_THEN_OPEN')) {
     const candidates = source.properties?.procedure ? rpcMatches(source.properties.procedure) : issues.filter(i => ['IPC_HANDLER_JS_CHECK', 'IPC_FILE_ACCESS_JS_CHECK'].includes(i.id) && i.properties?.channel && i.properties.channel === source.properties?.channel);
     for (const issue of candidates) attach(issue, source, source.description);
   }
   for (const source of of('RUNTIME_PROOF').filter(i => i.properties?.test === 'auth-route')) for (const issue of of('AUTH_MODE_BYPASS_JS_CHECK').filter(i => i.file === source.properties?.staticFile && i.location?.line === source.properties?.staticLine))
-    attach(issue, source, source.description);
+    attach(issue, source, source.description, { scope: 'unauthenticated-route-probe', exercised: false });
 
   for (const sink of of('RUNTIME_MARKER_SINK')) {
     const frames = (sink.properties && sink.properties.frames) || [];
