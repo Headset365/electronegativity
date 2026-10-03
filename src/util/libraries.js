@@ -98,13 +98,13 @@ export function libraryOfFile(file, names) {
   const base = value.split('/').pop().replace(/\.[cm]?js$/i, '').replace(/[-.](?=[A-Za-z0-9_-]{8,20}$)(?=[^-.]*[0-9A-Z])[A-Za-z0-9_-]{8,20}$/, '').replace(CHUNK_SUFFIXES, '').toLowerCase();
   if (base.length < 4 || /^(index|main|app|vendor|chunk|common|runtime|polyfills?)$/.test(base)) return undefined;
   const squash = s => s.replace(/^@[^/]+\//, '').replace(/[-_.]/g, '');
-  for (const name of names) {
-    const n = String(name).toLowerCase();
-    const short = n.replace(/^@[^/]+\//, '');
-    if (short.length < 4) continue;
-    if (base === short || squash(base) === squash(short) || base.startsWith(`${short}-`) || short.startsWith(`${base}-`)) return name;
-  }
-  return undefined;
+  const candidates = names.map(name => ({ name, short: String(name).toLowerCase().replace(/^@[^/]+\//, '') })).filter(c => c.short.length >= 4);
+  // the chunk's own name first (ckeditor5, mathlive); then a chunk named after part of a package (tabulator for
+  // tabulator-tables) or a package with a suffix (leaflet-maplibre-gl), never a short common word (File for file-uri-to-path)
+  const exact = candidates.find(c => base === c.short || squash(base) === squash(c.short));
+  if (exact) return exact.name;
+  const partial = candidates.find(c => (base.startsWith(`${c.short}-`) && c.short.length >= 5) || (c.short.startsWith(`${base}-`) && base.length >= 6));
+  return partial ? partial.name : undefined;
 }
 
 export function detectLibraries(text) {

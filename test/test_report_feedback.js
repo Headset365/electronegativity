@@ -63,6 +63,19 @@ electron_1.ipcMain.handle('desktop-matter-import-model', async (event, fileID) =
       assert.ok(found.every(i => i.properties.driver === 'node-adodb'));
     });
 
+    it('counts only values, not table or column names, and not the statement’s own ? parameters', async () => {
+      const issues = await scan({ 'out/db.js': `const electron_1 = require("electron");
+function run(sql, args) { return db.prepare(sql).run(args); }
+electron_1.ipcMain.handle('touch', (e, table, key, id) => {
+  run(\`UPDATE \${table} SET dateModified = ? WHERE \${key} = ?\`, [Date.now(), id]);
+  run(\`SELECT * FROM notes JOIN \${table} ON \${table}.blobId = notes.blobId\`);
+  run(\`SELECT * FROM notes WHERE title LIKE '%\${id}%'\`);
+});` }, ['sqlinjectionjscheck']);
+      const found = issues.filter(i => i.id === 'SQL_INJECTION_JS_CHECK');
+      assert.equal(found.length, 1);
+      assert.match(found[0].properties.statement, /LIKE '%\$\{id\}%'/);
+    });
+
     it('gives advice for a driver without parameters in place of the general advice it contradicts', async () => {
       const issues = (await scan(files, ['sqlinjectionjscheck'])).filter(i => i.id === 'SQL_INJECTION_JS_CHECK');
       const content = renderClientFindings(issues, { root, app: { name: 'Client' } }).find(f => f.title === 'SQL Injection in Local Database Queries').content;
@@ -118,6 +131,7 @@ module.exports = { byPath };` }, ['commandinjectionjscheck']);
       assert.equal(libraryOfFile('node_modules/@scope/pkg/dist/x.js', names), '@scope/pkg');
       assert.equal(libraryOfFile('public/src/note_tree-BeKzNc7A.js', names), undefined);
       assert.equal(libraryOfFile('public/src/index-DFtQ-Uyx.js', names), undefined);
+      assert.equal(libraryOfFile('public/src/File-CYftrNPv.js', [...names, 'file-uri-to-path']), undefined);
     });
 
     it('lists library instances apart from the application’s own, and rates the finding from the application’s code', () => {

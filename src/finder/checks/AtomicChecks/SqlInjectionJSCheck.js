@@ -41,7 +41,7 @@ function shownValue(node) {
 function pieces(node, scope, out = { text: '', shown: '', dynamic: [] }) {
   const value = (expression) => {
     out.dynamic.push(expression);
-    out.text += ' ? ';
+    out.text += VALUE;
     out.shown += `\${${shownValue(expression)}}`;
   };
   if (node.type === 'TemplateLiteral') {
@@ -62,6 +62,22 @@ function pieces(node, scope, out = { text: '', shown: '', dynamic: [] }) {
   else if (onlyConstantParts(node, scope)) { out.text += '0'; out.shown += `\${${shownValue(node)}}`; }
   else value(node);
   return out;
+}
+
+// where a value the code inserts stands in the statement (the text has VALUE there; a ? is the statement's own parameter)
+const VALUE = '\u0001';
+// after a comparison, LIKE, IN (, VALUES (, a comma in a list, LIMIT or OFFSET, or inside quotes: a value
+const VALUE_BEFORE = /(?:[=<>]|\blike|\bin\s*\(|\bvalues\s*\(|,|\blimit|\boffset|\bthen|\belse|\bbetween|\band)\s*'?%?$/i;
+// a name the statement compares or selects (WHERE ${column} = ?, SELECT ${column} FROM, JOIN ${table} ON): not a value
+const NAME_AFTER = /^\s*(?:=|<|>|!|\bin\b|\blike\b|\bis\b|\bfrom\b|\bon\b|\bset\b|\bwhere\b|\bas\b|\.)/i;
+function inValuePosition(text) {
+  for (let at = text.indexOf(VALUE); at !== -1; at = text.indexOf(VALUE, at + 1)) {
+    const before = text.slice(Math.max(0, at - 40), at);
+    const after = text.slice(at + 1, at + 20);
+    if (/'%?$/.test(before)) return true;
+    if (VALUE_BEFORE.test(before) && !NAME_AFTER.test(after)) return true;
+  }
+  return false;
 }
 
 // SQL text in a call's arguments: dbQuery(`SELECT …`), db.prepare('SELECT …' + id)
@@ -158,7 +174,7 @@ export default class SqlInjectionJSCheck {
     const { text, shown, dynamic } = pieces(astNode, scope);
     if (!dynamic.length || !SQL.test(text)) return null;
     // values in a statement's text, never its keywords: a table or column name chosen in code is the common, safe case
-    if (!/\b(?:where|values|set|having|limit|offset|like|in)\b[\s\S]*\?/i.test(text) && !/=\s*'?\s*\?/.test(text)) return null;
+    if (!inValuePosition(text)) return null;
 
     // the value may be a parameter of an outer function: new Promise(async resolve => query(`… ${id}`)) inside a handler
     let source;
