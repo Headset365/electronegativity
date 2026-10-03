@@ -136,6 +136,7 @@ export class Finder {
       {
         // nodes enclosing the current one, outermost first, so checks can reason about the surrounding code
         const ancestors = [];
+        this.reachability?.collect(file, data, content);
         const context = { ancestors, file, sourceTooling: this.sourceToolingFiles?.has(file) || false };
         setAnalysisContext({ file, program: data.type === 'File' ? data.program : data, index: this.projectIndex, ancestors, propertyName: data.astParser.PropertyName });
         data.astParser.traverseTree(data, {
@@ -150,7 +151,8 @@ export class Finder {
                   const firstLineSample = getSample(fileLines, 0);
                   const matchedLineSample = getSample(fileLines, m.line - 1);
                   const visibility = isDisabledByInlineComment(firstLineSample, matchedLineSample, check, sourceTypes.JAVASCRIPT);
-                  const issue = { file, sample: matchedLineSample, context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: visibility, constructorName: check.constructor.name };
+                  const issue = { file, sample: getSample(fileLines, m.line - 1, m.column), context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: visibility, constructorName: check.constructor.name };
+                  this.reachability?.anchor(issue, file, astNode);
                   issues.push(issue);
                 }
               }
@@ -184,7 +186,7 @@ export class Finder {
               const firstLineSample = getSample(fileLines, 0);
               const matchedLineSample = getSample(fileLines, m.line - 1);
               const visibility = isDisabledByInlineComment(firstLineSample, matchedLineSample, check, sourceTypes.HTML);
-              const issue = {file, sample: matchedLineSample, context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: visibility, constructorName: check.constructor.name };
+              const issue = {file, sample: getSample(fileLines, m.line - 1, m.column), context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: visibility, constructorName: check.constructor.name };
               issues.push(issue);
             }
           }
@@ -196,7 +198,7 @@ export class Finder {
           const matches = await this.runCheckAsync(check, file, failed, () => check.match(data, defaults, electronVersion));
           if (matches) {
             for(const m of matches) {
-              const sample = getSample(fileLines, m.line - 1);
+              const sample = getSample(fileLines, m.line - 1, m.column);
               const issue = {file, sample, context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: check.constructor.name };
               issues.push(issue);
             }

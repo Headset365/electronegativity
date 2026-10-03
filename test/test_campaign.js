@@ -15,9 +15,19 @@ const require = createRequire(import.meta.url);
 const { valueFor, discoverFields, runCampaign, startResourceReceiver, CASES } = require('../src/watch/campaign.cjs');
 const { DOCX_CASES, fixture: docxFixture, runDocxCampaign } = require('../src/watch/docx.cjs');
 const { fillMarkerBody } = require('../src/watch/hook.cjs');
+const { replayHeaders } = require('../src/watch/replay_headers.cjs');
 const marker = 'ENGCAMPAIGN42';
 
 describe('Profile-driven benign campaign', () => {
+  it('replays header authentication without renderer Fetch Metadata or hop-by-hop headers', () => {
+    replayHeaders({ Authorization: 'Bearer generated-test-token', 'X-CSRF-Token': 'generated-test-csrf',
+      Origin: 'http://127.0.0.1:12345', Referer: 'http://127.0.0.1:12345/app/',
+      'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty', 'sec-ch-ua': 'test browser',
+      Cookie: 'generated-test-cookie', 'Content-Length': '123', 'Transfer-Encoding': 'chunked',
+      'Proxy-Authorization': 'generated-proxy-token' }).should.deep.equal({
+      Authorization: 'Bearer generated-test-token', 'X-CSRF-Token': 'generated-test-csrf',
+      Origin: 'http://127.0.0.1:12345', Referer: 'http://127.0.0.1:12345/app/' });
+  });
   const direct = overrides => normalizeCampaign({ version: 1, request: { method: 'POST', url: 'http://127.0.0.1:9000/save',
     body: '{"id":1234567890123456789,"body":"original","title":"keep"}' }, field: 'body', view: 'reload', cases: ['event-handler', 'null'], ...overrides });
 

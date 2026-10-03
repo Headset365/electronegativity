@@ -65,6 +65,8 @@ export function analyzeProofs(records) {
       }
     } else if (p.test === 'local-service') {
       text += ' The configured route was requested without credentials; response status or a WebSocket handshake alone does not prove that protected data/actions are accessible.';
+    } else if (p.test === 'auth-route') {
+      text = `Unauthenticated GET ${p.route} on app-owned port ${p.port}: ${p.outcome}${p.status ? `, HTTP ${p.status}` : ''}. No credentials were sent and redirects were not followed. A response, including HTTP 200, does not establish access to a protected resource; public routes and SPA responses must be excluded before confirming an authentication bypass.`;
     }
     const id = sev === severity.INFORMATIONAL ? 'RUNTIME_PROOF' : p.test === 'certificate' ? 'RUNTIME_CERTIFICATE_PROOF' :
       ['run-as-node', 'node-inspector'].includes(p.test) ? 'RUNTIME_FUSE_PROOF' : p.test === 'ipc' ? 'RUNTIME_IPC_PROOF' :

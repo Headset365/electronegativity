@@ -78,7 +78,8 @@ function findingRow(issue, index) {
   const location = issue.file === 'N/A' ? 'Application-wide' : issue.file;
   const url = safeUrl(issue.shortenedURL);
   const advisories = issue.properties && Array.isArray(issue.properties.advisories) ? issue.properties.advisories : undefined;
-  const consequence = consequenceOf(issue.id);
+  const inactive = ['unreferenced', 'development-only'].includes(issue.reachability?.staticStatus);
+  const consequence = inactive ? undefined : consequenceOf(issue.id);
   const route = consequence ? consequence.route : 'other';
   const searchText = [issue.id, issue.file, issue.description, String(issue.sample ?? '').slice(0, SAMPLE_LIMIT), consequence && consequence.text].join(' ').toLowerCase();
 
@@ -88,6 +89,7 @@ function findingRow(issue, index) {
         <td>
           <div class="check">${escapeHtml(issue.id)}${issue.manualReview ? ' <span class="review" title="Requires manual review">review</span>' : ''}${issue.comparison === 'new' ? ' <span class="review" title="Not in the previous report">new</span>' : issue.comparison === 'changed' ? ' <span class="review" title="Its severity changed since the previous report">severity changed</span>' : ''}</div>
           <div class="desc">${escapeHtml(issue.description)}</div>
+          ${issue.reachability ? `<div class="evidence"><b>Reachability: ${escapeHtml(issue.reachability.label)}</b>; session exercised: ${issue.reachability.exercised ? 'yes' : 'no'}. ${escapeHtml(issue.reachability.reason)} ${escapeHtml(issue.reachability.contradiction || '')}</div>` : ''}
           ${consequence ? `<div class="consequence"><span class="route route-${route}" title="Who can exploit it">${escapeHtml(consequence.label)}</span> ${escapeHtml(consequence.text)}${interactionOf(issue.id) && route !== 'info' ? ` <span class="interaction">Victim interaction: ${escapeHtml(interactionOf(issue.id))}.</span>` : ''}</div>` : ''}
           ${issue.properties && issue.properties.screenshot ? `<div class="evidence">Screenshot: ${escapeHtml(issue.properties.screenshot)}</div>` : ''}
           ${validationBlock(issue)}
@@ -139,7 +141,8 @@ function findingGroups(sorted) {
 }
 
 function groupCard(group) {
-  const consequence = consequenceOf(group.id);
+  const inactive = group.issues.every(i => ['unreferenced', 'development-only'].includes(i.reachability?.staticStatus));
+  const consequence = inactive ? undefined : consequenceOf(group.id);
   const route = consequence ? consequence.route : 'other';
   const issues = group.issues;
   // what the check detects: its own description, or the shortest description of its findings (the least specific)
@@ -157,7 +160,7 @@ function groupCard(group) {
   ].filter(Boolean).join(' · ');
   const impact = [
     consequence ? ROUTE_IMPACT[route] : undefined,
-    worstCase(group.id) ? `Worst case: ${worstCase(group.id)}` : undefined,
+    !inactive && worstCase(group.id) ? `Worst case: ${worstCase(group.id)}` : undefined,
     SEVERITY_IMPACT[group.severity.name],
     statuses.confirmed ? `Runtime evidence proves it in ${statuses.confirmed} place${statuses.confirmed === 1 ? '' : 's'}.` : statuses.safe && !statuses.open && !statuses.observed ? 'The runtime checks ruled it out where they were run.' : undefined,
   ].filter(Boolean);

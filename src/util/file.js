@@ -23,8 +23,14 @@ export function is_directory(input){
   return fs.statSync(input).isDirectory();
 }
 
-export function getSample(fileLines, index) {
+export function getSample(fileLines, index, column) {
   let sample = fileLines[index] ?? "";
+  // Export only the evidence surrounding the finding in long compiled lines. Callers checking inline disable
+  // comments omit the column so they still see the complete line, including a trailing directive.
+  if (column !== undefined && sample.length > 2 * EXCERPT) {
+    const from = Math.max(0, column - EXCERPT), to = Math.min(sample.length, column + EXCERPT);
+    return `${from > 0 ? '…' : ''}${sample.slice(from, to).trim()}${to < sample.length ? '…' : ''}`;
+  }
   // Also removes the \r leftover from split('\n') on Windows
   // Using split('\n') in checkers however is OK, because file ending depends on Git settings and *may* be just '\n' even on Windows
   sample = sample.trim();
@@ -302,6 +308,7 @@ const issueEntry = (issue, fingerprint) => ({
   consequence: consequenceOf(issue.id)?.text,
   interaction: interactionOf(issue.id),
   validation: issue.validation,
+  reachability: issue.reachability,
   howToValidate: issue.manualReview && !issue.validation ? validationHint(issue.id) : undefined,
   remediation: remediationOf(issue.id)?.fix,
   remediationExample: remediationOf(issue.id)?.example,

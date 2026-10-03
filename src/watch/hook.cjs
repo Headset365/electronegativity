@@ -11,6 +11,11 @@ if (logFile && process.versions.electron && process.type === 'browser') {
   const Module = require('module');
   const fs = require('fs');
   const appendEarly = fs.appendFileSync.bind(fs);
+  const passive = require('./passive-evidence.cjs').createPassiveEvidence({
+    marker: process.env.ELECTRONEGATIVITY_WATCH_MARKER,
+    logFile,
+    write: (kind, data) => appendEarly(logFile, JSON.stringify({ t: Date.now(), kind, ...data }) + '\n'),
+  });
   const { observeModuleLoads } = require('./module-load.cjs');
   const observe = load => observeModuleLoads(load, { marker: process.env.ELECTRONEGATIVITY_WATCH_MARKER,
     resolve: (...args) => Module._resolveFilename(...args),
@@ -20,13 +25,14 @@ if (logFile && process.versions.electron && process.type === 'browser') {
   // wraps a module loader so the first load of `electron` is instrumented, and the app gets the wrapped module
   const wrapLoader = (load) => observe(function (request, ...rest) {
     const loaded = load.call(this, request, ...rest);
+    passive.observeModule(request, loaded);
     if (request === 'electron-updater') {
       try { require('./update-observer.cjs').observeUpdater(loaded?.autoUpdater, (kind, data) => appendEarly(logFile, JSON.stringify({ t: Date.now(), kind, ...data }) + '\n')); } catch { /* best effort */ }
     }
     if (request === 'electron' && loaded && loaded.app) {
       if (!started) {
         started = true;
-        wrappedElectron = instrument(loaded);
+        wrappedElectron = instrument(loaded, false, passive);
       }
       // hand the app the wrapped module so its `new BrowserWindow(...)` is observed (preload capture)
       return wrappedElectron || loaded;
@@ -56,7 +62,7 @@ if (logFile && process.versions.electron && process.type === 'browser') {
       if (started) return;
       if (loaded && loaded.app) {
         started = true;
-        instrument(loaded, true);
+        instrument(loaded, true, passive);
       }
     } catch (error) {
       try {
@@ -209,7 +215,7 @@ function fillMarkerBody(text, marker, fields, active = false, replacement) {
   return null;
 }
 
-function instrument(electron, late) {
+function instrument(electron, late, passive) {
   const fs = require('fs');
   const path = require('path');
   const logFile = process.env.ELECTRONEGATIVITY_WATCH_LOG;
@@ -313,7 +319,7 @@ function instrument(electron, late) {
   };
   // name of the renderer observer's global, different for every session
   const OBSERVER_KEY = `__eng_${require('crypto').randomBytes(6).toString('hex')}`;
-  write('start', { electron: process.versions.electron, platform: process.platform, late: !!late });
+  write('start', { electron: process.versions.electron, platform: process.platform, packaged: electron.app.isPackaged, late: !!late });
 
   // the app's network traffic, checked inside the app by the passive traffic checks: only their findings (with redacted
   // evidence) are written to the log. Off with --no-watch-traffic.
@@ -431,9 +437,18 @@ function instrument(electron, late) {
 
   // IPC: channel names the app registers, and the calls the pages make
   const wrapInvoke = (channel, listener) => (event, ...args) => {
-    write('ipc', { channel: String(channel), mode: 'invoke', sender: redact(event.senderFrame && event.senderFrame.url), args: args.map(typeOf), marker: hasMarker(args) });
-    return proofs.invoke(event, channel, listener, args);
+    const sender = redact(event.senderFrame && event.senderFrame.url);
+    const rpc = passive.observeIpc(String(channel), args, sender);
+    write('ipc', { channel: String(channel), mode: 'invoke', sender, args: args.map(typeOf), marker: hasMarker(args), ...rpc });
+    return passive.runIpc(String(channel), args, sender, () => proofs.invoke(event, channel, listener, args));
   };
+  // Keep listener identity/removeListener behavior intact while tracing async IPC work.
+  safely(() => {
+    const emit = ipcMain.emit;
+    ipcMain.emit = function (channel, event, ...args) {
+      return passive.runIpc(String(channel), args, redact(event?.senderFrame?.url), () => emit.call(this, channel, event, ...args));
+    };
+  });
   safely(() => {
     // started late (ES module app): handlers registered so far are wrapped in place
     const existing = ipcMain._invokeHandlers;
@@ -478,6 +493,7 @@ function instrument(electron, late) {
           return method === 'openPath' || method === 'openExternal' ? Promise.resolve(method === 'openPath' ? '' : undefined) : undefined;
         }
         if (method === 'openPath' || method === 'showItemInFolder') recordZone(target, method);
+        if (method === 'openPath' || method === 'showItemInFolder' || /^file:/i.test(target)) passive.openFile(target, method);
         write('shell', { method, target: method === 'openExternal' ? redact(target) : String(target), marker: hasMarker(target),
           scheme: method === 'openExternal' ? schemeOf(target) : undefined });
         return original.call(this, target, ...rest);
@@ -488,17 +504,21 @@ function instrument(electron, late) {
   // commands the main process runs: only the program name, and whether the marker was part of the command line
   safely(() => {
     const childProcess = require('child_process');
-    for (const method of ['exec', 'execSync', 'execFile', 'execFileSync', 'spawn', 'spawnSync']) {
+    for (const method of ['exec', 'execSync', 'execFile', 'execFileSync', 'spawn', 'spawnSync', 'fork']) {
       const original = childProcess[method];
       if (typeof original !== 'function') continue;
       const wrapped = function (command, ...rest) {
+        let data;
         try {
           const args = Array.isArray(rest[0]) ? rest[0] : [];
-          write('process', { method, program: path.basename(String(command).trim().split(/\s+/)[0] || ''), marker: hasMarker(command) || hasMarker(args) });
+          data = { method, program: path.basename(String(command).trim().split(/\s+/)[0] || ''), marker: hasMarker(command) || hasMarker(args),
+            ...passive.processPath(method, command, rest) };
         } catch {
           // observing never breaks the call
         }
-        return original.call(this, command, ...rest);
+        const result = original.call(this, command, ...rest);
+        if (data) write('process', { ...data, pid: result?.pid, errorCode: result?.error?.code });
+        return result;
       };
       // keep what hangs off the original, util.promisify.custom above all (promisify(exec) resolves { stdout, stderr })
       Object.defineProperties(wrapped, Object.getOwnPropertyDescriptors(original));
@@ -592,20 +612,7 @@ function instrument(electron, late) {
   let replayCounter = 0;
   // headers to leave off a re-send: hop-by-hop or ones fetch/the session set themselves. Cookies come from the session,
   // and we always set our own content-type for the rebuilt body, so both are dropped here to avoid duplicating them.
-  // Chromium also refuses a request that sets a forbidden header (Origin, Referer, Sec-*, Proxy-*): session.fetch fails
-  // with net::ERR_INVALID_ARGUMENT and nothing is sent, so those are left to the session too.
-  const SKIP_REPLAY_HEADERS = new Set(['host', 'content-length', 'connection', 'accept-encoding', 'cookie', 'content-type',
-    'accept-charset', 'access-control-request-headers', 'access-control-request-method', 'cookie2', 'date', 'dnt', 'expect',
-    'keep-alive', 'origin', 'referer', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'via']);
-  const replayHeaders = (headers) => {
-    const out = {};
-    if (headers && typeof headers === 'object') for (const key of Object.keys(headers)) {
-      if (SKIP_REPLAY_HEADERS.has(key.toLowerCase()) || /^(sec|proxy)-/i.test(key)) continue;
-      const value = headers[key];
-      out[key] = Array.isArray(value) ? value.join(', ') : String(value);
-    }
-    return out;
-  };
+  const { replayHeaders } = require('./replay_headers.cjs');
   // Authorization, User-Agent, X-Client-Id and the like the app sent: kept on the replay entry so the re-send carries
   // token-in-header auth, not only session cookies. onBeforeSendHeaders fires after onBeforeRequest, so the entry exists.
   const captureHeaders = (details) => {
@@ -819,8 +826,9 @@ function instrument(electron, late) {
       if (isMainFrame === false) return;
       setImmediate(() => write('will-redirect', { id, url: redact(url), from: redact(contents.getURL()), prevented: !!event.defaultPrevented, marker: hasMarker(url) }));
     });
-    contents.on('did-navigate', (event, url) => write('did-navigate', { id, url: redact(url), marker: hasMarker(url) }));
-    contents.on('did-create-window', (window, details) => write('child-window', { id, url: redact(details && details.url), disposition: details && details.disposition, marker: hasMarker(details && details.url) }));
+    contents.on('did-navigate', (event, url) => { write('did-navigate', { id, url: redact(url), marker: hasMarker(url) }); passive.navigation(url, id); });
+    contents.on('did-create-window', (window, details) => safely(() => write('child-window', { id, childId: window.webContents.id, url: redact(details && details.url), disposition: details && details.disposition, marker: hasMarker(details && details.url),
+      preload: pickPrefs(details?.options?.webPreferences || window.webContents.getLastWebPreferences()).preload, preloadObservation: 'actual-child-options' })));
     // window.open() and target=_blank links, with what the app's handler decided (the default allows them)
     safely(() => {
       const originalSetHandler = contents.setWindowOpenHandler.bind(contents);
@@ -836,8 +844,11 @@ function instrument(electron, late) {
       // read after the app's own handlers, which may change the options or cancel the webview
       setImmediate(() => write('webview', { id, src: redact(params && params.src), prefs: pickPrefs(webPreferences), prevented: !!event.defaultPrevented }));
     });
-    const onMessage = (mode) => (event, channel, ...args) =>
-      write('ipc', { channel: String(channel), mode, sender: redact(event.senderFrame && event.senderFrame.url), args: args.map(typeOf), webContents: id, marker: hasMarker(args) });
+    const onMessage = (mode) => (event, channel, ...args) => {
+      const sender = redact(event.senderFrame && event.senderFrame.url);
+      write('ipc', { channel: String(channel), mode, sender, args: args.map(typeOf), webContents: id, marker: hasMarker(args),
+        ...passive.observeIpc(String(channel), args, sender) });
+    };
     contents.on('ipc-message', onMessage('send'));
     contents.on('ipc-message-sync', onMessage('sendSync'));
 
@@ -946,6 +957,7 @@ function instrument(electron, late) {
   });
   // File operations observed after the app's call succeeds. Only document/file
   // formats relevant to handoff are inventoried; module and log reads are skipped.
+  safely(() => { passive.instrumentFiles(fs); require('node:module').syncBuiltinESMExports(); });
   if (process.platform === 'win32') safely(() => {
     const wanted = file => typeof file === 'string' && /\.(?:docx?|xlsx?|pptx?|pdf|rtf|txt|html?|exe|msi|zip)$/i.test(file) && !proofs.guard();
     for (const name of ['readFile', 'readFileSync', 'writeFile', 'writeFileSync', 'appendFile', 'appendFileSync']) {
@@ -1055,6 +1067,7 @@ function instrument(electron, late) {
           const target = selector.select();
           if (profile.view === 'captured' && !entry?.viewURL) throw new Error('The save has no captured view URL; capture a new save from the intended view');
           write('campaign-window', { webContents: target.id, type: target.getType(), url: redact(target.getURL()) });
+          campaignWrite('campaign-request', { headerNames: Object.keys(request?.headers || {}), transport: 'app-session.fetch' });
           const resourceBase = await resourceReceiver();
           if (request) await runCampaign({ profile: { ...profile, request, resourceBase }, marker: campaignMarker, campaignId: campaignMarker, fetch: (url, options) => ses.fetch(url, options),
             fill: fillMarkerBody, view, write: campaignWrite, canary, seed });

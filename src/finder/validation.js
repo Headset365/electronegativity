@@ -18,6 +18,11 @@ export function recordValidation(issue, result) {
 
 export function mergeFindingEvidence(earlier, later) {
   const merged = { ...earlier, ...later, properties: { ...earlier.properties, ...later.properties } };
+  const exercised = [earlier, later].find(i => i.reachability?.exercised && i.reachability?.exercisedScope !== 'temporal-correlation');
+  if (exercised) {
+    merged.reachability = { ...merged.reachability, ...exercised.reachability };
+    if (exercised.severity?.value > merged.severity?.value) merged.severity = exercised.severity;
+  }
   for (const field of ['evidence', 'screenshots']) {
     const values = [earlier.properties?.[field], later.properties?.[field]].flat().filter(v => v != null);
     if (values.length) merged.properties[field] = distinct(values);

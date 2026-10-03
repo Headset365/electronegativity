@@ -389,6 +389,30 @@ export function analyzeWatchLog(records) {
   for (const [channel, senders] of used) {
     add('RUNTIME_IPC', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN, `IPC channel '${channel}' was used by ${[...senders].join(', ') || 'a renderer'}`, { channel, senders: [...senders] });
   }
+  const usedProcedures = [...new Set(records.filter(r => r.kind === 'ipc' && r.procedure).map(r => r.procedure))];
+  for (const r of records.filter(r => ['sql-marker', 'ipc-state-destination', 'write-then-open'].includes(r.kind))) {
+    const ids = { 'sql-marker': 'RUNTIME_SQL_MARKER', 'ipc-state-destination': 'RUNTIME_IPC_STATE_DESTINATION', 'write-then-open': 'RUNTIME_WRITE_THEN_OPEN' };
+    if (!first(`${r.kind}:${r.channel}:${r.procedure}:${r.host || r.path || JSON.stringify(r.frames)}`)) continue;
+    const description = r.kind === 'sql-marker'
+      ? `The marker occurred in SQL text passed to ${r.driver}.${r.method}, rather than only in a bound parameter. This observes interpolation at the database API; query success and SQL injection remain untested.`
+      : r.kind === 'ipc-state-destination'
+        ? `IPC channel '${r.channel}' received host ${r.host}, and a window subsequently navigated to that host. This is a temporal correlation; it does not establish that the message caused the navigation.`
+        : `A completed ${r.writeMethod} write to ${r.path} was followed by shell.${r.openMethod} for the same normalized path${r.sameIpcCall ? ' within the same IPC invocation' : ''}. Caller control and exploitability remain untested.`;
+    add(ids[r.kind], 'runtime', severity.INFORMATIONAL, confidence.FIRM, description, { ...r, kind: undefined });
+  }
+  const images = new Map(records.filter(r => r.kind === 'windows-process-image').map(r => [r.pid, r.image]));
+  const isolatedCwd = records.find(r => r.kind === 'proof' && r.test === 'working-directory');
+  for (const r of records.filter(r => r.kind === 'process' && r.relativePath)) {
+    if (!first(`relative-process:${r.relativePath}:${r.workingDirectory}:${images.get(r.pid)}`)) continue;
+    const image = images.get(r.pid);
+    add('RUNTIME_RELATIVE_EXECUTABLE_PATH', 'runtime', severity.INFORMATIONAL, confidence.FIRM,
+      `A relative child command (${r.relativePath}) was invoked with working directory ${r.workingDirectory}.${image ? ` Windows observed process image ${image}.` : ` The calculated candidate is ${r.resolvedPath}; an actual executable image was not observed.`} Nothing was planted in the working folder.`,
+      { ...r, actualImage: image, resolution: image ? 'windows-process-image' : r.resolution, isolatedCwd: !!isolatedCwd, kind: undefined });
+  }
+  for (const r of records.filter(r => r.kind === 'child-window' && r.preload)) {
+    if (first(`child-preload:${r.id}:${r.preload}`)) add('RUNTIME_CHILD_PRELOAD', r.url, severity.INFORMATIONAL, confidence.FIRM,
+      `A naturally created child window had preload ${r.preload} in its effective window options. This records configuration, not successful execution of the preload.`, { ...r, kind: undefined });
+  }
   const unusedChannels = [...registered.keys()].filter(channel => !used.has(channel));
   if (unusedChannels.length > 0)
     add('RUNTIME_COVERAGE', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN,
@@ -450,7 +474,7 @@ export function analyzeWatchLog(records) {
     }
   }
   issues.push(...proofAnalysis.issues);
-  return { issues, summary: { proofs: proofAnalysis.summary, screenshots, started, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, unusedChannels, entryPoints, api, traffic,
+  return { issues, summary: { proofs: proofAnalysis.summary, screenshots, started, packaged: records.find(r => r.kind === 'start')?.packaged, windows: new Set(pages.map(p => p.id)).size, pages: pages.length, channels: registered.size, usedChannels: used.size, usedChannelNames: [...used.keys()], usedProcedures, unusedChannels, entryPoints, api, traffic,
     docxCampaign: docxCases.length ? { attempted: docxCases.length, accepted: docxCases.filter(c => c.accepted).length, cases: docxCases } : undefined,
     campaign: campaignCases.length ? { attempted: campaignCases.length, accepted: campaignCases.filter(c => c.delivery === 'accepted').length,
       executed: campaignCases.filter(c => c.execution === 'observed').length, cases: campaignCases } : undefined,
@@ -531,8 +555,8 @@ function markerEvidence(records, add, first, api, issues) {
     else add('RUNTIME_MARKER_NEW_WINDOW', r.url, severity.LOW, confidence.FIRM, `A new-window request for a marker link was allowed${r.default ? ' by the default handler' : ''}. Check the resulting window and its privileges`, { blocked: false }, `${DOCS}#14-disable-or-limit-creation-of-new-windows`);
   }
   for (const r of records.filter(r => r.kind === 'ipc' && r.marker)) {
-    if (first(`marker-ipc:${r.channel}`))
-      add('RUNTIME_MARKER_IPC', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN, `Marker data reached IPC channel '${r.channel}'${r.sender ? ` from ${r.sender}` : ''}. This does not establish sender validation or a cross-account route`, { channel: r.channel, sender: r.sender });
+    if (first(`marker-ipc:${r.channel}:${r.procedure || ''}`))
+      add('RUNTIME_MARKER_IPC', 'runtime', severity.INFORMATIONAL, confidence.CERTAIN, `Marker data reached IPC channel '${r.channel}'${r.procedure ? `, procedure '${r.procedure}'` : ''}${r.sender ? ` from ${r.sender}` : ''}. This does not establish sender validation or a cross-account route`, { channel: r.channel, sender: r.sender, procedure: r.procedure, rpcType: r.rpcType, inputMarker: r.inputMarker });
   }
   for (const r of records.filter(r => r.kind === 'module-load' && r.marker)) {
     if (!first(`marker-module:${r.resolved || r.request}:${r.ok}`)) continue;

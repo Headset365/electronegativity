@@ -1,7 +1,7 @@
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
 import { memberName, resolveIdentifier, findProperty, literalValue, visit, finding } from '../helpers.js';
-import { isConditional, hasUrlValidation, handlerFunction, currentAnalysisContext } from '../analysis.js';
+import { isConditional, hasUrlValidation, handlerFunction } from '../analysis.js';
 
 // webPreferences that must not be relaxed for windows opened by web content
 const INSECURE_OVERRIDES = { nodeIntegration: true, nodeIntegrationInSubFrames: true, sandbox: false, contextIsolation: false, webSecurity: false, allowRunningInsecureContent: true, webviewTag: true };
@@ -13,15 +13,6 @@ function handlerChecksUrl(handler) {
     if ((node.type === 'CallExpression' || node.type === 'OptionalCallExpression') && node.callee.type === 'Identifier' && /allow|trust|valid|safe|check|permit|whitelist|allowlist/i.test(node.callee.name)) found = true;
     return !found;
   });
-  return found;
-}
-
-// whether the app gives any window a preload script (which windows it opens then inherit)
-function appUsesPreload() {
-  const { index, program } = currentAnalysisContext();
-  if (index && typeof index.filesMentioning === 'function') return index.filesMentioning('preload').length > 0;
-  let found = false;
-  visit(program, (node) => { if (!found && (node.type === 'ObjectProperty' || node.type === 'Property') && (node.key.name === 'preload' || node.key.value === 'preload')) found = true; return !found; });
   return found;
 }
 
@@ -62,12 +53,12 @@ export default class WindowOpenHandlerJSCheck {
         issues.push(finding(this, node, { severity: severity.HIGH, confidence: confidence.CERTAIN, manualReview: false,
           description: `${this.description} (every URL is allowed to open a new window)` }));
       } else if (hasUrlValidation(handler) || handlerChecksUrl(handler)) {
-        // an allowed window is created with the opener's webPreferences, its preload script included: every API the
-        // preload exposes (credentials, file access) reaches the new page unless overrideBrowserWindowOptions says otherwise
-        const inherits = !overrides && appUsesPreload();
-        issues.push(finding(this, node, { severity: inherits ? severity.MEDIUM : severity.LOW, confidence: confidence.FIRM, manualReview: true,
-          properties: { inheritsPreload: inherits },
-          description: `${this.description} (allowed after checking the URL; review the allowlist${inherits ? '. Allowed windows inherit the opening window\'s preload script and the APIs it exposes, as no overrideBrowserWindowOptions replaces it' : ''})` }));
+        // Electron inherits selected security preferences, not the parent's
+        // preload automatically. Observe natural child options to establish it.
+        const preload = prefs && findProperty(resolveIdentifier(prefs[1], scope), 'preload');
+        issues.push(finding(this, node, { severity: preload ? severity.MEDIUM : severity.LOW, confidence: confidence.FIRM, manualReview: true,
+          properties: { childPreloadConfigured: !!preload, inheritsPreload: false, preloadObservation: 'static-handler-options' },
+          description: `${this.description} (allowed after checking the URL; review the allowlist${preload ? '. Child window options include a preload setting; observe the effective options before claiming it was received or executed' : '. Preload inheritance is not assumed; inspect any naturally created child window'})` }));
       } else {
         issues.push(finding(this, node, { severity: severity.MEDIUM, confidence: confidence.FIRM, manualReview: true,
           description: `${this.description} (allowed under a condition that doesn't inspect the URL)` }));

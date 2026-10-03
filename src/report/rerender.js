@@ -42,6 +42,7 @@ export function issueFromReport(entry) {
     shortenedURL: entry.reference,
     ...(entry.session !== undefined ? { session: entry.session } : {}),
     ...(entry.validation ? { validation: entry.validation } : {}),
+    ...(entry.reachability ? { reachability: entry.reachability } : {}),
     ...(entry.notes ? { notes: entry.notes } : {}),
     ...(entry.properties ? { properties: entry.properties } : {}),
     ...(entry.comparison ? { comparison: entry.comparison } : {}),

@@ -86,7 +86,9 @@ const isMalicious = (name, version) => Object.hasOwn(KNOWN_MALICIOUS, name) && (
 export async function enrichDependencies(report, options = {}) {
   const rows = (report && report.rows) || [];
   for (const row of rows) {
-    const mal = row.advisories.find(a => /^MAL-/.test(a.id) || /malicious/i.test(a.summary || ''));
+    // Vulnerability summaries often describe malicious input, not a malicious published package. OSV's MAL
+    // identifiers and the curated version list establish package provenance; summary keywords do not.
+    const mal = row.advisories.find(a => /^MAL-/.test(a.id));
     if (mal) row.malicious = { source: 'OSV', id: mal.id };
     else if (isMalicious(row.name, row.version)) row.malicious = { source: 'known list', id: `MAL-${row.name}` };
   }

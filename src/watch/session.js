@@ -14,7 +14,7 @@ import { prepareScanFolder, mapFrames } from '../remote/sources.js';
 import { createAssistant, followLog, writeMarkerFiles } from './assistant.js';
 import { watchDebug } from './debug.js';
 import { watchDebugApp } from './debug_launch.js';
-import { inspectFeed, inspectServices, probeLocalService } from './network-proofs.js';
+import { inspectFeed, inspectServices, probeLocalService, probeAuthRoutes, navigationTestsFromFindings } from './network-proofs.js';
 import { feedFromAppUpdate, feedFromCode, resourcesFolder, APP_UPDATE_FILE } from './app-update.js';
 import { logoutCheck } from './logout.js';
 import { createRequire } from 'node:module';
@@ -44,7 +44,7 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
   let credentials;
   let copiedHeaders;
   const rendererDebug = !!debugUrl || debugLaunch;
-  if (prove) proofProfile = validateProfile(proofProfile || {});
+  if (prove) proofProfile = { ...validateProfile(proofProfile || {}), navigationTests: navigationTestsFromFindings(staticIssues) };
   if (ipcProfile) ipcProfile = validateProfile(ipcProfile, true);
   if ((prove || ipcProfile || logout) && !watch) throw new Error('Proof and logout options need a live watch session, not a saved log');
   if (rendererDebug && (prove || proofProfile || ipcProfile || logout)) throw new Error('Proof and logout checks require native main-process watch mode');
@@ -101,6 +101,9 @@ export async function observeSession({ watch, watchLog, args = [], debugUrl, deb
       assistant.handle(record);
       if (record.kind === 'proof-listener') toolPorts.add(`${record.pid}:${record.port}`);
       if (prove && record.kind === 'windows-listener' && !record.toolInspector && !toolPorts.has(`${record.pid}:${record.port}`) && !servicePorts.has(record.port)) {
+        serviceTasks.push(probeAuthRoutes(record, staticIssues).then(results => {
+          for (const p of results) fs.appendFileSync(logFile, JSON.stringify({ t: Date.now(), kind: 'proof', ...p }) + '\n');
+        }));
         const routes = (proofProfile?.services || []).filter(s => s.port === record.port);
         if (!routes.length) {
           // no reviewed route: the read-only CORS and exposure probe of the port's root

@@ -34,11 +34,14 @@ describe('Native Windows proof regression fixtures', function () {
       binary[sentinel + 32 + 2 + 3] = 49; // CLI inspector, required to install the observer
       fs.writeFileSync(executable, binary);
       const proofFile = path.join(root, 'proof.json');
-      fs.writeFileSync(proofFile, JSON.stringify({ enabled: true, profile: { origins: ['https://eng-proof.invalid'] },
-        ipc: { handlers: [{ channel: 'read-canary', reviewed: true, contract: 'file-read', args: ['$CANARY_PATH'] }] } }));
+      fs.writeFileSync(proofFile, JSON.stringify({ enabled: true, profile: { origins: ['https://eng-proof.invalid'], navigationTests: [
+        { url: 'http://trusted.example/', variant: 'allowed-host-http', allowedHost: 'trusted.example' },
+        { url: 'https://eng-proof.trusted.example/', variant: 'allowed-host-subdomain', allowedHost: 'trusted.example' },
+      ] },
+      ipc: { handlers: [{ channel: 'read-canary', reviewed: true, contract: 'file-read', args: ['$CANARY_PATH'] }] } }));
       const previous = { hardened: process.env.ENG_PROOF_HARDENED, data: process.env.ENG_PROOF_USER_DATA };
       process.env.ENG_PROOF_HARDENED = hardened ? '1' : '0'; process.env.ENG_PROOF_USER_DATA = path.join(root, 'profile');
-      try { await watchApp(executable, { log, proofConfig: proofFile, prove: true, capture: false, traffic: false, stdio: 'ignore' }); }
+      try { await watchApp(executable, { log, proofConfig: proofFile, prove: true, marker: 'ENG_HARMLESS_MARKER', capture: false, traffic: false, stdio: 'ignore' }); }
       finally {
         for (const [name, value] of [['ENG_PROOF_HARDENED', previous.hardened], ['ENG_PROOF_USER_DATA', previous.data]]) {
           if (value === undefined) delete process.env[name]; else process.env[name] = value;
@@ -55,9 +58,17 @@ describe('Native Windows proof regression fixtures', function () {
       assert.equal(outcome('node-inspector'), 'connected');
       assert.equal(outcome('ipc'), hardened ? 'rejected' : 'canary-read');
       assert.ok(rows.some(r => r.kind === 'windows-acl' && r.status === 'observed'));
-      assert.ok(rows.some(r => r.kind === 'windows-acl' && r.paths?.some(p => p.path === executable)), 'ACL paths must preserve Unicode');
+      assert.ok(rows.some(r => r.kind === 'windows-acl' && r.paths?.some(p => p.path === executable && p.status === 'observed')), 'ACL rules and Unicode paths must be read successfully');
       const result = analyzeWatchLog(rows);
-      assert.equal(result.summary.windows, 1, 'tool-created windows must not count as app windows');
+      assert.equal(result.summary.windows, 3, 'two natural child windows count, while tool-created windows must not count');
+      const cwd = tests.find(p => p.test === 'working-directory'); assert.ok(cwd?.emptyAtLaunch); assert.equal(cwd.plantedFiles, false);
+      assert.ok(rows.some(r => r.kind === 'process' && r.relativePath === './eng-proof-no-such-helper.exe' && r.workingDirectory === cwd.path && r.exists === false));
+      assert.ok(rows.some(r => r.kind === 'ipc' && r.procedure === 'files.saveFile' && r.inputMarker));
+      assert.ok(rows.some(r => r.kind === 'write-then-open' && r.procedure === 'files.saveFile' && r.sameIpcCall));
+      const children = rows.filter(r => r.kind === 'child-window'); assert.equal(children.length, 2);
+      assert.equal(children.filter(r => r.preload === 'preload.cjs').length, 1, 'only explicitly configured child receives the preload setting');
+      assert.ok(tests.some(r => r.test === 'navigation' && r.variant === 'allowed-host-http'));
+      assert.ok(tests.some(r => r.test === 'navigation' && r.variant === 'allowed-host-subdomain'));
       assert.equal(result.issues.some(i => i.id === 'RUNTIME_CERTIFICATE_PROOF'), !hardened);
       assert.equal(JSON.stringify(result).includes('engProof.invoke'), false);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }

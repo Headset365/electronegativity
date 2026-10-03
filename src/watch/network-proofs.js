@@ -79,6 +79,42 @@ export async function inspectServices(services, listeners, { request = fetchMeta
   return results;
 }
 
+// This establishes the HTTP response without credentials, not the resource's
+// authorization contract. In particular, a public endpoint or SPA can return 200.
+export async function probeAuthRoutes(listener, findings, { request = fetchMetadata } = {}) {
+  if (listener.toolInspector || listener.transport !== 'tcp' || !['127.0.0.1', '0.0.0.0', '::', '::1'].includes(listener.address) ||
+      !Number.isInteger(listener.port) || listener.port < 1 || listener.port > 65535) return [];
+  const results = [], seen = new Set();
+  for (const finding of findings.filter(f => f.id === 'AUTH_MODE_BYPASS_JS_CHECK')) for (const route of finding.properties?.readOnlyRoutes || []) {
+    if (seen.size >= 12) return results;
+    if (typeof route !== 'string' || !/^\/(?:[\w-]+\/)*(?:handshake|status|health|version|info|ping)\/?$/i.test(route) || seen.has(route)) continue;
+    seen.add(route);
+    const url = `http://${['127.0.0.1', '0.0.0.0'].includes(listener.address) ? '127.0.0.1' : '[::1]'}:${listener.port}${route}`;
+    let response; try { response = await request(url, { metadataOnly: true, method: 'GET' }); } catch { response = { outcome: 'error' }; }
+    results.push({ test: 'auth-route', outcome: response.outcome === 'response' ? 'observed' : response.outcome,
+      status: response.status, contentType: response.contentType, port: listener.port, route, method: 'GET', authenticated: false,
+      scope: 'unauthenticated-http-response', authBypassConfirmed: false, redirectsFollowed: false,
+      staticFile: finding.file, staticLine: finding.location?.line });
+  }
+  return results;
+}
+
+export function navigationTestsFromFindings(findings) {
+  const hosts = new Set();
+  for (const finding of findings.filter(f => /^(?:LIMIT_NAVIGATION|WINDOW_OPEN_HANDLER)_JS_CHECK$/.test(f.id)))
+    for (const value of finding.properties?.hosts || []) {
+      if (typeof value !== 'string' || value.length > 220) continue;
+      let host = value.toLowerCase();
+      try { if (/^https?:\/\//.test(host)) host = new URL(host).hostname; } catch { continue; }
+      if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*$/.test(host)) continue;
+      hosts.add(host); if (hosts.size >= 8) break;
+    }
+  return [...hosts].slice(0, 8).flatMap(host => [
+    { url: `http://${host}/`, variant: 'allowed-host-http', allowedHost: host },
+    { url: `https://eng-proof.${host}/`, variant: 'allowed-host-subdomain', allowedHost: host },
+  ]);
+}
+
 // Origins a web page or a browser extension would send: a local service that echoes them back in
 // Access-Control-Allow-Origin lets that page read its answers (SiYuan's kernel API, CVE-2026-34449 and CVE-2026-54069)
 const FOREIGN_ORIGINS = ['https://eng-proof.invalid', 'chrome-extension://engprooftestextensionid'];

@@ -74,6 +74,7 @@ describe('Packaged apps', () => {
     write('scripts/scripts.min.js', 'angular.module("docs",[]).controller("Doc",function($scope,$sce,$http){$http.get("/api/doc/1").then(function(r){$scope.body=$sce.trustAsHtml(r.data.body)})});');
     write('scripts/vendor.min.js', '/*! jQuery v1.12.4 | (c) jQuery Foundation | jquery.org/license */\n!function(){}();');
     write('test/app.spec.js', 'describe("x", () => {});');
+    write('pluginAssets/highlight.js/index.js', 'module.exports = {};');
     write('node_modules/angular/package.json', '{ "name": "angular", "version": "1.5.8" }');
     write('node_modules/@scope/lib/package.json', '{ "name": "@scope/lib", "version": "2.0.0" }');
     write('node_modules/angular/node_modules/nested/package.json', '{ "name": "nested", "version": "0.1.0" }');
@@ -90,6 +91,8 @@ describe('Packaged apps', () => {
     files.should.include('scripts/scripts.min.js');
     files.should.not.include('scripts/vendor.min.js');
     files.should.not.include('test/app.spec.js');
+    files.should.not.include('pluginAssets/highlight.js');
+    files.should.include('pluginAssets/highlight.js/index.js');
     loader.vendoredLibraries.map(l => `${l.name}@${l.version}`).should.deep.equal(['jquery@1.12.4']);
     loader.installedPackages.map(p => `${p.name}@${p.version}`).should.have.members(['angular@1.5.8', '@scope/lib@2.0.0', 'nested@0.1.0']);
   });
