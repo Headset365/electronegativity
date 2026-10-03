@@ -11,7 +11,8 @@ import { diagnostics } from '../util/diagnostics.js';
 const MAX_CALL_DEPTH = 6;
 // limits of the dispatch-table resolution: entries a table may have, functions one call may resolve to
 const MAX_DISPATCH = 64;
-const MAX_TARGETS = 32;
+// Real multiplexed IPC tables (Electerm's asyncGlobals) exceed 32 entries.
+const MAX_TARGETS = 128;
 // Files that may register handlers for untrusted input (see UNTRUSTED_SOURCES in analysis.js)
 const SOURCE_HINT = /ipcMain|setWindowOpenHandler|will-navigate|will-frame-navigate|did-start-navigation|new-window|will-redirect|open-url|open-file|second-instance|['"`](ipc-)?message['"`]/;
 const functionKey = (file, fn) => fn && fn.loc ? `${file}:${fn.loc.start.line}:${fn.loc.start.column}` : undefined;
@@ -217,37 +218,63 @@ export class ProjectIndex {
     });
     // a real dispatch table names a few handlers; in minified code every `e.x = …` of a one-letter variable lands here,
     // and following those fans out exponentially (Notesnook's bundle ran out of memory): such names are not tables
-    for (const [name, entries] of dispatch) if (entries.length > MAX_DISPATCH) dispatch.delete(name);
+    for (const [name, entries] of dispatch) if (entries.length > MAX_DISPATCH) {
+      // Retain directly named/function targets even if a minified table is full
+      // of cyclic computed entries. Bounds must not discard its known sinks.
+      const bindings = moduleBindings(program);
+      const direct = entries.filter(entry => isFunction(entry.value) || entry.value?.type === 'Identifier' && (local.has(entry.value.name) || bindings.get(entry.value.name)?.module)).slice(0, MAX_DISPATCH);
+      if (direct.length) dispatch.set(name, direct); else dispatch.delete(name);
+    }
     const names = new Map();
     for (const [name, entries] of local) for (const { fn } of entries) names.set(functionKey(file, fn), name);
     // the nodes enclosing the call being resolved: a name resolves to the functions of that name in scope there
     let scopes = [];
-    const resolved = new Map();
+    // Minified dispatch tables can revisit the same expression thousands of times. Cache by expression and
+    // remaining depth, and keep each reachable function once rather than expanding duplicate paths.
+    const resolved = new WeakMap();
     const resolve = (callee, depth = 0) => {
-      if (depth === 0 && callee && resolved.has(callee)) return resolved.get(callee);
-      const keys = [...new Set(resolveAll(callee, depth))].slice(0, MAX_TARGETS);
-      if (depth === 0 && callee) resolved.set(callee, keys);
-      return keys;
+      if (!callee || depth > MAX_CALL_DEPTH) return [];
+      if (!resolved.has(callee)) resolved.set(callee, new Map());
+      const cache = resolved.get(callee);
+      if (cache.has(depth)) return cache.get(depth);
+      const result = [...new Set(resolveExpression(callee, depth))].slice(0, MAX_TARGETS);
+      cache.set(depth, result);
+      return result;
     };
-    const resolveAll = (callee, depth = 0) => {
-      if (depth > MAX_CALL_DEPTH) return [];
+    // Distinct member expressions often select the same immutable dispatch table.
+    // Expression caching alone still walks a large minified table at every site.
+    const dispatchResults = new WeakMap();
+    const resolveEntries = (entries, key, depth) => {
+      if (!entries) return [];
+      if (!dispatchResults.has(entries)) dispatchResults.set(entries, new Map());
+      const keys = dispatchResults.get(entries);
+      if (!keys.has(key)) keys.set(key, new Map());
+      const depths = keys.get(key);
+      if (depths.has(depth)) return depths.get(depth);
+      const targets = new Set();
+      for (const entry of entries || []) if (key === undefined || entry.key === undefined || key === entry.key)
+        for (const target of resolve(entry.value, depth + 1)) targets.add(target);
+      depths.set(depth, targets);
+      return targets;
+    };
+    const resolveExpression = (callee, depth) => {
       // handlers.get(name)(...args), with known Map entries and later .set() calls.
       if (callee?.type === 'CallExpression' && isMember(callee.callee) && keyName(callee.callee.property) === 'get' && callee.callee.object.type === 'Identifier') {
         const key = callee.arguments[0]?.type === 'Identifier' ? undefined : keyName(callee.arguments[0]);
-        return (dispatch.get(callee.callee.object.name) || []).filter(p => key === undefined || p.key === undefined || key === p.key).flatMap(p => resolve(p.value, depth + 1));
+        return resolveEntries(dispatch.get(callee.callee.object.name), key, depth);
       }
       if (isMember(callee) && callee.object.type === 'Identifier') {
         // Explicit dispatch tables forward their arguments to every possible selected handler.
         const key = callee.computed && callee.property.type === 'Identifier' ? undefined : keyName(callee.property);
-        return (dispatch.get(callee.object.name) || []).filter(p => key === undefined || p.key === undefined || key === p.key)
-          .flatMap(p => resolve(p.value, depth + 1));
+        return resolveEntries(dispatch.get(callee.object.name), key, depth);
       }
       if (!callee || callee.type !== 'Identifier') return isFunction(callee) ? [functionKey(file, callee)] : [];
       if (local.has(callee.name)) {
         const entries = local.get(callee.name);
-        const visible = entries.filter(({ scope }) => scope === program || scopes.includes(scope));
-        // a name in a dispatch table defined elsewhere: its scope is not the call's, every candidate stands
-        return (visible.length || depth === 0 ? visible : entries).map(({ fn }) => functionKey(file, fn));
+        // a call names the function in scope where it is made (its callee node is that call's own, so the cache holds);
+        // a name reached through a dispatch table is shared by every call that selects the table: every candidate stands
+        const visible = depth === 0 ? entries.filter(({ scope }) => scope === program || scopes.includes(scope)) : entries;
+        return visible.map(({ fn }) => functionKey(file, fn));
       }
       const binding = moduleBindings(program).get(callee.name);
       const found = binding && binding.module && this.lookup(file, binding.module, binding.imported === '*' ? 'default' : binding.imported);
@@ -275,10 +302,8 @@ export class ProjectIndex {
         for (const fn of ancestors) {
           if (!isFunction(fn) || !node.arguments.some(argument => dependsOnParams(argument, fn))) continue;
           const key = functionKey(file, fn);
-          // a set, added to in place: copying an array per call is quadratic in the huge wrapper functions of bundles
           if (!this.edges.has(key)) this.edges.set(key, new Set());
-          const targets = this.edges.get(key);
-          for (const callee of callees) targets.add(callee);
+          for (const callee of callees) this.edges.get(key).add(callee);
         }
       }
       return true;

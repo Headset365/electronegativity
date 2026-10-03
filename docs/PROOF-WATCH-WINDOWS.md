@@ -1,5 +1,69 @@
 # Windows watch evidence and bounded proofs
 
+## Passive evidence and reachability
+
+The watch hook observes node-adodb, better-sqlite3 and sqlite3 APIs when they are
+loaded through CommonJS. A marker in SQL statement text is recorded at the query
+API, including preparation frames when a prepared statement is executed. Bound
+parameter markers do not count. No SQL payload is injected and query text and
+values are omitted from the evidence. Successful query execution and SQL injection
+are separate questions. Bundled private copies, native APIs captured before the
+hook, and libraries loaded exclusively through ESM can remain outside coverage.
+
+electron-trpc request envelopes retain their procedure path and whether the
+marker was in the input. Local nested routers explicitly registered through
+createIPCHandler can be matched by path; a leaf name is matched only when it is
+unique. A multiplexed channel does not exercise every procedure. Incoming IPC
+HTTP(S) endpoint hosts are correlated with later window navigation; the log stores
+hosts without endpoint credentials or query strings and labels the result as a
+temporal correlation. Completed filesystem writes and subsequent shell path
+handoffs are linked by normalized path and, where possible, the same asynchronous
+IPC invocation. An OS handoff is not proof that the file opened or executed.
+
+`--prove` adds synthetic handler checks for `http://<allowed-host>/` and
+`https://eng-proof.<allowed-host>/` from static navigation allowlists. These URLs
+are never loaded. Window-open decisions record returned preload options without
+creating a child or calling createWindow. Naturally created app child windows
+record their effective options separately. Electron does not automatically inherit
+the parent's preload through its security-preference inheritance rules.
+See Electron's [guest-window preference merger](https://github.com/electron/electron/blob/v34.5.8/lib/browser/guest-window-manager.ts).
+
+For observed app-owned loopback TCP listeners, declared GET routes ending in
+handshake/status/health/version/info/ping are requested without credentials when
+an AUTH_MODE_BYPASS finding lists them as read-only candidates. POST, app.use,
+query strings, traversal, mutation-looking paths and inline handlers with known
+mutation calls are excluded. Named external handler effects are not comprehensively
+resolved. Review any additional routes in a proof profile. Redirects are not followed;
+HTTP 200 is an observed response, not a confirmed authentication bypass.
+
+On Windows, `--prove` starts the app in an empty temporary working folder and
+records relative child command candidates. No executable is planted. App-owned
+process images observed by the Windows inventory provide actual resolution when
+available; short-lived children or access restrictions can leave only a calculated
+candidate. Folders containing files written by the app are retained instead of
+being recursively deleted. Applications depending on their original working
+folder may fail to start; that failure is not a successful binary-planting proof.
+The launch folder and the effective working directory recorded by the hook are
+distinct: Electron or application code can change the latter during startup.
+
+Every static finding carries reachability metadata in report.json and HTML:
+
+| Label | Rating treatment |
+| --- | --- |
+| Called | Reachable through entry-point references, registered callbacks or a packaged IPC sender; keep rating. |
+| Exposed but not called | Preload capability with no established packaged caller; keep rating because remote UI or injected code may call it. Remove it if unused. |
+| Development-only | Proven Electron production-state guard excludes the statement; informational. An unknown variable named isDev is insufficient. |
+| Unreferenced | Closed static graph has no reachable import, registration or caller; informational with removal advice. |
+| Unresolved | Missing entry, dynamic imports/evaluation, classic renderer globals/HTML events, remote scripts, recovered parse errors, framework asset loading, exports, ambiguous bindings or analysis limits; keep rating. |
+| Exercised | Runtime evidence overlays the static status with its scope; a channel dispatch is not proof that every statement in its handler ran. |
+
+Static status and session exercise are separate fields. Runtime use contradicting
+a reduced rating restores its original rating. An unpackaged development session
+exercising an expected development-only branch retains its production observation.
+The client Markdown places unreferenced/development-only code under Additional
+Security Observations with N/A ratings. Saved-log replay and report rerendering
+retain these labels; silence during a watch session never establishes dead code.
+
 These additions target **Windows 10 and Windows 11**. Run as the ordinary tester account first. Access errors, timeouts, incomplete instrumentation and missing contracts are recorded as coverage limits, not safe results. Registry/ACL checks never change the installation. The tool never tests a discovered credential against a live service.
 
 ## Start a session

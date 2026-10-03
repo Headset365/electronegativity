@@ -78,7 +78,16 @@ const COMMANDS = {
   'Insecure Microsoft Word Integration': 'Get-Item <doc> -Stream Zone.Identifier',
 };
 
+// code a packaged build never runs, or that nothing calls: its rating was lowered to Informational, and it is reported
+// (under Additional Security Observations) only when it would have been at its original rating; inventories and checks
+// that were informational to begin with stay out of the client findings
+const inactiveCode = i => ['unreferenced', 'development-only'].includes(i.reachability?.staticStatus);
 function reportable(i) {
+  if (inactiveCode(i)) return reportableAsRated({ ...i, severity: { name: i.reachability.originalSeverity || nameOf(i.severity) } });
+  return reportableAsRated(i);
+}
+
+function reportableAsRated(i) {
   const id = normalId(i.id);
   if (/_(DEPRECATION|REMOVAL|CHANGE)$/.test(id) || id === 'IPC_SEND_STRUCTURED_CLONE_ALGORITHM' ||
       ['TRAFFIC_IDOR_CANDIDATE', 'TRAFFIC_STATE_CHANGE_NO_AUTH'].includes(id) || /COVERAGE/.test(id) ||
@@ -91,6 +100,7 @@ function reportable(i) {
 }
 
 function groupOf(i) {
+  if (['unreferenced', 'development-only'].includes(i.reachability?.staticStatus)) return other;
   const id = normalId(i.id);
   const proofGroups = { RUNTIME_CERTIFICATE_PROOF: 'Insecure Network Transport and Certificate Validation', RUNTIME_FUSE_PROOF: 'Insecure Electron Fuse Configuration',
     RUNTIME_IPC_PROOF: 'Insufficient Validation of Inter-Process Messages', RUNTIME_SHELL_PROOF: 'Unvalidated URLs and Files Passed to the Operating System',
@@ -106,6 +116,11 @@ function groupOf(i) {
 }
 
 function evidenceGroupOf(i) {
+  if (['unreferenced', 'development-only'].includes(i.reachability?.staticStatus)) return other[0];
+  if (i.id === 'RUNTIME_SQL_MARKER') return 'SQL Injection in Local Database Queries';
+  if (['RUNTIME_IPC_STATE_DESTINATION', 'RUNTIME_WRITE_THEN_OPEN'].includes(i.id)) return 'Insufficient Validation of Inter-Process Messages';
+  if (i.id === 'RUNTIME_CHILD_PRELOAD') return 'Insufficient Navigation and New Window Restrictions';
+  if (i.id === 'RUNTIME_RELATIVE_EXECUTABLE_PATH') return groupOf({ ...i, id: 'RELATIVE_EXECUTABLE_PATH_JS_CHECK' })[0];
   const id = normalId(i.id);
   if (id === 'RUNTIME_STATIC_DISCREPANCY') return 'Insufficient Renderer Process Isolation';
   if (id === 'WINDOWS_MARK_OF_THE_WEB') return 'Insecure Microsoft Word Integration';
@@ -117,6 +132,7 @@ function evidenceGroupOf(i) {
     if (test === 'certificate') return 'Insecure Network Transport and Certificate Validation';
     if (test === 'update-feed') return 'Insecure Software Update Mechanism';
     if (test === 'ipc') return 'Insufficient Validation of Inter-Process Messages';
+    if (test === 'auth-route') return groupOf({ ...i, id: 'AUTH_MODE_BYPASS_JS_CHECK' })[0];
   }
   if (id === 'RUNTIME_CSP_VIOLATION') return 'Missing or Insufficient Content Security Policy';
   if (/^RUNTIME_DOCX_/.test(id)) return 'Insecure Processing of Untrusted Documents';
@@ -396,6 +412,7 @@ const screenshotOf = (i, ctx) => screenshotsOf(i).map(f => `; screenshot ${scree
 function recordedEvidence(i, ctx) {
   const p = i.properties || {};
   const lines = [`- **${text(i.id, ctx)}** at ${location(i, ctx)}${i.session ? `; session ${text(i.session, ctx)}` : ''}${screenshotOf(i, ctx)}`];
+  if (i.reachability) lines.push(`  - Reachability: **${text(i.reachability.label || i.reachability.staticStatus, ctx)}**; session exercised: ${i.reachability.exercised ? 'yes' : 'no'}. ${text(i.reachability.reason || '', ctx)}${i.reachability.contradiction ? ` ${text(i.reachability.contradiction, ctx)}` : ''}`);
   const results = validationResults(i);
   for (const r of results) {
     lines.push(`  - Validation: **${text(r.status, ctx)}**${r.scope ? ` (${text(r.scope, ctx)})` : ''}${r.session ? `; session ${text(r.session, ctx)}` : ''}${r.text ? ` — ${text(r.text, ctx)}` : ''}`);
@@ -409,7 +426,9 @@ function recordedEvidence(i, ctx) {
     'request', 'resolved', 'program', 'source', 'count', 'accepted', 'viewOpened', 'loopbackRequested', 'sha256', 'bytes', 'verification', 'error',
     'expected', 'actual', 'enforced', 'format', 'missing', 'status', 'signer', 'verifiedBy', 'maps', 'inline', 'withSources', 'store',
     'origin', 'key', 'kind', 'basis', 'entries', 'weakEncryption', 'preload', 'partition', 'untried', 'unmatched', 'sent',
-    'staticFinding', 'staticFindings', 'staticWindow', 'observedAt'];
+    'staticFinding', 'staticFindings', 'staticWindow', 'observedAt', 'procedure', 'rpcType', 'inputMarker', 'driver', 'markerInSql',
+    'host', 'correlationOnly', 'writeMethod', 'openMethod', 'sameIpcCall', 'elapsedMs', 'relativePath', 'resolvedPath', 'actualImage', 'resolution',
+    'workingDirectory', 'isolatedCwd', 'variant', 'allowedHost', 'childPreloadConfigured', 'preloadObservation', 'childCreated', 'customCreateWindow', 'authBypassConfirmed'];
   for (const field of fields) {
     const value = p[field];
     const printable = typeof value === 'boolean' ? String(value) : scalar(value) || strings(value).join(', ');
@@ -717,6 +736,16 @@ function reproductionSteps(g, ctx, parts) {
 function renderGroup(g, ctx) {
   const [title, , , recommendation, cwe] = g.definition;
   if (title === OUTDATED_TITLE) return renderOutdated(g, ctx);
+  if (title === other[0] && g.issues.every(i => ['unreferenced', 'development-only'].includes(i.reachability?.staticStatus))) {
+    return joinBlocks([`---\n${frontMatter(title, g.rating, [])}\n---`, `# ${title}`,
+      '## Issue Description', 'Code review identified statements excluded from production use or without a reachable caller. These observations are retained to support removal of unused code.',
+      '## Affected', ...g.issues.slice(0, MAX_LOCATIONS).map(i => `- ${location(i, ctx)} — **${text(i.reachability.label, ctx)}** (${text(i.id, ctx)})`),
+      '## Implication', ...unique(g.issues.map(i => `- ${text(i.reachability.reason, ctx)}`)),
+      'These statements are informational under the available static reference graph. Missing files, dynamic dispatch or later runtime evidence require reassessment.',
+      '## Reproduction and Evidence', ...g.issues.slice(0, MAX_LOCATIONS).map(i => recordedEvidence(i, ctx)),
+      '## Recommendations', '- Remove unused functions, registrations and development paths from the packaged application. Reassess the rating if a production caller is found.',
+      '## References', '- Electron security checklist\n\n  https://www.electronjs.org/docs/latest/tutorial/security']);
+  }
   const parts = findingParts(g, ctx);
   const { variations, labelOf, validatedOnly, blocked } = parts;
   const app = text(ctx.app, ctx);
@@ -832,6 +861,7 @@ function renderGroup(g, ctx) {
     '## Implication',
     ...variations.map(v => `- **${labelOf(v)}.** ${v.implication}`),
     ...notes('impact'), ...notes('reachability'),
+    ...unique(g.issues.filter(i => i.reachability?.staticStatus === 'exposed').map(i => `- ${text(i.reachability.reason, ctx)}`)),
     `*Note:* ${note}`,
     '## Reproduction and Evidence',
     ...(preconditions.length ? [`The following preconditions apply: ${preconditions.join(' ')}`] : []),

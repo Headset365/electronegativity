@@ -1,6 +1,6 @@
 // Regressions from the DivorceMate 2.1.2 review: TypeScript's (0, mod.fn)(...) calls, state a page sets through IPC
 // that decides where windows load and credentials go, write-then-open handlers, allowlists in helpers, allowed windows
-// inheriting the preload, and the shortcut and second-instance false positives.
+// child preload configuration, and the shortcut and second-instance false positives.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -72,7 +72,7 @@ electron_1.ipcMain.handle('file-open-docx', (event, { base64File, fileName, matt
     assert.ok(issues.some(issue => issue.id === 'IPC_HANDLER_JS_CHECK' && issue.severity.name === 'HIGH' && issue.properties.issue === 'write-then-open'));
   });
 
-  it('reads an allowlist kept in a helper, with its hosts and subdomains, and warns that allowed windows inherit the preload', async () => {
+  it('reads helper allowlists and avoids assuming preload inheritance without child options', async () => {
     const issues = await scan({ 'out/window.js': `const electron_1 = require("electron");\nconst node_url_1 = require("node:url");
 const whitelistHosts = ['app.example.com', 'partner.example.net'];
 function isAllowedUrl(target) { const host = new node_url_1.URL(target).hostname; return whitelistHosts.some(a => host === a || host.endsWith(\`.\${a}\`)); }
@@ -88,8 +88,9 @@ windowCommonConfig(main);` }, ['limitnavigationjscheck', 'windowopenhandlerjsche
     assert.equal(navigation.properties.subdomains, true);
     assert.deepEqual(navigation.properties.hosts, ['app.example.com', 'partner.example.net']);
     const open = issues.find(issue => issue.id === 'WINDOW_OPEN_HANDLER_JS_CHECK');
-    assert.equal(open.severity.name, 'MEDIUM');
-    assert.equal(open.properties.inheritsPreload, true);
+    assert.equal(open.severity.name, 'LOW');
+    assert.equal(open.properties.inheritsPreload, false);
+    assert.equal(open.properties.childPreloadConfigured, false);
   });
 
   it('does not rate the app’s own shortcut or a switch-only second-instance handler', async () => {

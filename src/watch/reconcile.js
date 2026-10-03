@@ -4,6 +4,7 @@
 import path from 'node:path';
 import { severity, confidence } from '../finder/attributes.js';
 import { recordValidation } from '../finder/validation.js';
+import { applyRuntimeReachability } from '../finder/reachability.js';
 
 const DOCS = 'https://www.electronjs.org/docs/latest/tutorial/security';
 
@@ -16,6 +17,7 @@ const place = (issue) => `${issue.file}${issue.location && issue.location.line ?
  */
 export function reconcileRuntime(issues, summary) {
   linkMarkerEvidence(issues);
+  applyRuntimeReachability(issues, summary);
   for (const proof of issues.filter(i => i.id === 'RUNTIME_FUSE_PROOF' && i.validation?.status === 'confirmed')) {
     const fuse = proof.properties.test === 'run-as-node' ? 'RunAsNode' : proof.properties.test === 'node-inspector' ? 'EnableNodeCliInspectArguments' : undefined;
     if (fuse) for (const finding of issues.filter(i => i.id === 'PACKAGED_FUSES' && i.properties?.fuse === fuse)) recordValidation(finding, proof.validation);
@@ -112,7 +114,7 @@ function entryCoverage(issues, summary) {
   });
 }
 
-const HTML_CODE = new Set(['XSS_SINK_JS_CHECK', 'ANGULAR_TRUST_HTML_JS_CHECK', 'RICH_TEXT_EDITOR_JS_CHECK', 'DANGEROUS_FUNCTIONS_JS_CHECK', 'SANITIZER_CONFIG_JS_CHECK']);
+const HTML_CODE = new Set(['HTML_TEMPLATE_JS_CHECK', 'XSS_SINK_JS_CHECK', 'ANGULAR_TRUST_HTML_JS_CHECK', 'RICH_TEXT_EDITOR_JS_CHECK', 'DANGEROUS_FUNCTIONS_JS_CHECK', 'SANITIZER_CONFIG_JS_CHECK']);
 const withoutQuery = (url) => String(url || '').split(/[?#]/)[0];
 // a static file (a path, or the URL of a script captured from the server) and a script URL from a stack trace
 function sameScript(file, url) {
@@ -132,8 +134,38 @@ function sameScript(file, url) {
  */
 function linkMarkerEvidence(issues) {
   const of = (id) => issues.filter(i => i.id === id);
-  const mark = (issue, text, source) => recordValidation(issue, { status: 'observed', scope: 'data-flow', text,
+  const mark = (issue, text, source, scope = 'data-flow') => recordValidation(issue, { status: 'observed', scope, text,
     evidence: [`${source.id} at ${place(source)}: ${source.description}`] });
+  const attach = (issue, source, text, { scope = 'data-flow', exercised = true } = {}) => {
+    mark(issue, text, source, scope);
+    if (exercised) issue.reachability = { ...issue.reachability, exercised: true, exercisedScope: scope };
+    source.properties.staticFindings = [...new Set([...(source.properties.staticFindings || []), `${issue.id} at ${place(issue)}`])];
+  };
+  const rpcMatches = procedure => {
+    const rpc = of('IPC_RPC_PROCEDURE_JS_CHECK');
+    const exact = rpc.filter(i => i.properties?.procedurePath === procedure);
+    if (exact.length) return exact;
+    const leaf = rpc.filter(i => i.properties?.procedure === procedure?.split('.').at(-1));
+    // A single channel may serve routers with identical procedure names.
+    return leaf.length === 1 ? leaf : [];
+  };
+  for (const source of of('RUNTIME_SQL_MARKER')) {
+    const candidates = of('SQL_INJECTION_JS_CHECK');
+    for (const issue of candidates) if ((source.properties?.frames || []).some(f => f.line === issue.location?.line && sameScript(issue.file, f.url) &&
+      new Set(candidates.filter(i => sameScript(i.file, f.url)).map(i => i.file)).size === 1 &&
+      candidates.filter(i => i.file === issue.file && i.location?.line === issue.location?.line).length === 1))
+      attach(issue, source, source.description);
+  }
+  for (const source of of('RUNTIME_MARKER_IPC').filter(i => i.properties?.procedure && i.properties?.inputMarker))
+    for (const issue of rpcMatches(source.properties.procedure)) attach(issue, source, `Observed marker input in electron-trpc procedure '${source.properties.procedure}'. The operation's authorization and exploitability remain untested.`);
+  for (const source of of('RUNTIME_IPC_STATE_DESTINATION')) for (const issue of of('IPC_STATE_DESTINATION_JS_CHECK').filter(i => i.properties?.channel === source.properties?.channel))
+    attach(issue, source, source.description, { scope: 'temporal-correlation', exercised: false });
+  for (const source of of('RUNTIME_WRITE_THEN_OPEN')) {
+    const candidates = source.properties?.procedure ? rpcMatches(source.properties.procedure) : issues.filter(i => ['IPC_HANDLER_JS_CHECK', 'IPC_FILE_ACCESS_JS_CHECK'].includes(i.id) && i.properties?.channel && i.properties.channel === source.properties?.channel);
+    for (const issue of candidates) attach(issue, source, source.description);
+  }
+  for (const source of of('RUNTIME_PROOF').filter(i => i.properties?.test === 'auth-route')) for (const issue of of('AUTH_MODE_BYPASS_JS_CHECK').filter(i => i.file === source.properties?.staticFile && i.location?.line === source.properties?.staticLine))
+    attach(issue, source, source.description, { scope: 'unauthenticated-route-probe', exercised: false });
 
   for (const sink of of('RUNTIME_MARKER_SINK')) {
     const frames = (sink.properties && sink.properties.frames) || [];
@@ -144,7 +176,7 @@ function linkMarkerEvidence(issues) {
         (f.line === issue.location.line && sameScript(issue.file, f.url) &&
           new Set(issues.filter(i => HTML_CODE.has(i.id) && sameScript(i.file, f.url)).map(i => i.file)).size === 1));
       if (frame) {
-        mark(issue, `Observed at runtime: marker markup reached ${sink.properties.sink} from this line (${frame.url}:${frame.line}:${frame.column}${frame.original ? `, ${frame.original.file.replace(/^.* \(source: (.*)\)$/, '$1')}:${frame.original.line}` : ''}). Script execution and exploitability remain untested.`, sink);
+        attach(issue, sink, `Observed at runtime: marker markup reached ${sink.properties.sink} from this line (${frame.url}:${frame.line}:${frame.column}${frame.original ? `, ${frame.original.file.replace(/^.* \(source: (.*)\)$/, '$1')}:${frame.original.line}` : ''}). Script execution and exploitability remain untested.`);
         sink.properties = { ...sink.properties, staticFinding: `${issue.id} at ${issue.file}:${issue.location.line}` };
         sink.properties.staticFindings = [...new Set([...(sink.properties.staticFindings || []), `${issue.id} at ${place(issue)}`])];
       }
@@ -153,7 +185,7 @@ function linkMarkerEvidence(issues) {
   for (const issue of issues.filter(i => ['IPC_SENDER_VALIDATION_JS_CHECK', 'IPC_HANDLER_JS_CHECK', 'IPC_FILE_ACCESS_JS_CHECK'].includes(i.id))) {
     const channel = issue.properties && issue.properties.channel;
     if (channel) for (const source of of('RUNTIME_MARKER_IPC').filter(r => r.properties?.channel === channel)) {
-      mark(issue, `Seen at runtime: marker data reached '${channel}'${source.properties.sender ? ` (sent from ${source.properties.sender})` : ''}. The handler's sender and value checks remain unverified.`, source);
+      attach(issue, source, `Seen at runtime: marker data reached '${channel}'${source.properties.sender ? ` (sent from ${source.properties.sender})` : ''}. The handler's sender and value checks remain unverified.`);
       source.properties.staticFindings = [...new Set([...(source.properties.staticFindings || []), `${issue.id} at ${place(issue)}`])];
     }
   }

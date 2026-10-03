@@ -8,7 +8,9 @@ const { StringDecoder } = require('node:string_decoder');
 
 function powershell(script, data, { run = spawn, timeout = 12000 } = {}) {
   return new Promise(resolve => {
-    const preamble = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $d=ConvertFrom-Json $env:ENG_WINDOWS_INPUT; ";
+    // A parent PowerShell 7 shell can pass its module path to Windows PowerShell 5.1, hiding Get-Acl and other
+    // Windows inbox cmdlets. Add the launched interpreter's own modules without removing custom module paths.
+    const preamble = "$ErrorActionPreference='Stop'; $env:PSModulePath=$PSHOME+'\\Modules;'+$env:PSModulePath; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $d=ConvertFrom-Json $env:ENG_WINDOWS_INPUT; ";
     const command = Buffer.from(preamble + script, 'utf16le').toString('base64');
     const child = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
       windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ENG_WINDOWS_INPUT: JSON.stringify(data) },
@@ -32,12 +34,12 @@ function powershell(script, data, { run = spawn, timeout = 12000 } = {}) {
 const ACL_SCRIPT = `
 $rows=@(); foreach($p in $d.paths) {
   try {
-    $a=Get-Acl -LiteralPath $p; $aces=@($a.Access | ForEach-Object {
-      $sid=$null; try {$sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value} catch {}
+    $a=Get-Acl -LiteralPath $p; $aces=@($a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]) | ForEach-Object {
+      $sid=$_.IdentityReference.Value;
       @{sid=$sid; identity=$_.IdentityReference.Value; rights=[int64]$_.FileSystemRights; type=[string]$_.AccessControlType;
         inherited=$_.IsInherited; propagation=[string]$_.PropagationFlags; inheritance=[string]$_.InheritanceFlags}
-    }); $rows+=@{path=$p; status='observed'; owner=$a.Owner; entries=$aces}
-  } catch {$rows+=@{path=$p; status='access-error'}}
+    }); $rows+=@{path=$p; status='observed'; owner=$a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; entries=$aces}
+  } catch {$rows+=@{path=$p; status='access-error'; errorType=$_.Exception.GetType().FullName}}
 }; $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent();
 $principal=New-Object System.Security.Principal.WindowsPrincipal($identity);
 @{paths=$rows; user=$identity.Name; userSid=$identity.User.Value; groups=@($identity.Groups | ForEach-Object {$_.Value});
@@ -67,13 +69,15 @@ foreach($h in @([Microsoft.Win32.RegistryHive]::CurrentUser,[Microsoft.Win32.Reg
 }; @{protocols=$rows; errors=$errors} | ConvertTo-Json -Depth 5 -Compress`;
 
 const PORT_SCRIPT = `
-$pids=@([int]$d.pid); $all=@(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId);
+$pids=@([int]$d.pid); $all=@(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,ExecutablePath,CreationDate);
 for($i=0;$i -lt 12;$i++) {$new=@($all | Where-Object {$pids -contains [int]$_.ParentProcessId -and $pids -notcontains [int]$_.ProcessId} | ForEach-Object {[int]$_.ProcessId});if(!$new.Count){break};$pids+=$new}
 $tcp=@(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object {$pids -contains [int]$_.OwningProcess} | ForEach-Object {
  @{pid=[int]$_.OwningProcess; address=$_.LocalAddress; port=[int]$_.LocalPort; transport='tcp'}
 }); $udp=@(Get-NetUDPEndpoint -ErrorAction SilentlyContinue | Where-Object {$pids -contains [int]$_.OwningProcess} | ForEach-Object {
  @{pid=[int]$_.OwningProcess; address=$_.LocalAddress; port=[int]$_.LocalPort; transport='udp'}
-}); @{listeners=@($tcp+$udp); processes=$pids} | ConvertTo-Json -Depth 5 -Compress`;
+}); $images=@($all | Where-Object {$pids -contains [int]$_.ProcessId -and $_.ExecutablePath} | ForEach-Object {
+ @{pid=[int]$_.ProcessId; image=$_.ExecutablePath; created=$_.CreationDate.ToUniversalTime().ToString('o')}
+}); @{listeners=@($tcp+$udp); processes=$pids; images=$images} | ConvertTo-Json -Depth 5 -Compress`;
 
 // Common low-privilege groups by SID: unaffected by the machine's UI language.
 const BROAD = new Set(['S-1-1-0', 'S-1-5-11', 'S-1-5-32-545']);
@@ -114,6 +118,10 @@ function observePorts(pid, write, { interval = 10000, inspectorPort, toolPorts =
     const result = await powershell(PORT_SCRIPT, { pid }, options); busy = false;
     if (closed) return;
     if (result.status !== 'observed') { if (!seen.has(result.status)) { seen.add(result.status); write('windows-ports', { status: result.status }); } return; }
+    for (const row of result.data.images || []) {
+      const key = `image:${JSON.stringify(row)}`; if (seen.has(key)) continue; seen.add(key);
+      write('windows-process-image', row);
+    }
     for (const row of result.data.listeners || []) {
       const key = JSON.stringify(row); if (seen.has(key)) continue; seen.add(key);
       write('windows-listener', { ...row, toolInspector: row.transport === 'tcp' && (row.port === inspectorPort || toolPorts.includes(row.port)) });

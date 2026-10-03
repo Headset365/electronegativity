@@ -44,7 +44,8 @@ export function fingerprints(issues, root) {
     const file = relativeFile(root, issue.file);
     // application-wide findings and those without code: their description identifies them
     const described = issue.file === 'N/A' || !issue.sample;
-    const code = described ? issue.description : normalizeSample(issue.sample);
+    // (the whole line of a finding whose sample is an excerpt of a long line, as fingerprints were made before excerpts)
+    const code = described ? issue.description : normalizeSample(issue.fingerprintSample ?? issue.sample);
     const key = `${issue.id}|${file}|${described ? stableDescription(code) : code}`;
     const fingerprint = hash(`${key}|${count(key)}`);
     const legacyKey = described ? `legacy|${issue.id}|${file}|${issue.description}` : undefined;

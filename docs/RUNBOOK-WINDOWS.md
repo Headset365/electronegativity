@@ -174,7 +174,8 @@ the console says how many.
   `shell.openPath` is HIGH.
 - **Allowlists in helpers** (`if (!isAllowedUrl(url)) event.preventDefault()`) are read: the hosts, host-name-only
   comparisons and subdomain wildcards are reported. A `setWindowOpenHandler` that allows windows without
-  `overrideBrowserWindowOptions` is MEDIUM when the app uses a preload: the new window inherits it.
+  `overrideBrowserWindowOptions` needs review. Preload inheritance is not assumed: the proof records handler options
+  separately from effective options of a naturally created child window.
 
 Less noise than before: timers given a callback are not code evaluation; paste, drop, file-picker, FileReader and
 `message` handlers are their own check (`RENDERER_INPUT_JS_CHECK`, not "Deep Links") and are informational unless the

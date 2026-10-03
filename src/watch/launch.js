@@ -110,83 +110,92 @@ export function watchApp(target, { args = [], marker, active = false, campaign =
   }
   return (async () => {
     let port;
-    if (packaged) {
-      await windowsInventory(command, record);
-      if (prove) record('proof', await proveRunAsNode(command));
-      // packaged apps drop NODE_OPTIONS=--require: don't pass it, it only makes Electron print an error
-      if (process.env.NODE_OPTIONS) env.NODE_OPTIONS = process.env.NODE_OPTIONS;
-      else delete env.NODE_OPTIONS;
-      port = await freePort();
-    }
-    // --inspect-brk-node pauses inside Electron's own startup. (--inspect-brk pauses at the app's first line, but some
-    // Electron releases, 34 among them, crash on that path: "ReferenceError: resolvedArgv is not defined".)
-    const finalArgs = packaged ? [`--inspect-brk-node=127.0.0.1:${port}`, ...commandArgs] : commandArgs;
-    return new Promise((resolve, reject) => {
-      const child = spawn(command, finalArgs, { env, stdio: onOutput ? ['ignore', 'pipe', 'pipe'] : stdio });
-      if (onOutput) pipeAppOutput(child, onOutput);
-      const debugPorts = finalArgs.map(arg => String(arg).match(/^--remote-debugging-port=(\d+)$/)).filter(Boolean).map(m => Number(m[1]));
-      const stopPorts = observePorts(child.pid, record, { inspectorPort: port, toolPorts: debugPorts });
-      const stop = () => child.kill();
-      process.once('SIGINT', stop);
-      onReady();
-      let exited = false;
-      // An app that has quit (the observer recorded it) but whose process stays alive, e.g. held open by a dialog the
-      // operating system showed for a link or file it was handed, would keep the session waiting for good: after a grace
-      // period it is closed, and the log says so.
-      let quitSeen = false;
-      let lingerTimer;
-      let logOffset = 0;
-      const quitWatch = setInterval(() => {
-        if (quitSeen || exited) return;
-        try {
-          const size = fs.statSync(log).size;
-          if (size <= logOffset) return;
-          const fd = fs.openSync(log, 'r');
-          try {
-            const buffer = Buffer.alloc(size - logOffset);
-            fs.readSync(fd, buffer, 0, buffer.length, logOffset);
-            logOffset = size;
-            if (!buffer.toString('utf8').includes('"kind":"quit"')) return;
-          } finally {
-            fs.closeSync(fd);
-          }
-        } catch {
-          return;
-        }
-        quitSeen = true;
-        lingerTimer = setTimeout(() => {
-          if (exited) return;
-          try {
-            fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind: 'hook-error', message: `the app quit but its process was still running ${QUIT_GRACE_MS / 1000} s later: it was closed` }) + '\n');
-          } catch {
-            // best effort
-          }
-          onNote({ lingered: true });
-          child.kill();
-        }, QUIT_GRACE_MS);
-      }, 1000);
-      const done = () => {
-        stopPorts();
-        exited = true;
-        clearInterval(quitWatch);
-        clearTimeout(lingerTimer);
-        process.removeListener('SIGINT', stop);
-      };
-      child.once('error', (error) => {
-        done();
-        reject(error);
-      });
-      child.once('exit', () => {
-        done();
-        resolve(log);
-      });
+    const proofCwd = prove && process.platform === 'win32' ? fs.mkdtempSync(path.join(os.tmpdir(), 'electronegativity-cwd-')) : undefined;
+    if (proofCwd) record('proof', { test: 'working-directory', outcome: 'observed', scope: 'empty-working-directory', path: proofCwd, emptyAtLaunch: true, plantedFiles: false });
+    try {
       if (packaged) {
-        loadThroughInspector(port, () => exited, mainScriptOf(staticInput), 30000, inspectorTrace(log), () => record('proof', { test: 'node-inspector', outcome: 'connected', scope: 'cli-inspector', toolOpened: true })).then(result => onNote(result)).catch(error => {
-          fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind: 'hook-error', message: `inspector: ${error.message}` }) + '\n');
-          onNote({ loaded: false, error: error.message });
-        });
+        await windowsInventory(command, record);
+        if (prove) record('proof', await proveRunAsNode(command));
+        // packaged apps drop NODE_OPTIONS=--require: don't pass it, it only makes Electron print an error
+        if (process.env.NODE_OPTIONS) env.NODE_OPTIONS = process.env.NODE_OPTIONS;
+        else delete env.NODE_OPTIONS;
+        port = await freePort();
       }
-    });
+      // --inspect-brk-node pauses inside Electron's own startup. (--inspect-brk pauses at the app's first line, but some
+      // Electron releases, 34 among them, crash on that path: "ReferenceError: resolvedArgv is not defined".)
+      const finalArgs = packaged ? [`--inspect-brk-node=127.0.0.1:${port}`, ...commandArgs] : commandArgs;
+      return await new Promise((resolve, reject) => {
+        const child = spawn(command, finalArgs, { env, cwd: proofCwd, stdio: onOutput ? ['ignore', 'pipe', 'pipe'] : stdio });
+        if (onOutput) pipeAppOutput(child, onOutput);
+        const debugPorts = finalArgs.map(arg => String(arg).match(/^--remote-debugging-port=(\d+)$/)).filter(Boolean).map(m => Number(m[1]));
+        const stopPorts = observePorts(child.pid, record, { inspectorPort: port, toolPorts: debugPorts });
+        const stop = () => child.kill();
+        process.once('SIGINT', stop);
+        onReady();
+        let exited = false;
+        // An app that has quit (the observer recorded it) but whose process stays alive, e.g. held open by a dialog the
+        // operating system showed for a link or file it was handed, would keep the session waiting for good: after a grace
+        // period it is closed, and the log says so.
+        let quitSeen = false;
+        let lingerTimer;
+        let logOffset = 0;
+        const quitWatch = setInterval(() => {
+          if (quitSeen || exited) return;
+          try {
+            const size = fs.statSync(log).size;
+            if (size <= logOffset) return;
+            const fd = fs.openSync(log, 'r');
+            try {
+              const buffer = Buffer.alloc(size - logOffset);
+              fs.readSync(fd, buffer, 0, buffer.length, logOffset);
+              logOffset = size;
+              if (!buffer.toString('utf8').includes('"kind":"quit"')) return;
+            } finally {
+              fs.closeSync(fd);
+            }
+          } catch {
+            return;
+          }
+          quitSeen = true;
+          lingerTimer = setTimeout(() => {
+            if (exited) return;
+            try {
+              fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind: 'hook-error', message: `the app quit but its process was still running ${QUIT_GRACE_MS / 1000} s later: it was closed` }) + '\n');
+            } catch {
+            // best effort
+            }
+            onNote({ lingered: true });
+            child.kill();
+          }, QUIT_GRACE_MS);
+        }, 1000);
+        const done = () => {
+          stopPorts();
+          exited = true;
+          clearInterval(quitWatch);
+          clearTimeout(lingerTimer);
+          process.removeListener('SIGINT', stop);
+        };
+        child.once('error', (error) => {
+          done();
+          reject(error);
+        });
+        child.once('exit', () => {
+          done();
+          resolve(log);
+        });
+        if (packaged) {
+          loadThroughInspector(port, () => exited, mainScriptOf(staticInput), 30000, inspectorTrace(log), () => record('proof', { test: 'node-inspector', outcome: 'connected', scope: 'cli-inspector', toolOpened: true })).then(result => onNote(result)).catch(error => {
+            fs.appendFileSync(log, JSON.stringify({ t: Date.now(), kind: 'hook-error', message: `inspector: ${error.message}` }) + '\n');
+            onNote({ loaded: false, error: error.message });
+          });
+        }
+      });
+    } finally {
+      // Remove only an empty folder. Preserve files the application itself wrote.
+      if (proofCwd) try { fs.rmdirSync(proofCwd); } catch {
+        record('proof', { test: 'working-directory-cleanup', outcome: 'retained', path: proofCwd, reason: 'folder is not empty or could not be removed' });
+      }
+    }
   })();
 }
 

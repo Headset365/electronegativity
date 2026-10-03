@@ -12,6 +12,7 @@ import { Finder } from './finder/index.js';
 import { ProjectIndex } from './finder/project_index.js';
 import { loadBaseline, applyBaseline, writeBaseline } from './util/baseline.js';
 import { reconcileRuntime } from './watch/reconcile.js';
+import { ReachabilityIndex, setReachability } from './finder/reachability.js';
 import { analyzePackagedFuses, packagedBinaryFor, readElectronVersion, fuseBinaryFor } from './watch/fuses.js';
 import { GlobalChecks, severity, confidence } from './finder/index.js';
 import { extension, input_exists, is_directory, writeIssues, writeReports, getRelativePath } from './util/index.js';
@@ -177,6 +178,7 @@ async function scan(options, forCli) {
   const finder = await new Finder(options.customScan, options.excludeFromScan, options.electronUpgrade);
   // lets checks follow handlers and constants imported from other files
   finder.projectIndex = new ProjectIndex(loader, new Parser(false, true), is_directory(options.input) ? options.input : undefined);
+  finder.reachability = new ReachabilityIndex(finder.projectIndex, { remoteFiles: new Set(remoteLabels.keys()) });
   const filenames = [...loader.list_files];
   // --all-files includes build scripts for analysis, but they are not evidence of shipped development tooling.
   finder.sourceToolingFiles = new Set(!packagedInput && is_directory(options.input) ? filenames.filter(file =>
@@ -315,6 +317,7 @@ async function scan(options, forCli) {
   if (forCli) for (const error of globalChecker.checkErrors) console.error(chalk.red(error.message));
 
   for (const issue of issues) if (recovered.origins.has(issue.file)) issue.properties = { ...issue.properties, sourceMap: recovered.origins.get(issue.file) };
+  finder.reachability.annotate(issues);
   for (const issue of issues) if (remoteLabels.has(issue.file)) issue.file = remoteLabels.get(issue.file);
   // findings in third-party library code (a node_modules copy, a bundler chunk named after a library) are reported apart
   // from the application's own code
@@ -410,6 +413,10 @@ async function scan(options, forCli) {
   // the code shown around a finding: the tester's own test passwords (--canary) never reach a report, and the secrets in
   // the lines next to the finding's own are redacted as everywhere else (unless --show-secrets)
   const canaries = (options.canaries || []).filter(value => typeof value === 'string' && value.length > 0);
+  // Binary, dependency and other whole-app checks do not have a callable AST
+  // owner. Give them an explicit unresolved label without reducing their rating.
+  for (const issue of issues) if (!issue.reachability && !/^RUNTIME_|^TRAFFIC_|^STORAGE_|^WINDOWS_/.test(issue.id) && issue.constructorName !== 'Runtime')
+    setReachability(issue, 'unresolved', 'This finding has no resolved callable source context; the original rating is retained.');
   const scrubCanaries = value => canaries.reduce((out, canary) => out.split(canary).join('[test password removed]'), String(value));
   for (const issue of issues) {
     if (canaries.length && typeof issue.sample === 'string') issue.sample = scrubCanaries(issue.sample);

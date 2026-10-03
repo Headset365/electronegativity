@@ -50,16 +50,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm install --no-save electron@${{ matrix.electron }}
-      - run: npx mocha --no-config --timeout 120000 test/test_watch.js test/test_runtime_benchmark.js --forbid-pending
-      - name: Windows TUI with real Electron
-        env:
-          ELECTRONEGATIVITY_REQUIRE_TUI_RUNTIME: '1'
-        run: npx mocha --no-config --timeout 240000 test/test_tui_runtime_windows.js --forbid-pending
       - name: Windows native proof and inventory fixtures
         if: runner.os == 'Windows'
         env:
           ELECTRONEGATIVITY_REQUIRE_WINDOWS_PROOFS: '1'
         run: npx mocha --no-config --timeout 120000 test/test_windows_live_proofs.js --forbid-pending
+      - run: npx mocha --no-config --timeout 120000 test/test_watch.js test/test_runtime_benchmark.js --forbid-pending
+      - name: Windows TUI with real Electron
+        env:
+          ELECTRONEGATIVITY_REQUIRE_TUI_RUNTIME: '1'
+        run: npx mocha --no-config --timeout 240000 test/test_tui_runtime_windows.js --forbid-pending
 
   benchmark:
     name: Pinned vulnerable and patched application benchmark on ${{ matrix.os }}

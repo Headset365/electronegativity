@@ -41,6 +41,16 @@ describe('Reports and vulnerability intelligence', () => {
   });
 
   describe('intel', () => {
+    it('does not classify advisories about malicious input as a malicious published package', async () => {
+      const report = { offline: true, rows: [
+        { name: '@babel/traverse', version: '7.22.5', advisories: [{ id: 'GHSA-67hx-6x53-jw92', summary: 'Babel vulnerable to arbitrary code execution when compiling specifically crafted malicious code' }] },
+        { name: 'safe-package', version: '1.0.0', advisories: [{ id: 'GHSA-input-test-case', summary: 'An attacker can supply a malicious package as input' }] },
+        { name: 'evil-pkg', version: '1.0.0', advisories: [{ id: 'MAL-2024-1', summary: 'Malware' }] },
+      ] };
+      (await enrichDependencies(report)).malicious.should.equal(1);
+      report.rows.slice(0, 2).every(row => row.malicious === undefined).should.equal(true);
+      report.rows[2].malicious.id.should.equal('MAL-2024-1');
+    });
     it('caches lookups and falls back to the cached copy when a source fails', async () => {
       responses.set('https://intel.test/a', { value: 1 });
       (await cached('https://intel.test/a', options)).should.deep.equal({ value: 1 });

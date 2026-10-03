@@ -39,17 +39,27 @@ function describeTest(test) {
 // the routes a middleware list is registered for: router.get("/api/clipper/notes", clipperMiddleware, handler)
 function routesUsing(name, ancestors) {
   const scopeNode = [...ancestors].reverse().find(node => node.type === 'BlockStatement' || node.type === 'Program');
-  if (!scopeNode) return [];
-  const routes = [];
+  if (!scopeNode) return { routes: [], readOnlyRoutes: [] };
+  const routes = [], readOnlyRoutes = [];
   visit(scopeNode, (node) => {
     if (routes.length >= 12) return false;
-    if (isCall(node) && node.arguments.some(arg => arg.type === 'Identifier' && arg.name === name)) {
+    if (isCall(node) && node.arguments.some(arg => arg.type === 'Identifier' && arg.name === name || arg.type === 'SpreadElement' && arg.argument.type === 'Identifier' && arg.argument.name === name)) {
       const route = node.arguments.map(arg => literalValue(arg)).find(value => typeof value === 'string' && value.startsWith('/'));
       if (route && !routes.includes(route)) routes.push(route);
+      // Only a declared GET on a plainly read-only route. app.use(), POST and
+      // mutation-looking paths are not permission to invoke an endpoint.
+      if (route && memberName(node.callee) === 'get' && /\/(?:handshake|status|health|version|info|ping)\/?$/i.test(route)) {
+        let mutates = false;
+        for (const arg of node.arguments) if (/Function/.test(arg.type || '')) visit(arg, child => {
+          if (isCall(child) && /^(?:write|append|delete|remove|save|insert|update|exec|spawn|fork|unlink|rm|set)/i.test(memberName(child.callee) || child.callee?.name || '')) mutates = true;
+          return true;
+        });
+        if (!mutates && !readOnlyRoutes.includes(route)) readOnlyRoutes.push(route);
+      }
     }
     return true;
   });
-  return routes;
+  return { routes, readOnlyRoutes };
 }
 
 export default class AuthModeBypassJSCheck {
@@ -76,9 +86,9 @@ export default class AuthModeBypassJSCheck {
       .map(names => names.slice().reverse().join('.')).filter(Boolean)[0] || 'authentication';
     const parent = context.ancestors[context.ancestors.length - 1];
     const variable = parent && parent.type === 'VariableDeclarator' && parent.id.type === 'Identifier' ? parent.id.name : undefined;
-    const routes = variable ? routesUsing(variable, context.ancestors) : [];
+    const { routes, readOnlyRoutes } = variable ? routesUsing(variable, context.ancestors) : { routes: [], readOnlyRoutes: [] };
     return [finding(this, astNode, { severity: severity.MEDIUM, confidence: mode ? confidence.FIRM : confidence.TENTATIVE, manualReview: true,
-      properties: { auth, mode, routes },
+      properties: { auth, mode, routes, readOnlyRoutes },
       description: `${this.description}: ${auth} is skipped${mode ? ` when ${mode} is set` : ' in one mode'}${routes.length ? `, for ${routes.slice(0, 6).join(', ')}${routes.length > 6 ? ', …' : ''}` : ''}; in that mode the routes answer anyone who reaches the app's port` })];
   }
 }

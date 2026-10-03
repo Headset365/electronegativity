@@ -24,6 +24,18 @@ async function scan(files) {
 const handler = (issues, channel) => issues.find(issue => issue.id === 'IPC_HANDLER_JS_CHECK' && issue.properties.channel === channel);
 
 describe('IPC codebase context', () => {
+  it('keeps a fallback handler reviewable when its contextual definition is incomplete', async () => {
+    const issues = await scan({ 'main.js': `const { ipcMain } = require('electron');
+const fs = require('node:fs');
+function nested() { function read(event, filePath) { return fs.readFileSync(filePath); } }
+ipcMain.handle('fallback-read', read);` });
+    const item = handler(issues, 'fallback-read');
+    item.should.exist;
+    item.properties.context.status.should.equal('incomplete');
+    item.properties.context.unresolved.some(entry => entry.reason === 'handler-unresolved').should.equal(true);
+    item.properties.validatesArguments.should.equal(false);
+  });
+
   it('follows namespace and reexported helpers to local file reads and network uploads', async () => {
     const issues = await scan({
       'main.js': `import { ipcMain } from 'electron'; import * as api from './api.js';

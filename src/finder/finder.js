@@ -3,6 +3,13 @@ import { sourceTypes } from '../parser/types.js';
 import { ELECTRON_ATOMIC_UPGRADE_CHECKS } from './checks/AtomicChecks/ElectronAtomicUpgradeChecks.js';
 import { isDisabledByInlineComment } from "../util/exceptions.js";
 import { getSample, getContext } from "../util/file.js";
+
+// The whole line a finding was matched on, for its baseline fingerprint: the sample shown in reports is an excerpt of a
+// long (minified) line, and fingerprints made before excerpts existed hashed the whole line. Not enumerable, so it never
+// reaches a report.
+function keepFingerprintLine(issue, line) {
+  if (line !== issue.sample) Object.defineProperty(issue, 'fingerprintSample', { value: line, enumerable: false, configurable: true, writable: true });
+}
 import { gte, compare, coerce } from 'semver';
 import { setAnalysisContext, platformGuard } from './checks/analysis.js';
 import { Parser } from '../parser/parser.js';
@@ -136,6 +143,7 @@ export class Finder {
       {
         // nodes enclosing the current one, outermost first, so checks can reason about the surrounding code
         const ancestors = [];
+        this.reachability?.collect(file, data, content);
         const context = { ancestors, file, sourceTooling: this.sourceToolingFiles?.has(file) || false };
         setAnalysisContext({ file, program: data.type === 'File' ? data.program : data, index: this.projectIndex, ancestors, propertyName: data.astParser.PropertyName });
         data.astParser.traverseTree(data, {
@@ -152,8 +160,10 @@ export class Finder {
                   const firstLineSample = getSample(fileLines, 0);
                   const matchedLineSample = getSample(fileLines, m.line - 1);
                   const visibility = isDisabledByInlineComment(firstLineSample, matchedLineSample, check, sourceTypes.JAVASCRIPT);
-                  const issue = { file, sample: matchedLineSample, context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: visibility, constructorName: check.constructor.name };
+                  const issue = { file, sample: getSample(fileLines, m.line - 1, m.column), context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: visibility, constructorName: check.constructor.name };
+                  keepFingerprintLine(issue, matchedLineSample);
                   if (platform && !issue.properties?.platform) issue.properties = { ...issue.properties, platform };
+                  this.reachability?.anchor(issue, file, astNode);
                   issues.push(issue);
                 }
               }
@@ -187,7 +197,8 @@ export class Finder {
               const firstLineSample = getSample(fileLines, 0);
               const matchedLineSample = getSample(fileLines, m.line - 1);
               const visibility = isDisabledByInlineComment(firstLineSample, matchedLineSample, check, sourceTypes.HTML);
-              const issue = {file, sample: matchedLineSample, context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: visibility, constructorName: check.constructor.name };
+              const issue = {file, sample: getSample(fileLines, m.line - 1, m.column), context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: visibility, constructorName: check.constructor.name };
+              keepFingerprintLine(issue, matchedLineSample);
               issues.push(issue);
             }
           }
@@ -199,8 +210,9 @@ export class Finder {
           const matches = await this.runCheckAsync(check, file, failed, () => check.match(data, defaults, electronVersion));
           if (matches) {
             for(const m of matches) {
-              const sample = getSample(fileLines, m.line - 1);
+              const sample = getSample(fileLines, m.line - 1, m.column);
               const issue = {file, sample, context: getContext(fileLines, m.line - 1, m.column), location: {line: m.line, column: m.column}, id: m.id, description: m.description, properties: m.properties, severity: m.severity, confidence: m.confidence, manualReview: m.manualReview, shortenedURL: m.shortenedURL, visibility: { excludesGlobal: [], inlineDisabled: false, globalDisabled: false, globalCheckDisabled: false }, constructorName: check.constructor.name };
+              keepFingerprintLine(issue, getSample(fileLines, m.line - 1));
               issues.push(issue);
             }
           }

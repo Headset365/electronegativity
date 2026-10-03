@@ -388,7 +388,7 @@ function operation(call, program) {
 }
 
 export function ipcContext(definition, { sources } = {}) {
-  if (!definition || !isFunction(definition.node)) return { status: 'incomplete', unresolved: [{ reason: 'handler-unresolved' }], effects: [], helpers: [], arguments: [] };
+  if (!definition || !isFunction(definition.node)) return { status: 'incomplete', unresolved: [{ reason: 'handler-unresolved' }], effects: [], helpers: [], arguments: [], credentials: [], channels: [] };
   const result = { status: 'analyzed', arguments: [], effects: [], helpers: [], unresolved: [], credentials: [], channels: [] };
   result.state = [];
   const rootEnv = environment(definition.node, sources?.map(source => new Set(source ? [source] : [])));

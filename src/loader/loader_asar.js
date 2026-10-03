@@ -16,7 +16,8 @@ export class LoaderAsar extends Loader {
     this.archive = archive;
 
     const archived_files = asar.listPackage(archive, { isPack: false })
-      .map(file => file.startsWith(path.sep) ? file.substring(1) : file);
+      .map(file => file.startsWith(path.sep) ? file.substring(1) : file)
+      .filter(file => { const stat = asar.statFile(archive, file); return !stat.files && !stat.link; });
     logger.debug(`Files in ASAR archive: ${archived_files}`);
 
     // an app.asar is what ships: all of it is app code (see isNonAppFile), and the packages in its node_modules are

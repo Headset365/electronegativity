@@ -5,9 +5,10 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { Parser } from '../src/parser/index.js';
 import { Finder } from '../src/finder/index.js';
+import { ProjectIndex } from '../src/finder/project_index.js';
 import i18n from '../src/locales/i18n.js';
 import run from '../src/runner.js';
-import { isNonAppFile } from '../src/util/file.js';
+import { isNonAppFile, getSample } from '../src/util/file.js';
 
 await i18n();
 const { findSecrets } = createRequire(import.meta.url)('../src/traffic/secrets.cjs');
@@ -39,6 +40,49 @@ async function scanProject(files, checks, options = {}) {
 }
 
 describe('Real-app benchmark regressions', () => {
+  it('retains a late imported target in a multiplexed IPC table larger than 32 procedures', () => {
+    const declarations = Array.from({ length: 40 }, (_, i) => `function method${i}(value){return value}`).join(';');
+    const entries = Array.from({ length: 40 }, (_, i) => `method${i}`).join(',');
+    const files = { 'main.js': `const {last}=require('./last'); ${declarations}; const routes={${entries},last}; ipcMain.handle('async',(event,{name,args})=>routes[name](...args));`,
+      'last.js': 'function last(value){return value} module.exports={last};' };
+    const index = new ProjectIndex({ list_files: Object.keys(files), load_buffer: name => files[name] }, new Parser());
+    const summary = index.summarize('last.js'), last = [...summary.names].find(([, name]) => name === 'last')[0];
+    assert.ok(index.findTaintedFunctions().has(last), 'late procedure must retain IPC data-flow provenance');
+  });
+  it('bounds exported minified evidence at the finding while preserving trailing disable directives', async () => {
+    const code = `const padding = "${'x'.repeat(10000)}"; shell.openExternal(input); // eng-disable OPEN_EXTERNAL_JS_CHECK`;
+    const parser = new Parser(), finder = new Finder(null, null, null);
+    const [type, data, content] = parser.parse('main.js', code);
+    const issues = (await finder.find('main.js', data, type, content)).filter(i => i.id === 'OPEN_EXTERNAL_JS_CHECK');
+    assert.equal(issues.length, 1);
+    assert.ok(issues[0].sample.length <= 302);
+    assert.ok(issues[0].sample.includes('shell.openExternal(input)'));
+    assert.equal(issues[0].visibility.inlineDisabled, true);
+    assert.equal(getSample([code], 0), code, 'directive inspection must retain the complete line');
+  });
+  it('deduplicates cyclic dispatch paths while retaining the reachable IPC sink', () => {
+    const entries = Array.from({ length: 64 }, (_, i) => `p${i}: table[name]`).join(',');
+    const code = `const table = { ${entries}, target: sink }; function sink(value) { return require(value); } ipcMain.handle('load', (event, name, value) => table[name](value));`;
+    const index = new ProjectIndex({ list_files: new Set(['main.js']), load_buffer: () => code }, new Parser());
+    const summary = index.summarize('main.js');
+    const sink = [...summary.names].find(([, name]) => name === 'sink')[0];
+    assert.equal(index.callSites.get(sink).count, 1, 'one actual call site regardless of dispatch paths');
+    assert.ok(index.findTaintedFunctions().has(sink), 'IPC data must still reach the sink');
+    for (const targets of index.edges.values()) assert.equal([...targets].filter(key => key === sink).length, 1);
+  });
+  it('retains distinct fixed and dynamic targets across many cyclic dispatch call sites', function () {
+    this.timeout(5000);
+    const entries = Array.from({ length: 512 }, (_, i) => `p${i}: table[name]`).join(',');
+    const calls = Array.from({ length: 128 }, () => 'table.first(value); table.second(value); table[name](value);').join('');
+    const code = `const table = { ${entries}, first, second }; function first(value) { return value; } function second(value) { return value; } ipcMain.handle('route', (event, name, value) => { ${calls} });`;
+    const index = new ProjectIndex({ list_files: new Set(['main.js']), load_buffer: () => code }, new Parser());
+    const summary = index.summarize('main.js');
+    for (const name of ['first', 'second']) {
+      const key = [...summary.names].find(([, n]) => n === name)[0];
+      assert.equal(index.callSites.get(key).count, 256, 'fixed and dynamic sites must both be preserved');
+      assert.ok(index.findTaintedFunctions().has(key), 'both targets receive the IPC arguments');
+    }
+  });
   describe('HTML sanitizer provenance', () => {
     for (const mutation of ['DOMPurify.sanitize = x => x;', 'DOMPurify["sanitize"] = x => x;', 'const alias = DOMPurify; alias.sanitize = x => x;', 'Object.assign(DOMPurify, { sanitize: x => x });', 'Object.defineProperty(DOMPurify, "sanitize", { value: x => x });']) {
       for (const prefix of ['', 'import DOMPurify from "dompurify";', 'const DOMPurify = require("dompurify");']) {

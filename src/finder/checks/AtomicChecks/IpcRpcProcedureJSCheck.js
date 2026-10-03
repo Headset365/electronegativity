@@ -6,7 +6,7 @@
 // network setup or hand back credentials.
 import { sourceTypes } from '../../../parser/types.js';
 import { severity, confidence } from '../../attributes.js';
-import { memberName, keyName, finding, isFunction } from '../helpers.js';
+import { memberName, keyName, finding, isFunction, visit } from '../helpers.js';
 import { moduleBindings, programOf, callsIn, paramNames, identifiersIn, isMember } from '../analysis.js';
 
 const RESOLVERS = ['query', 'mutation', 'subscription'];
@@ -78,6 +78,44 @@ function routerName(ancestors) {
   return undefined;
 }
 
+const routerPaths = new WeakMap();
+// Resolve local nested routers only when their root is explicitly registered
+// with electron-trpc. Variable names are not themselves wire procedure prefixes.
+function procedurePath(program, router, procedure) {
+  if (!program || !router) return undefined;
+  if (!routerPaths.has(program)) {
+    const routers = new Map(), roots = new Set(), paths = new Map(); let remaining = 30000;
+    visit(program, node => {
+      if (--remaining < 0) return false;
+      if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.init?.type === 'CallExpression' && nameOf(node.init.callee) === 'router' && node.init.arguments[0]?.type === 'ObjectExpression')
+        routers.set(node.id.name, node.init.arguments[0]);
+      if (node.type === 'CallExpression' && nameOf(node.callee) === 'createIPCHandler') {
+        const argument = node.arguments[0];
+        for (const prop of argument?.properties || []) if (keyName(prop.key) === 'router' && prop.value?.type === 'Identifier') roots.add(prop.value.name);
+      }
+      return true;
+    });
+    if (remaining >= 0) {
+      const queue = [...roots].map(name => ({ name, prefix: '', seen: new Set() }));
+      for (let i = 0; i < queue.length && i < 100; i++) {
+        const { name, prefix, seen } = queue[i]; if (seen.has(name)) continue;
+        const next = new Set([...seen, name]);
+        const object = routers.get(name); if (!object) continue;
+        for (const prop of object.properties) {
+          const label = keyName(prop.key); if (!label) continue;
+          if (prop.value?.type === 'Identifier' && routers.has(prop.value.name)) queue.push({ name: prop.value.name, prefix: `${prefix}${label}.`, seen: next });
+          else {
+            const key = `${name}:${label}`, value = `${prefix}${label}`;
+            if (!paths.has(key)) paths.set(key, value); else if (paths.get(key) !== value) paths.set(key, null);
+          }
+        }
+      }
+    }
+    routerPaths.set(program, paths);
+  }
+  return routerPaths.get(program).get(`${router}:${procedure}`) || undefined;
+}
+
 export default class IpcRpcProcedureJSCheck {
   constructor() {
     this.id = 'IPC_RPC_PROCEDURE_JS_CHECK';
@@ -109,7 +147,7 @@ export default class IpcRpcProcedureJSCheck {
     const router = routerName(context.ancestors || []);
     const label = `'${router ? `${router}.` : ''}${procedure}'`;
     return [finding(this, astNode, { severity: severity.MEDIUM, confidence: takesInput ? confidence.FIRM : confidence.TENTATIVE, manualReview: true,
-      properties: { procedure, router, kind, capabilities, calls, takesInput },
+      properties: { procedure, router, procedurePath: procedurePath(programOf(context.ancestors), router, procedure), kind, capabilities, calls, takesInput },
       description: `${this.description}: the ${kind} ${label} ${capabilities.join(', ')} (${calls.join(', ')})${takesInput ? ' with input from the page' : ''}; any page that reaches the IPC bridge can call it` })];
   }
 }

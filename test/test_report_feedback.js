@@ -15,6 +15,7 @@ import { visit } from '../src/finder/checks/helpers.js';
 import { Parser } from '../src/parser/index.js';
 import { ProjectIndex } from '../src/finder/project_index.js';
 import run from '../src/runner.js';
+import { fingerprints } from '../src/util/baseline.js';
 import _i18n from '../src/locales/i18n.js';
 
 await _i18n();
@@ -246,6 +247,17 @@ w.loadURL('http://127.0.0.1:37840/');` }, ['httpresourcesjavascriptcheck', 'node
   });
 
   describe('minified bundles', () => {
+    it('shows an excerpt of a long line but fingerprints the whole line, as baselines made before excerpts did', async () => {
+      const line = `${'var a=1;'.repeat(80)}document.body.innerHTML = location.hash;${'var b=2;'.repeat(80)}`;
+      const issues = (await scan({ 'out/bundle.js': line }, ['xsssinkjscheck'])).filter(i => i.id === 'XSS_SINK_JS_CHECK');
+      assert.equal(issues.length, 1);
+      assert.ok(issues[0].sample.length < 400 && issues[0].sample.includes('innerHTML'));
+      assert.ok(!JSON.stringify(issues[0]).includes('var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;var b=2;'));
+      const [now] = fingerprints(issues, root);
+      const [before] = fingerprints([{ ...issues[0], sample: line }], root);
+      assert.equal(now.fingerprint, before.fingerprint);
+    });
+
     it('resolves a function name to the function in scope, not one of the same name in another module', () => {
       const file = path.join(root, 'main.cjs');
       // two modules of a bundle each declare their own o(); a handler's value reaches only the first

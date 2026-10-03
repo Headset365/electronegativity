@@ -29,6 +29,7 @@ function createProofs(electron, write, { enabled = false, profile = {}, ipc, lat
     const mutators = ['writeFile', 'writeFileSync', 'appendFile', 'appendFileSync', 'unlink', 'unlinkSync', 'rm', 'rmSync', 'rmdir', 'rmdirSync', 'rename', 'renameSync',
       'mkdir', 'mkdirSync', 'copyFile', 'copyFileSync', 'cp', 'cpSync', 'truncate', 'truncateSync', 'chmod', 'chmodSync', 'chown', 'chownSync', 'link', 'linkSync', 'symlink', 'symlinkSync', 'createWriteStream', 'write', 'writeSync', 'writev', 'writevSync'];
     const wrap = (obj, name, check = () => true) => {
+      if (!obj) return;
       const original = obj[name]; if (typeof original !== 'function') return;
       obj[name] = function (...args) { if (check(args)) deny(name); return original.apply(this, args); };
       originals.push([obj, name, original]);
@@ -39,9 +40,26 @@ function createProofs(electron, write, { enabled = false, profile = {}, ipc, lat
     for (const name of ['open', 'openSync']) wrap(fs, name, writable);
     wrap(fs.promises, 'open', writable);
     for (const name of ['trashItem', 'beep']) wrap(electron.shell, name);
+    // A policy callback can perform its own fetch as part of deciding. Guard
+    // outbound APIs too, so synthetic HTTP/subdomain inputs never cause requests.
+    for (const module of [http, https]) for (const name of ['get', 'request']) wrap(module, name);
+    for (const name of ['connect', 'createConnection']) wrap(require('node:net'), name);
+    wrap(require('node:tls'), 'connect');
+    wrap(globalThis, 'fetch');
+    for (const name of ['request', 'fetch']) wrap(electron.net, name);
     require('node:module').syncBuiltinESMExports();
   }
-  function registerSession(ses, label) { if (!sessions.has(ses)) sessions.set(ses, { label, request: null, check: null }); return sessions.get(ses); }
+  function registerSession(ses, label) {
+    if (!sessions.has(ses)) {
+      sessions.set(ses, { label, request: null, check: null });
+      if (enabled || ipc) for (const name of ['fetch', 'resolveProxy', 'preconnect']) if (typeof ses[name] === 'function') {
+        const original = ses[name];
+        ses[name] = function (...args) { deny(`session.${name}`); return original.apply(this, args); };
+        originals.push([ses, name, original]);
+      }
+    }
+    return sessions.get(ses);
+  }
   function registerContents(contents) {
     if (creatingTool) { toolContents.add(contents.id); write('proof-window', { id: contents.id }); }
     windows.set(contents.id, { contents, open: null });
@@ -73,9 +91,11 @@ function createProofs(electron, write, { enabled = false, profile = {}, ipc, lat
     if (contents.isDestroyed()) return;
     if (late) { record('handlers', 'skipped', { id: contents.id, reason: 'late hook cannot guarantee callback guard coverage', scope: 'handler-decision' }); return; }
     const state = windows.get(contents.id), ses = sessions.get(contents.session);
-    for (const origin of profile.origins || ['https://eng-proof.invalid']) {
-      const url = `${origin}/electronegativity-proof`;
-      const base = { id: contents.id, url, scope: 'handler-decision', synthetic: true };
+    const tests = [...(profile.origins || ['https://eng-proof.invalid']).map(origin => ({ origin, url: `${origin}/electronegativity-proof`, variant: 'foreign' })),
+      ...(profile.navigationTests || []).slice(0, 16)];
+    for (const test of tests) {
+      const { url } = test, origin = test.origin || new URL(url).origin;
+      const base = { id: contents.id, url, variant: test.variant, allowedHost: test.allowedHost, scope: 'handler-decision', synthetic: true };
       try {
         let prevented = false;
         const event = { url, isMainFrame: true, frame: contents.mainFrame, initiator: contents.mainFrame,
@@ -92,9 +112,14 @@ function createProofs(electron, write, { enabled = false, profile = {}, ipc, lat
         if (late && !state?.open) record('window-open', 'inconclusive', { ...base, reason: 'late hook' });
         else {
           const result = state?.open ? await run('window-open', () => deadline(state.open({ url, frameName: '', features: '', disposition: 'new-window', referrer: { url: '', policy: 'no-referrer' } }))) : { action: 'allow' };
-          record('window-open', result?.action === 'deny' ? 'blocked' : result?.action === 'allow' ? 'allowed' : 'inconclusive', { ...base, handlers: state?.open ? 1 : 0 });
+          const preload = result?.overrideBrowserWindowOptions?.webPreferences?.preload;
+          record('window-open', result?.action === 'deny' ? 'blocked' : result?.action === 'allow' ? 'allowed' : 'inconclusive', { ...base, handlers: state?.open ? 1 : 0,
+            preload: typeof preload === 'string' ? path.basename(preload) : undefined,
+            childPreloadConfigured: result?.action === 'allow' && typeof preload === 'string', customCreateWindow: typeof result?.createWindow === 'function',
+            preloadObservation: 'handler-options-only', childCreated: false });
         }
       } catch { record('window-open', 'inconclusive', base); }
+      if (test.variant !== 'foreign') continue;
       const details = { requestingUrl: url, embeddingOrigin: origin, securityOrigin: origin, isMainFrame: true, mediaTypes: ['video'], mediaType: 'video' };
       // A real webContents is supplied, so callbacks that inspect getURL() see its
       // real origin. Record the mismatch explicitly instead of pretending to be a foreign renderer.
@@ -114,11 +139,13 @@ function createProofs(electron, write, { enabled = false, profile = {}, ipc, lat
   async function certificate(ses, label) {
     const nonce = crypto.randomBytes(16).toString('hex');
     let server, window;
+    const sockets = new Set();
     try {
       server = https.createServer({ key: fs.readFileSync(path.join(__dirname, 'fixtures/localhost-key.pem')), cert: fs.readFileSync(path.join(__dirname, 'fixtures/localhost-cert.pem')) }, (req, res) => {
         if (req.url !== `/${nonce}`) { res.writeHead(404); res.end(); return; }
         res.setHeader('Content-Type', 'text/plain'); res.setHeader('Content-Security-Policy', "default-src 'none'"); res.end(nonce);
       });
+      server.on('connection', socket => { sockets.add(socket); socket.once('close', () => sockets.delete(socket)); });
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
       write('proof-listener', { pid: process.pid, port: server.address().port, purpose: 'certificate' });
       const url = `https://127.0.0.1:${server.address().port}/${nonce}`;
@@ -137,7 +164,11 @@ function createProofs(electron, write, { enabled = false, profile = {}, ipc, lat
         record('certificate', body.trim() === nonce ? 'accepted' : 'inconclusive', { session: label, scope: 'chromium-navigation', selfSigned: true, toolWindow: true });
       } catch (e) { record('certificate', /CERT|SSL/i.test(e.message) ? 'blocked' : e.message === 'timeout' ? 'timeout' : 'inconclusive', { session: label, scope: 'chromium-navigation', selfSigned: true, toolWindow: true }); }
     } catch { record('certificate', 'inconclusive', { session: label, scope: 'session-network' }); }
-    finally { if (window && !window.isDestroyed()) window.destroy(); if (server) { server.closeAllConnections(); server.close(); } }
+    finally {
+      if (window && !window.isDestroyed()) window.destroy();
+      for (const socket of sockets) socket.destroy();
+      if (server) server.close();
+    }
   }
   const certificateSessions = new WeakSet();
   function queueCertificate(ses, label) {
