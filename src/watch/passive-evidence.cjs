@@ -7,11 +7,14 @@ const fs = require('node:fs');
 // an arbitrary payload.path (which may simply be a file name).
 function rpcMetadata(channel, args, marker = '') {
   if (!/^(?:electron-trpc|trpc)$/i.test(channel)) return {};
-  const value = args[0];
-  if (!value || value.method !== 'request' || !value.operation) return {};
-  const { path: procedure, type } = value.operation;
+  const own = (object, name) => {
+    try { return object && typeof object === 'object' ? Object.getOwnPropertyDescriptor(object, name)?.value : undefined; } catch { return undefined; }
+  };
+  const value = own(args, '0'), operation = own(value, 'operation');
+  if (own(value, 'method') !== 'request' || !operation) return {};
+  const procedure = own(operation, 'path'), type = own(operation, 'type');
   if (!/^[\w$-]+(?:\.[\w$-]+){0,12}$/.test(procedure || '') || !['query', 'mutation', 'subscription'].includes(type)) return {};
-  const inputMarker = !!marker && containsMarker(value.operation.input, marker);
+  const inputMarker = !!marker && containsMarker(own(operation, 'input'), marker);
   return { procedure, rpcType: type, inputMarker };
 }
 function containsMarker(value, marker) {
@@ -19,9 +22,11 @@ function containsMarker(value, marker) {
   const walk = (item, depth) => {
     if (--remaining < 0 || depth > 8) return false;
     if (typeof item === 'string') return item.includes(marker);
-    if (!item || typeof item !== 'object' || seen.has(item)) return false;
+    if (!item || typeof item !== 'object' || ArrayBuffer.isView(item) || seen.has(item)) return false;
     seen.add(item);
-    try { return Object.values(Object.getOwnPropertyDescriptors(item)).some(d => 'value' in d && walk(d.value, depth + 1)); } catch { return false; }
+    try { return Object.keys(item).slice(0, Math.max(0, remaining)).some(key => {
+      const d = Object.getOwnPropertyDescriptor(item, key); return d && 'value' in d && walk(d.value, depth + 1);
+    }); } catch { return false; }
   };
   return walk(value, 0);
 }
@@ -37,18 +42,25 @@ function messageHosts(args) {
     if (--remaining < 0 || depth > 5 || hosts.size >= 12) return;
     if (typeof value === 'string' && value.length < 2048) {
       try { const u = new URL(value); if (['https:', 'http:'].includes(u.protocol)) hosts.add(u.hostname.toLowerCase()); } catch { /* not a URL */ }
-    } else if (value && typeof value === 'object' && !seen.has(value)) {
+    } else if (value && typeof value === 'object' && !ArrayBuffer.isView(value) && !seen.has(value)) {
       seen.add(value);
       // Avoid invoking getters while observing an application's objects.
-      try { for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) if ('value' in descriptor) walk(descriptor.value, depth + 1); } catch { /* unobservable proxy */ }
+      try { for (const key of Object.keys(value).slice(0, Math.max(0, remaining))) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key); if (descriptor && 'value' in descriptor) walk(descriptor.value, depth + 1);
+      } } catch { /* unobservable proxy */ }
     }
   };
   walk(args, 0); return [...hosts];
 }
 function createPassiveEvidence({ write, marker = '', logFile, cwd = () => process.cwd(), now = Date.now } = {}) {
   const context = new AsyncLocalStorage(), wrapped = new WeakMap(), destinations = new Map(), writes = new Map();
-  let serial = 0, records = 0;
-  const emit = (kind, data) => { if (records++ < 3000) try { write(kind, data); } catch { /* observation cannot break the app */ } };
+  let serial = 0; const records = new Map();
+  // Routine autosaves must not exhaust the budget reserved for later SQL/IPC
+  // marker evidence. Each record family has its own bounded allowance.
+  const emit = (kind, data) => {
+    const count = records.get(kind) || 0; records.set(kind, count + 1);
+    if (count < 700) try { write(kind, data); } catch { /* observation cannot break the app */ }
+  };
   const bounded = (map, key, value) => { map.delete(key); map.set(key, value); if (map.size > 200) map.delete(map.keys().next().value); };
   const wrap = (object, name, factory) => {
     if (!object || typeof object[name] !== 'function') return;
@@ -105,7 +117,7 @@ function createPassiveEvidence({ write, marker = '', logFile, cwd = () => proces
   const runIpc = (channel, args, sender, work) => context.run({ channel, ...rpcMetadata(channel, args, marker), ipcCall: ++serial }, work);
   function navigation(url, id) {
     let host; try { host = new URL(url).hostname.toLowerCase(); } catch { return; }
-    for (const source of destinations.values()) if (source.hosts.includes(host) && now() >= source.at && now() - source.at < 600000)
+    for (const source of new Set(destinations.values())) if (source.hosts.includes(host) && now() >= source.at && now() - source.at < 600000)
       emit('ipc-state-destination', { channel: source.channel, sender: source.sender, host, id, elapsedMs: now() - source.at, correlationOnly: true });
   }
   const keyOf = file => {
@@ -155,7 +167,9 @@ function createPassiveEvidence({ write, marker = '', logFile, cwd = () => proces
   function processPath(method, command, rest) {
     if (typeof command !== 'string' || /^(exec|execSync|fork)$/.test(method)) return {};
     const options = rest.find(value => value && typeof value === 'object' && !Array.isArray(value)) || {};
-    const working = options.cwd ? String(options.cwd) : cwd();
+    const descriptor = Object.getOwnPropertyDescriptor(options, 'cwd');
+    if (descriptor && !('value' in descriptor)) return {};
+    const working = descriptor?.value instanceof URL ? require('node:url').fileURLToPath(descriptor.value) : descriptor?.value ? String(descriptor.value) : cwd();
     if (path.isAbsolute(command) || !/[\\/]/.test(command)) return {};
     const resolvedPath = path.resolve(working, command);
     return { relativePath: command, resolvedPath, workingDirectory: working, resolution: 'cwd-derived',

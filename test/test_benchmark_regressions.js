@@ -40,6 +40,15 @@ async function scanProject(files, checks, options = {}) {
 }
 
 describe('Real-app benchmark regressions', () => {
+  it('retains a late imported target in a multiplexed IPC table larger than 32 procedures', () => {
+    const declarations = Array.from({ length: 40 }, (_, i) => `function method${i}(value){return value}`).join(';');
+    const entries = Array.from({ length: 40 }, (_, i) => `method${i}`).join(',');
+    const files = { 'main.js': `const {last}=require('./last'); ${declarations}; const routes={${entries},last}; ipcMain.handle('async',(event,{name,args})=>routes[name](...args));`,
+      'last.js': 'function last(value){return value} module.exports={last};' };
+    const index = new ProjectIndex({ list_files: Object.keys(files), load_buffer: name => files[name] }, new Parser());
+    const summary = index.summarize('last.js'), last = [...summary.names].find(([, name]) => name === 'last')[0];
+    assert.ok(index.findTaintedFunctions().has(last), 'late procedure must retain IPC data-flow provenance');
+  });
   it('bounds exported minified evidence at the finding while preserving trailing disable directives', async () => {
     const code = `const padding = "${'x'.repeat(10000)}"; shell.openExternal(input); // eng-disable OPEN_EXTERNAL_JS_CHECK`;
     const parser = new Parser(), finder = new Finder(null, null, null);

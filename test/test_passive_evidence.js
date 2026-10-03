@@ -64,6 +64,9 @@ describe('Passive evidence and bounded uplift proofs', () => {
     assert.deepEqual(rpcMetadata('other', [request], marker), {});
     assert.deepEqual(rpcMetadata('electron-trpc', [{ path: 'saveFile' }], marker), {});
     assert.deepEqual(rpcMetadata('electron-trpc', [{ method: 'subscription.stop', id: 1 }], marker), {});
+    let getterCalls = 0;
+    const custom = { method: 'request' }; Object.defineProperty(custom, 'operation', { get() { getterCalls++; return request.operation; } });
+    assert.deepEqual(rpcMetadata('electron-trpc', [custom], marker), {}); assert.equal(getterCalls, 0);
     assert.equal(rpcMetadata('electron-trpc', [{ ...request, operation: { ...request.operation, input: 'safe' } }], marker).inputMarker, false);
     const rows = ['files.saveFile', 'files.deleteFile'].map(procedure => ({ kind: 'ipc', channel: 'electron-trpc', procedure, inputMarker: true, marker: true }));
     assert.equal(analyzeWatchLog(rows).issues.filter(i => i.id === 'RUNTIME_MARKER_IPC').length, 2);
@@ -146,5 +149,32 @@ describe('Passive evidence and bounded uplift proofs', () => {
       assert.ok(analyzeProofs(results.map(r => ({ kind: 'proof', ...r }))).issues.every(i => i.validation.status !== 'confirmed'));
       assert.deepEqual(await probeAuthRoutes({ ...listener, toolInspector: true }, [source]), []);
     } finally { await new Promise(resolve => server.close(resolve)); }
+  });
+  it('blocks policy callback HTTP and fetch side effects before they can reach the network', async () => {
+    const rows = [], c = new EventEmitter(); Object.assign(c, { id: 1, session: {}, getURL: () => 'https://trusted.example/', isDestroyed: () => false });
+    const proofs = createProofs({ shell: {} }, (kind, data) => rows.push({ kind, ...data }), { enabled: true });
+    try {
+      proofs.registerContents(c);
+      c.on('will-navigate', () => http.get('http://must-not-contact.example/'));
+      proofs.setOpen(c, () => fetch('https://must-not-contact.example/'));
+      await proofs.proveContents(c);
+      assert.ok(rows.some(r => r.test === 'side-effect' && r.operation === 'get'));
+      assert.ok(rows.some(r => r.test === 'side-effect' && r.operation === 'fetch'));
+      assert.ok(rows.filter(r => ['navigation', 'window-open'].includes(r.test)).every(r => r.outcome === 'inconclusive'));
+    } finally { c.emit('destroyed'); for (const [obj, name, original] of [...proofs.originals].reverse()) obj[name] = original; syncBuiltinESMExports(); }
+  });
+  it('leaves same-line SQL candidates unlinked when a minified frame cannot distinguish the statements', () => {
+    const a = finding('SQL_INJECTION_JS_CHECK', {}), b = { ...finding('SQL_INJECTION_JS_CHECK', {}), location: { line: 5, column: 100 } };
+    const query = finding('RUNTIME_SQL_MARKER', { frames: [{ url: a.file, line: 5, column: 1 }] });
+    reconcileRuntime([a, b, query], {}); assert.equal(a.validation, undefined); assert.equal(b.validation, undefined);
+  });
+  it('reserves SQL marker capacity after a long sequence of routine autosaves', () => {
+    const { rows, passive } = observer(), fake = { writeFileSync() {} };
+    passive.instrumentFiles(fake);
+    for (let i = 0; i < 3100; i++) fake.writeFileSync('/tool-owned-autosave', 'normal');
+    const driver = { open: () => ({ query: () => Promise.resolve([]) }) }; passive.observeModule('node-adodb', driver);
+    driver.open().query(`SELECT '${marker}'`);
+    assert.equal(rows.filter(r => r.kind === 'file-write').length, 700);
+    assert.equal(rows.filter(r => r.kind === 'sql-marker').length, 1);
   });
 });

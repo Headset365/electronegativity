@@ -152,7 +152,8 @@ function linkMarkerEvidence(issues) {
   for (const source of of('RUNTIME_SQL_MARKER')) {
     const candidates = of('SQL_INJECTION_JS_CHECK');
     for (const issue of candidates) if ((source.properties?.frames || []).some(f => f.line === issue.location?.line && sameScript(issue.file, f.url) &&
-      new Set(candidates.filter(i => sameScript(i.file, f.url)).map(i => i.file)).size === 1))
+      new Set(candidates.filter(i => sameScript(i.file, f.url)).map(i => i.file)).size === 1 &&
+      candidates.filter(i => i.file === issue.file && i.location?.line === issue.location?.line).length === 1))
       attach(issue, source, source.description);
   }
   for (const source of of('RUNTIME_MARKER_IPC').filter(i => i.properties?.procedure && i.properties?.inputMarker))

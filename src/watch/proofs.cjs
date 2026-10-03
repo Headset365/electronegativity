@@ -29,6 +29,7 @@ function createProofs(electron, write, { enabled = false, profile = {}, ipc, lat
     const mutators = ['writeFile', 'writeFileSync', 'appendFile', 'appendFileSync', 'unlink', 'unlinkSync', 'rm', 'rmSync', 'rmdir', 'rmdirSync', 'rename', 'renameSync',
       'mkdir', 'mkdirSync', 'copyFile', 'copyFileSync', 'cp', 'cpSync', 'truncate', 'truncateSync', 'chmod', 'chmodSync', 'chown', 'chownSync', 'link', 'linkSync', 'symlink', 'symlinkSync', 'createWriteStream', 'write', 'writeSync', 'writev', 'writevSync'];
     const wrap = (obj, name, check = () => true) => {
+      if (!obj) return;
       const original = obj[name]; if (typeof original !== 'function') return;
       obj[name] = function (...args) { if (check(args)) deny(name); return original.apply(this, args); };
       originals.push([obj, name, original]);
@@ -39,9 +40,26 @@ function createProofs(electron, write, { enabled = false, profile = {}, ipc, lat
     for (const name of ['open', 'openSync']) wrap(fs, name, writable);
     wrap(fs.promises, 'open', writable);
     for (const name of ['trashItem', 'beep']) wrap(electron.shell, name);
+    // A policy callback can perform its own fetch as part of deciding. Guard
+    // outbound APIs too, so synthetic HTTP/subdomain inputs never cause requests.
+    for (const module of [http, https]) for (const name of ['get', 'request']) wrap(module, name);
+    for (const name of ['connect', 'createConnection']) wrap(require('node:net'), name);
+    wrap(require('node:tls'), 'connect');
+    wrap(globalThis, 'fetch');
+    for (const name of ['request', 'fetch']) wrap(electron.net, name);
     require('node:module').syncBuiltinESMExports();
   }
-  function registerSession(ses, label) { if (!sessions.has(ses)) sessions.set(ses, { label, request: null, check: null }); return sessions.get(ses); }
+  function registerSession(ses, label) {
+    if (!sessions.has(ses)) {
+      sessions.set(ses, { label, request: null, check: null });
+      if (enabled || ipc) for (const name of ['fetch', 'resolveProxy', 'preconnect']) if (typeof ses[name] === 'function') {
+        const original = ses[name];
+        ses[name] = function (...args) { deny(`session.${name}`); return original.apply(this, args); };
+        originals.push([ses, name, original]);
+      }
+    }
+    return sessions.get(ses);
+  }
   function registerContents(contents) {
     if (creatingTool) { toolContents.add(contents.id); write('proof-window', { id: contents.id }); }
     windows.set(contents.id, { contents, open: null });

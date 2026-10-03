@@ -319,7 +319,7 @@ function instrument(electron, late, passive) {
   };
   // name of the renderer observer's global, different for every session
   const OBSERVER_KEY = `__eng_${require('crypto').randomBytes(6).toString('hex')}`;
-  write('start', { electron: process.versions.electron, platform: process.platform, packaged: electron.app.isPackaged, late: !!late });
+  write('start', { electron: process.versions.electron, platform: process.platform, packaged: electron.app.isPackaged, workingDirectory: process.cwd(), late: !!late });
 
   // the app's network traffic, checked inside the app by the passive traffic checks: only their findings (with redacted
   // evidence) are written to the log. Off with --no-watch-traffic.

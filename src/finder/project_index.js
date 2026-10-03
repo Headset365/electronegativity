@@ -11,7 +11,8 @@ import { diagnostics } from '../util/diagnostics.js';
 const MAX_CALL_DEPTH = 6;
 // limits of the dispatch-table resolution: entries a table may have, functions one call may resolve to
 const MAX_DISPATCH = 64;
-const MAX_TARGETS = 32;
+// Real multiplexed IPC tables (Electerm's asyncGlobals) exceed 32 entries.
+const MAX_TARGETS = 128;
 // Files that may register handlers for untrusted input (see UNTRUSTED_SOURCES in analysis.js)
 const SOURCE_HINT = /ipcMain|setWindowOpenHandler|will-navigate|will-frame-navigate|did-start-navigation|new-window|will-redirect|open-url|open-file|second-instance|['"`](ipc-)?message['"`]/;
 const functionKey = (file, fn) => fn && fn.loc ? `${file}:${fn.loc.start.line}:${fn.loc.start.column}` : undefined;
@@ -220,7 +221,8 @@ export class ProjectIndex {
     for (const [name, entries] of dispatch) if (entries.length > MAX_DISPATCH) {
       // Retain directly named/function targets even if a minified table is full
       // of cyclic computed entries. Bounds must not discard its known sinks.
-      const direct = entries.filter(entry => isFunction(entry.value) || entry.value?.type === 'Identifier' && local.has(entry.value.name)).slice(0, MAX_DISPATCH);
+      const bindings = moduleBindings(program);
+      const direct = entries.filter(entry => isFunction(entry.value) || entry.value?.type === 'Identifier' && (local.has(entry.value.name) || bindings.get(entry.value.name)?.module)).slice(0, MAX_DISPATCH);
       if (direct.length) dispatch.set(name, direct); else dispatch.delete(name);
     }
     const names = new Map();

@@ -62,7 +62,10 @@ describe('Native Windows proof regression fixtures', function () {
       const result = analyzeWatchLog(rows);
       assert.equal(result.summary.windows, 3, 'two natural child windows count, while tool-created windows must not count');
       const cwd = tests.find(p => p.test === 'working-directory'); assert.ok(cwd?.emptyAtLaunch); assert.equal(cwd.plantedFiles, false);
-      assert.ok(rows.some(r => r.kind === 'process' && r.relativePath === './eng-proof-no-such-helper.exe' && r.workingDirectory === cwd.path && r.exists === false));
+      const command = rows.find(r => r.kind === 'process' && r.relativePath === './eng-proof-no-such-helper.exe');
+      assert.ok(command, JSON.stringify(rows.filter(r => ['process', 'start', 'hook-error'].includes(r.kind))));
+      assert.equal(command.workingDirectory, rows.find(r => r.kind === 'start').workingDirectory, 'record the effective cwd even when Electron changes it after launch');
+      assert.equal(command.exists, false);
       assert.ok(rows.some(r => r.kind === 'ipc' && r.procedure === 'files.saveFile' && r.inputMarker));
       assert.ok(rows.some(r => r.kind === 'write-then-open' && r.procedure === 'files.saveFile' && r.sameIpcCall));
       const children = rows.filter(r => r.kind === 'child-window'); assert.equal(children.length, 2);

@@ -21,8 +21,8 @@ ipcMain.handle('electron-trpc', async (event, message) => {
   // Observe the path handoff without launching an associated program. A missing
   // file makes openPath return an error; that result is not an opening proof.
   fs.unlinkSync(file);
-  await shell.openPath(file);
   const child = spawn('./eng-proof-no-such-helper.exe'); child.on('error', () => {});
+  await shell.openPath(file);
 });
 app.whenReady().then(() => {
   if (!hardened) session.defaultSession.setCertificateVerifyProc((request, callback) => callback(0));

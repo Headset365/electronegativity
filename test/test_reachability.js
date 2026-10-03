@@ -106,4 +106,19 @@ describe('Conservative static reachability and runtime overlays', () => {
     const result = await run({ input: root, offline: true, dependencies: false });
     assert.ok(result.issues.length); assert.ok(result.issues.filter(i => !/^RUNTIME_/.test(i.id)).every(i => i.reachability));
   });
+  it('retains the production downgrade for expected development-only use in an unpackaged session', () => {
+    const issue = { id: 'IPC_HANDLER_JS_CHECK', properties: { channel: 'debug' }, severity: severity.INFORMATIONAL,
+      reachability: { staticStatus: 'development-only', originalSeverity: 'HIGH', exercised: false } };
+    applyRuntimeReachability([issue], { packaged: false, usedChannelNames: ['debug'] });
+    assert.equal(issue.reachability.exercised, true); assert.equal(issue.severity, severity.INFORMATIONAL); assert.equal(issue.reachability.staticStatus, 'development-only');
+  });
+  it('resolves duplicate leaf procedure names through an explicitly registered nested router', async () => {
+    write('package.json', JSON.stringify({ main: 'main.js', devDependencies: { electron: '38.2.0' } }));
+    write('main.js', `const fs=require('fs'); const {createIPCHandler}=require('electron-trpc/main');
+const first=t.router({saveFile:t.procedure.input(schema).mutation(({input})=>fs.writeFileSync(input.path,input.data))});
+const second=t.router({saveFile:t.procedure.input(schema).mutation(({input})=>fs.writeFileSync(input.path,input.data))});
+const root=t.router({files:first,other:second}); createIPCHandler({router:root});`);
+    const result = await run({ input: root, offline: true, dependencies: false, customScan: ['IpcRpcProcedureJSCheck'] });
+    assert.deepEqual(result.issues.filter(i => i.id === 'IPC_RPC_PROCEDURE_JS_CHECK').map(i => i.properties.procedurePath).sort(), ['files.saveFile', 'other.saveFile']);
+  });
 });

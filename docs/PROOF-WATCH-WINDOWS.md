@@ -26,6 +26,7 @@ are never loaded. Window-open decisions record returned preload options without
 creating a child or calling createWindow. Naturally created app child windows
 record their effective options separately. Electron does not automatically inherit
 the parent's preload through its security-preference inheritance rules.
+See Electron's [guest-window preference merger](https://github.com/electron/electron/blob/v34.5.8/lib/browser/guest-window-manager.ts).
 
 For observed app-owned loopback TCP listeners, declared GET routes ending in
 handshake/status/health/version/info/ping are requested without credentials when
@@ -42,6 +43,8 @@ available; short-lived children or access restrictions can leave only a calculat
 candidate. Folders containing files written by the app are retained instead of
 being recursively deleted. Applications depending on their original working
 folder may fail to start; that failure is not a successful binary-planting proof.
+The launch folder and the effective working directory recorded by the hook are
+distinct: Electron or application code can change the latter during startup.
 
 Every static finding carries reachability metadata in report.json and HTML:
 
