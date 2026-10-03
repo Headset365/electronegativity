@@ -190,10 +190,10 @@ export function outdatedRating(groupIssues, allIssues = groupIssues) {
   const unsupportedLibrary = has(/^END_OF_LIFE_LIBRARY$/, i => nameOf(i.severity) !== 'LOW');
   const weak = allIssues.some(i => !i.suppression && WEAK_ISOLATION.test(normalId(i.id)) && !['INFORMATIONAL', 'LOW'].includes(nameOf(i.severity)));
   const isolation = weak ? ' Renderer isolation is weakened (Node.js integration or no context isolation), so a renderer vulnerability can reach the operating system.' : '';
-  if (endOfLife) return { rating: { consequence: weak ? 'High' : 'Medium', likelihood: 'Possible' }, basis: `The Electron runtime is end of life and no longer receives security fixes.${isolation}` };
-  if (runtimeFixes) return { rating: { consequence: 'Medium', likelihood: weak ? 'Possible' : 'Unlikely' }, basis: `Published security fixes for the Electron runtime are not applied.${isolation}` };
-  if (advisories) return { rating: { consequence: 'Low', likelihood: 'Possible' }, basis: 'Components shipped with the application have published security advisories.' };
-  if (unsupportedLibrary) return { rating: { consequence: 'Low', likelihood: 'Unlikely' }, basis: 'Components shipped with the application are end of life.' };
+  if (endOfLife) return { kind: 'eol-runtime', rating: { consequence: weak ? 'High' : 'Medium', likelihood: 'Possible' }, basis: `The Electron runtime is end of life and no longer receives security fixes.${isolation}` };
+  if (runtimeFixes) return { kind: 'runtime-fixes', rating: { consequence: 'Medium', likelihood: weak ? 'Possible' : 'Unlikely' }, basis: `Published security fixes for the Electron runtime are not applied.${isolation}` };
+  if (advisories) return { kind: 'advisories', rating: { consequence: 'Low', likelihood: 'Possible' }, basis: 'Components shipped with the application have published security advisories.' };
+  if (unsupportedLibrary) return { kind: 'eol-library', rating: { consequence: 'Low', likelihood: 'Unlikely' }, basis: 'Components shipped with the application are end of life.' };
   return { rating: { consequence: 'N/A', likelihood: 'N/A' }, basis: 'Only newer releases are available; no published advisory applies.' };
 }
 
@@ -239,6 +239,7 @@ export function groupClientFindings(input, names) {
       const outdated = outdatedRating(g.issues, issues);
       g.rating = outdated.rating;
       g.ratingBasis = outdated.basis;
+      g.ratingKind = outdated.kind;
     }
     return g;
   }).sort((a, b) => a.accepted - b.accepted || byRating(a, b) || a.definition[0].localeCompare(b.definition[0]));
@@ -537,7 +538,7 @@ const exampleKey = example => String(example).replace(/\s+/g, ' ').split(/[({]/)
 // the outdated components finding: its own sections, pointing at the components workbook
 function renderOutdated(g, ctx) {
   const [title, , , , cwe] = g.definition;
-  const sections = outdatedSections({ app: text(ctx.app, ctx), dependencies: ctx.dependencies, rating: g.rating });
+  const sections = outdatedSections({ app: text(ctx.app, ctx), dependencies: ctx.dependencies, rating: g.rating, ratingKind: g.ratingKind });
   const notes = g.issues.filter(x => x.suppression).map(s => acceptedRisk(s, 'outdated component', ctx));
   const lines = [`---\n${frontMatter(title, g.rating, notes)}\n---`, `# ${title}`,
     '## Issue Description', ...sections.description,

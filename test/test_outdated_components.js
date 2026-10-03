@@ -41,21 +41,21 @@ describe('Outdated Software Components', () => {
     vulnerabilityKinds({ rows: [] }).should.deep.equal([]);
   });
 
-  it('is one Informational finding that refers to the components workbook, with examples and both notes', () => {
+  it('is one finding, rated from the end-of-life Electron runtime, that refers to the components workbook, with examples and both notes', () => {
     const md = renderClientMarkdown([issue('UNSUPPORTED_VERSION_GLOBAL_CHECK'), issue('AVAILABLE_SECURITY_FIXES_GLOBAL_CHECK', { properties: { advisories: ['GHSA-e1'] } }),
       issue('DEPENDENCY_VULNERABILITIES_GLOBAL_CHECK', { file: 'package-lock.json', properties: { package: 'jquery', version: '1.12.4', advisories: ['GHSA-j1'] } })],
     { app: { name: 'Example' }, dependencies: DEPENDENCIES });
     (md.match(/^# /gm) || []).length.should.equal(1);
     const front = YAML.parse(md.split(/^---\s*$/m)[1]);
     front.Title.should.equal('Outdated Software Components');
-    front.Consequence.should.equal('N/A');
-    front.Likelihood.should.equal('N/A');
+    front.Consequence.should.equal('Medium');
+    front.Likelihood.should.equal('Possible');
     const section = (heading) => md.split(`## ${heading}\n`)[1].split(/^## /m)[0].trim();
     section('Issue Description').should.include('Testing identified the use of outdated software components in Example, including its Electron runtime (version 22.3.27; the latest release is 44.5.1)');
     section('Affected').should.equal('Refer to the attached spreadsheet (`components.xlsx`) for a list of affected components.');
     section('Implication').should.include('- **Cross-Site Scripting** (jquery 1.12.4):');
     section('Implication').should.include('*Note:* An application that uses a library or framework with a known security issue is not necessarily vulnerable to that issue.');
-    section('Implication').should.match(/\*Note:\* This issue was rated as Informational because the known vulnerabilities could not be exploited during the engagement\. However, it could be indicative of weaknesses within the patch management process\.$/);
+    section('Implication').should.match(/\*Note:\* The rating reflects the end-of-life status of the Electron runtime, which no longer receives security fixes, and the publicly disclosed vulnerabilities of the identified versions\. The vulnerabilities were not exploited during the engagement\. The issue could also be indicative of weaknesses within the patch management process\.$/);
     section('Reproduction and Evidence').should.equal('Refer to the Support status column and the advisory links for each identified component in the attached spreadsheet (`components.xlsx`).');
     section('Recommendations').should.include('Recommended action column').and.include('patch management process');
     section('References').should.include('- Refer to the attached spreadsheet (`components.xlsx`) for a list of affected components.\n\n  Refer to the Latest version column for each component for the latest identified version. Follow vendor guidance when upgrading.');
@@ -68,7 +68,8 @@ describe('Outdated Software Components', () => {
     const md = renderClientMarkdown([issue('END_OF_LIFE_LIBRARY_GLOBAL_CHECK')], { app: { name: 'Example' },
       dependencies: { rows: [{ name: 'old', version: '1.0.0', latest: '2.0.0', versionsBehind: 1, support: { status: 'unsupported' }, advisories: [] }] } });
     md.should.not.include('were subject to publicly disclosed vulnerabilities');
-    md.should.include('*Note:* This issue was rated as Informational');
+    md.should.include('*Note:* The rating reflects components that are end of life');
+    md.should.match(/Consequence: Low\nLikelihood: Unlikely/);
     md.should.not.include('including its Electron runtime');
   });
 });

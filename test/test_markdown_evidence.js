@@ -69,7 +69,8 @@ describe('Markdown validation evidence', () => {
     const { issues } = analyzeWatchLog([{ kind: 'page', id: 1, url: 'https://app.test/', type: 'window', prefs: { contextIsolation: false } }]);
     const setting = issues.find(i => i.id === 'RUNTIME_CONTEXT_ISOLATION');
     assert.equal(setting.validation.scope, 'configuration');
-    assert.equal(ratingOf(setting, 'Insufficient Renderer Process Isolation').likelihood, 'Likely');
+    // an observed setting is certain, but not an exploit: at most Possible
+    assert.equal(ratingOf(setting, 'Insufficient Renderer Process Isolation').likelihood, 'Possible');
     assert.match(everything(issues), /configuration, not exploitability/);
   });
 
